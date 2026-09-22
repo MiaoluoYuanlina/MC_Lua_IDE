@@ -1,0 +1,37 @@
+# gradle
+.gradle/
+build/
+out/
+classes/
+
+# idea
+.idea/
+*.ipr
+*.iws
+*.iml
+*.class
+
+# vscode
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# mac
+.DS_Store
+
+# fabric
+run/
+
+# ad-hoc build/run logs
+build_stdout.log
+runClient.log
+logs/
+
+# editor backups
+*.bak
+*.editorbak
+
+# local tooling config
+.claude/

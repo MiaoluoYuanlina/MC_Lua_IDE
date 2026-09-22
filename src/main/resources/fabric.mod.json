@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "mc_lua_ide",
+	"version": "${version}",
+	"name": "MC Lua IDE",
+	"description": "Server-authoritative Lua scripting with an optional administrator IDE client.",
+	"authors": [
+		"XiaoMiao_ICa"
+	],
+	"contact": {
+		"homepage": "https://xiaomiao.ica.wiki",
+		"sources": "https://xiaomiao.ica.wiki"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"wiki.ica.xiaomiao.mcluaide.McLuaIdeMod"
+		],
+		"client": [
+			"wiki.ica.xiaomiao.mcluaide.client.McLuaIdeClient"
+		]
+	},
+	"mixins": [
+		"mc_lua_ide.mixins.json",
+		{
+			"config": "mc_lua_ide.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

@@ -1,0 +1,15 @@
+{
+  "key.category.mc_lua_ide.keys": "MC Lua IDE",
+  "key.mc_lua_ide.open": "打开 Lua 脚本管理器",
+  "screen.mc_lua_ide.title": "MC Lua IDE",
+  "screen.mc_lua_ide.directory": "脚本目录",
+  "screen.mc_lua_ide.scripts": "脚本",
+  "screen.mc_lua_ide.script_name": "脚本名称",
+  "screen.mc_lua_ide.editor": "Lua 编辑器",
+  "screen.mc_lua_ide.code_hint": "在此输入 Lua 代码…",
+  "screen.mc_lua_ide.new": "新建",
+  "screen.mc_lua_ide.delete": "删除",
+  "screen.mc_lua_ide.save": "保存",
+  "screen.mc_lua_ide.run": "运行",
+  "screen.mc_lua_ide.stop": "停止"
+}

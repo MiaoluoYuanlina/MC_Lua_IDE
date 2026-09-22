@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "wiki.ica.xiaomiao.mcluaide.client.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MultiLineEditBoxAccessor",
+    "MultiLineEditBoxSyntaxMixin",
+    "MultilineTextFieldAccessor",
+    "StringViewAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "key.category.mc_lua_ide.keys": "MC Lua IDE",
+  "key.mc_lua_ide.open": "Open Lua Script Manager",
+  "screen.mc_lua_ide.title": "MC Lua IDE",
+  "screen.mc_lua_ide.directory": "Script Directory",
+  "screen.mc_lua_ide.scripts": "Scripts",
+  "screen.mc_lua_ide.script_name": "Script name",
+  "screen.mc_lua_ide.editor": "Lua editor",
+  "screen.mc_lua_ide.code_hint": "Enter Lua code here…",
+  "screen.mc_lua_ide.new": "New",
+  "screen.mc_lua_ide.delete": "Delete",
+  "screen.mc_lua_ide.save": "Save",
+  "screen.mc_lua_ide.run": "Run",
+  "screen.mc_lua_ide.stop": "Stop"
+}

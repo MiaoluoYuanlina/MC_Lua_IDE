@@ -1,0 +1,1139 @@
+package wiki.ica.xiaomiao.mcluaide.client;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.ItemStack;
+
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+
+/** Dockable visual editor for server-authoritative item, block and entity data components. */
+final class LuaComponentEditorOverlay {
+	private static final int TITLE_HEIGHT = 28;
+	private static final int RESIZE_MARGIN = 6;
+	private static final int MIN_WIDTH = 520;
+	private static final int MIN_HEIGHT = 330;
+	private static final int EDGE_LEFT = 1;
+	private static final int EDGE_RIGHT = 2;
+	private static final int EDGE_TOP = 4;
+	private static final int EDGE_BOTTOM = 8;
+	private static final int ROW_HEIGHT = 20;
+
+	private final Minecraft minecraft;
+	private final Font font;
+	private final Consumer<String> insertion;
+	private final Consumer<String> feedback;
+	private final JsonTreeEditor treeEditor;
+	private final Map<Category, List<LuaInsertCatalog.Entry>> catalogs = new EnumMap<>(Category.class);
+	private final Map<String, JsonElement> enabledValues = new LinkedHashMap<>();
+	private final Map<String, String> valueDrafts = new HashMap<>();
+	private final Set<String> invalidValues = new HashSet<>();
+	private Category category = Category.ITEM;
+	private List<LuaInsertCatalog.Entry> targets = List.of();
+	private List<LuaComponentEditorData.ComponentInfo> components = List.of();
+	private String targetQuery = "";
+	private String componentQuery = "";
+	private int targetRow;
+	private int targetScroll;
+	private LuaInsertCatalog.Entry selectedTarget;
+	private boolean targetPaneExpanded = true;
+	private int componentRow;
+	private int componentScroll;
+	private LuaComponentEditorData data;
+	private LuaComponentEditorData.ComponentInfo selectedComponent;
+	private String valueText = "";
+	private int valueCursor;
+	private Focus focus = Focus.TARGET_SEARCH;
+	private boolean showAll = true;
+	private boolean loading;
+	private boolean exporting;
+	private int requestRevision;
+	private String status = "选择物品、方块或实体后编辑组件";
+	private boolean open;
+	private boolean keyboardFocused;
+	private float progress;
+	private int screenWidth;
+	private int screenHeight;
+	private int windowX = -1;
+	private int windowY = 18;
+	private int windowWidth = -1;
+	private int windowHeight = -1;
+	private boolean dragging;
+	private int resizeEdges;
+	private double dragOffsetX;
+	private double dragOffsetY;
+	private double resizeStartMouseX;
+	private double resizeStartMouseY;
+	private int resizeStartX;
+	private int resizeStartY;
+	private int resizeStartWidth;
+	private int resizeStartHeight;
+	private DockSide dockSide = DockSide.FLOATING;
+	private boolean layoutLocked;
+	private int floatingX = -1;
+	private int floatingY = 18;
+	private int floatingWidth = -1;
+	private int floatingHeight = -1;
+	private final WindowBoundsAnimation boundsAnimation = new WindowBoundsAnimation();
+
+	LuaComponentEditorOverlay(Minecraft minecraft, Font font, Consumer<String> insertion,
+			Consumer<String> feedback) {
+		this.minecraft = minecraft;
+		this.font = font;
+		this.insertion = insertion;
+		this.feedback = feedback;
+		this.treeEditor = new JsonTreeEditor(minecraft, font, this::applyTreeValue, message -> {
+			status = message;
+			feedback.accept(message);
+		});
+	}
+
+	void resize(int width, int height) {
+		screenWidth = width;
+		screenHeight = height;
+		ensureGeometry();
+	}
+
+	void open() {
+		open = true;
+		keyboardFocused = true;
+		targetPaneExpanded = data == null;
+		if (targets.isEmpty()) refreshTargets(true);
+	}
+
+	void openForContext(LuaInsertCatalog.Kind preferredKind, String preferredId) {
+		Category preferredCategory = Category.from(preferredKind);
+		if (preferredCategory == null) {
+			open();
+			return;
+		}
+		open = true;
+		keyboardFocused = true;
+		category = preferredCategory;
+		targetQuery = "";
+		targetPaneExpanded = true;
+		refreshTargets(false);
+
+		String normalizedId = normalizeResourceId(preferredId);
+		int exact = indexOfTarget(normalizedId);
+		if (exact >= 0) {
+			targetRow = exact;
+			ensureTargetVisible();
+			loadSelectedTarget(true);
+			return;
+		}
+
+		clearLoadedTarget();
+		if (preferredId != null && !preferredId.isBlank()) {
+			targetQuery = preferredId.strip();
+			refreshTargets(false);
+			status = "已识别为" + category.label + " ID，请从筛选结果中选择";
+		} else {
+			status = "已识别为" + category.label + " ID，请选择目标";
+		}
+		focus = Focus.TARGET_SEARCH;
+	}
+
+	void close() {
+		open = false;
+		keyboardFocused = false;
+		dragging = false;
+		resizeEdges = 0;
+	}
+
+	boolean isOpen() {
+		return open;
+	}
+
+	boolean isVisible() {
+		return progress > 0.01F;
+	}
+
+	boolean contains(double mouseX, double mouseY) {
+		return isVisible() && pointInside(mouseX, mouseY);
+	}
+
+	boolean isInteracting() {
+		return dragging || resizeEdges != 0;
+	}
+
+	boolean isDragging() {
+		return dragging;
+	}
+
+	DockSide dockSide() {
+		return dockSide;
+	}
+
+	void setLayoutLocked(boolean locked) {
+		layoutLocked = locked;
+	}
+
+	void setDockSide(DockSide side) {
+		if (side == null || side == dockSide) return;
+		DockSide previous = dockSide;
+		if (!dockSide.docked() && side.docked()) rememberFloatingGeometry();
+		dockSide = side;
+		if (previous.docked() && !side.docked()) restoreFloatingGeometry();
+		resizeEdges = 0;
+	}
+
+	void setDockBounds(int x, int y, int width, int height) {
+		if (!dockSide.docked()) return;
+		boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight, x, y, width, height);
+	}
+
+	void releaseKeyboardFocus() {
+		keyboardFocused = false;
+	}
+
+	void requestKeyboardFocus() {
+		if (open) keyboardFocused = true;
+	}
+
+	void tick() {
+		float target = open ? 1.0F : 0.0F;
+		progress += (target - progress) * 0.28F;
+		if (Math.abs(target - progress) < 0.01F) progress = target;
+		if (!dragging && resizeEdges == 0) {
+			WindowBoundsAnimation.Bounds bounds = boundsAnimation.tick(windowX, windowY, windowWidth, windowHeight);
+			windowX = bounds.x();
+			windowY = bounds.y();
+			windowWidth = bounds.width();
+			windowHeight = bounds.height();
+		}
+	}
+
+	void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		if (!isVisible()) return;
+		ensureGeometry();
+		int x = panelX();
+		int right = x + windowWidth;
+		int bottom = windowY + windowHeight;
+		graphics.fill(x - 4, windowY + 4, right + 4, bottom + 4, 0x70000000);
+		graphics.fill(x, windowY, right, bottom, 0xFD10151E);
+		graphics.outline(x, windowY, windowWidth, windowHeight, 0xFFB388FF);
+		graphics.fill(x + 1, windowY + 1, right - 1, windowY + TITLE_HEIGHT, 0xFF302148);
+		graphics.text(font, "◈  数据组件编辑器", x + 10, windowY + 9, 0xFFD7B8FF);
+		drawButton(graphics, mouseX, mouseY, right - 26, windowY + 4, 20, 20, "×", 0xFF4B3562, 0xFFB83A46);
+
+		int tabsTop = windowY + 34;
+		int tabWidth = Math.max(1, (windowWidth - 20) / Category.values().length);
+		for (int index = 0; index < Category.values().length; index++) {
+			Category value = Category.values()[index];
+			int left = x + 10 + index * tabWidth;
+			int tabRight = index == Category.values().length - 1 ? right - 10 : left + tabWidth - 2;
+			boolean hovered = inside(mouseX, mouseY, left, tabsTop, tabRight, tabsTop + 20);
+			graphics.fill(left, tabsTop, tabRight, tabsTop + 20,
+					value == category ? 0xFF69469A : hovered ? 0xFF433158 : 0xFF261E32);
+			graphics.centeredText(font, value.label, (left + tabRight) / 2, tabsTop + 6,
+					value == category ? 0xFFFFFFFF : 0xFFC9B8D9);
+		}
+
+		int contentTop = windowY + 61;
+		int contentBottom = bottom - 36;
+		int leftWidth = targetPaneWidth();
+		int splitX = x + leftWidth;
+		if (targetPaneExpanded) {
+			renderSearch(graphics, x + 10, contentTop, leftWidth - 16, targetQuery,
+					"搜索" + category.label + " ID / 中文 / 首拼…", focus == Focus.TARGET_SEARCH);
+			int targetListTop = contentTop + 25;
+			graphics.fill(x + 10, targetListTop, splitX - 6, contentBottom, 0xFF090C12);
+			graphics.outline(x + 10, targetListTop, leftWidth - 16, contentBottom - targetListTop, 0xFF493A5C);
+			graphics.enableScissor(x + 11, targetListTop + 1, splitX - 7, contentBottom - 1);
+			int targetVisible = targetVisibleRows();
+			for (int row = 0; row < targetVisible; row++) {
+				int absolute = targetScroll + row;
+				if (absolute >= targets.size()) break;
+				int y = targetListTop + 2 + row * ROW_HEIGHT;
+				if (absolute == targetRow) graphics.fill(x + 12, y - 1, splitX - 8, y + 18, 0xFF3A2850);
+				LuaInsertCatalog.Entry entry = targets.get(absolute);
+				renderTargetIcon(graphics, entry, x + 14, y);
+				graphics.text(font, font.plainSubstrByWidth(entry.label(), leftWidth - 48), x + 35, y + 4,
+						absolute == targetRow ? 0xFFFFFFFF : 0xFFD8CCE4);
+			}
+			graphics.disableScissor();
+		} else {
+			renderCompactTarget(graphics, mouseX, mouseY, x + 10, contentTop);
+		}
+
+		int rx = splitX + 3;
+		int rw = right - rx - 10;
+		int toggleWidth = 64;
+		renderSearch(graphics, rx, contentTop, Math.max(50, rw - toggleWidth - 4), componentQuery,
+				"筛选组件 ID / 中文 / 首拼…", focus == Focus.COMPONENT_SEARCH);
+		drawButton(graphics, mouseX, mouseY, rx + rw - toggleWidth, contentTop, toggleWidth, 20,
+				showAll ? "全部组件" : "建议组件", showAll ? 0xFF594078 : 0xFF2E5D50, 0xFF7556A0);
+
+		int componentListTop = contentTop + 25;
+		int editorTop = componentListTop + Math.max(60, (contentBottom - componentListTop) * 34 / 100);
+		graphics.fill(rx, componentListTop, rx + rw, editorTop - 5, 0xFF090C12);
+		graphics.outline(rx, componentListTop, rw, editorTop - componentListTop - 5, 0xFF493A5C);
+		graphics.enableScissor(rx + 1, componentListTop + 1, rx + rw - 1, editorTop - 6);
+		int componentVisible = componentVisibleRows();
+		for (int row = 0; row < componentVisible; row++) {
+			int absolute = componentScroll + row;
+			if (absolute >= components.size()) break;
+			int y = componentListTop + 2 + row * ROW_HEIGHT;
+			LuaComponentEditorData.ComponentInfo component = components.get(absolute);
+			if (absolute == componentRow) graphics.fill(rx + 2, y - 1, rx + rw - 2, y + 18, 0xFF352648);
+			boolean enabled = enabledValues.containsKey(component.id());
+			graphics.fill(rx + 5, y + 2, rx + 17, y + 14, enabled ? 0xFF7E57C2 : 0xFF202934);
+			graphics.outline(rx + 5, y + 2, 12, 12, enabled ? 0xFFD7B8FF : 0xFF56616D);
+			if (enabled) graphics.centeredText(font, "✓", rx + 11, y + 4, 0xFFFFFFFF);
+			String badge = component.relevance() == 2 ? "默认" : component.relevance() == 1 ? "适用" : "高级";
+			int badgeColor = component.relevance() == 2 ? 0xFF72E69A
+					: component.relevance() == 1 ? 0xFF79C9FF : 0xFF9B91A4;
+			graphics.text(font, font.plainSubstrByWidth(component.label() + " · " + component.id(), rw - 91),
+					rx + 22, y + 4, absolute == componentRow ? 0xFFFFFFFF : 0xFFD8CCE4);
+			graphics.text(font, badge, rx + rw - 35, y + 4, badgeColor);
+		}
+		graphics.disableScissor();
+
+		renderEditor(graphics, mouseX, mouseY, rx, editorTop, rw, contentBottom);
+		int buttonY = bottom - 29;
+		int available = windowWidth - 20;
+		int buttonWidth = Math.max(72, (available - 8) / 3);
+		drawButton(graphics, mouseX, mouseY, x + 10, buttonY, buttonWidth, 21,
+				exporting ? "校验中…" : "插入组件", 0xFF5F3E8D, 0xFF7A55AE);
+		drawButton(graphics, mouseX, mouseY, x + 14 + buttonWidth, buttonY, buttonWidth, 21,
+				data != null && data.kind().equals("entity") ? "复制实体配置" : "复制物品堆",
+				0xFF2C4D65, 0xFF376783);
+		drawButton(graphics, mouseX, mouseY, x + 18 + buttonWidth * 2, buttonY,
+				available - buttonWidth * 2 - 8, 21, "复制 JSON", 0xFF2C4D65, 0xFF376783);
+
+		// Tree add/edit and registry-selection dialogs are modal. Draw them in the
+		// window's final pass so no footer control can appear above the dialog.
+		treeEditor.renderPopupOverlay(graphics, mouseX, mouseY);
+	}
+
+	private void renderEditor(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
+			int x, int top, int width, int bottom) {
+		graphics.fill(x, top, x + width, bottom, 0xFF121722);
+		graphics.outline(x, top, width, bottom - top, 0xFF493A5C);
+		if (loading) {
+			graphics.centeredText(font, "正在从服务器读取组件…", x + width / 2, top + 18, 0xFFD7B8FF);
+			return;
+		}
+		if (data == null) {
+			graphics.centeredText(font, status, x + width / 2, top + 18, 0xFFB8A9C7);
+			return;
+		}
+		String heading = data.name() + "  ·  " + data.requestedId();
+		graphics.text(font, font.plainSubstrByWidth(heading, width - 16), x + 7, top + 6, 0xFFE9D9FF);
+		graphics.text(font, font.plainSubstrByWidth(data.sourceHint(), width - 16), x + 7, top + 18, 0xFF8F7EA2);
+		if (selectedComponent == null) return;
+		graphics.text(font, selectedComponent.label() + "  " + selectedComponent.id(), x + 7, top + 33,
+				0xFFCDA9FF);
+		graphics.text(font, font.plainSubstrByWidth(selectedComponent.description(), width - 16),
+				x + 7, top + 45, 0xFFB7B0C0);
+		int inputTop = top + 59;
+		boolean enabled = enabledValues.containsKey(selectedComponent.id());
+		String type = selectedComponent.editor();
+		if (type.equals("unit")) {
+			drawButton(graphics, mouseX, mouseY, x + 7, inputTop, Math.min(150, width - 14), 20,
+					enabled ? "✓ 已启用（无参数）" : "＋ 启用此组件", enabled ? 0xFF624196 : 0xFF31404C, 0xFF7654A7);
+		} else if (type.equals("boolean")) {
+			boolean value = enabled && enabledValues.get(selectedComponent.id()).getAsBoolean();
+			drawButton(graphics, mouseX, mouseY, x + 7, inputTop, Math.min(170, width - 14), 20,
+					enabled ? "值：" + value + "（点击切换）" : "＋ 启用并设为 true",
+					enabled ? 0xFF624196 : 0xFF31404C, 0xFF7654A7);
+		} else if (usesTreeEditor(selectedComponent)) {
+			treeEditor.render(graphics, mouseX, mouseY, x + 7, inputTop, width - 14, bottom - 16);
+		} else {
+			graphics.fill(x + 7, inputTop, x + width - 7, inputTop + 20, 0xFF080B10);
+			graphics.outline(x + 7, inputTop, width - 14, 20,
+					focus == Focus.VALUE ? 0xFFD0A7FF : 0xFF554666);
+			String shown = visibleValue(width - 26);
+			graphics.text(font, shown.isEmpty() ? "输入值…" : shown,
+					x + 12, inputTop + 6, shown.isEmpty() ? 0xFF6F6878 : 0xFFF1E9FA);
+		}
+		if (!treeEditor.hasPopup()) {
+			String summary = enabledValues.size() + " 个组件已启用 · " + status;
+			graphics.text(font, font.plainSubstrByWidth(summary, width - 16), x + 7, bottom - 13,
+					status.startsWith("错误") ? 0xFFFF7777 : 0xFF8F7EA2);
+		}
+	}
+
+	boolean keyPressed(KeyEvent event) {
+		if (!open || !keyboardFocused) return false;
+		if (focus == Focus.TREE && treeEditor.keyPressed(event)) return true;
+		if (event.key() == InputConstants.KEY_ESCAPE) {
+			if (dockSide.docked()) return true;
+			close();
+			return true;
+		}
+		if (event.hasControlDown() && event.key() == InputConstants.KEY_V) {
+			if (focus != Focus.TREE) insertTyped(minecraft.keyboardHandler.getClipboard().replaceAll("\\R", " "));
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_BACKSPACE) {
+			backspace();
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_DELETE) {
+			deleteForward();
+			return true;
+		}
+		if (focus == Focus.VALUE) {
+			if (event.key() == InputConstants.KEY_LEFT) valueCursor = Math.max(0, valueCursor - 1);
+			else if (event.key() == InputConstants.KEY_RIGHT) valueCursor = Math.min(valueText.length(), valueCursor + 1);
+			else if (event.key() == InputConstants.KEY_HOME) valueCursor = 0;
+			else if (event.key() == InputConstants.KEY_END) valueCursor = valueText.length();
+			else if (event.key() == InputConstants.KEY_RETURN) commitValue();
+			else return true;
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_UP) {
+			if (focus == Focus.COMPONENT_SEARCH) moveComponent(-1); else moveTarget(-1);
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_DOWN) {
+			if (focus == Focus.COMPONENT_SEARCH) moveComponent(1); else moveTarget(1);
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_RETURN) {
+			if (focus == Focus.TARGET_SEARCH) loadSelectedTarget(true); else selectComponent(componentRow);
+			return true;
+		}
+		if (event.key() == InputConstants.KEY_TAB) {
+			if (targetPaneExpanded) {
+				focus = focus == Focus.TARGET_SEARCH ? Focus.COMPONENT_SEARCH : Focus.TARGET_SEARCH;
+			} else {
+				focus = Focus.COMPONENT_SEARCH;
+			}
+			return true;
+		}
+		return true;
+	}
+
+	boolean charTyped(CharacterEvent event) {
+		if (!open || !keyboardFocused) return false;
+		if (focus == Focus.TREE) {
+			treeEditor.charTyped(event);
+			return true;
+		}
+		int codepoint = event.codepoint();
+		if (!Character.isISOControl(codepoint)) insertTyped(new String(Character.toChars(codepoint)));
+		return true;
+	}
+
+	boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+		if (!open || !pointInside(mouseX, mouseY)) return false;
+		keyboardFocused = true;
+		if (treeEditor.hasPopup()) {
+			// Never scroll the target/component panes through a modal tree dialog.
+			return true;
+		}
+		if (treeEditor.mouseScrolled(mouseX, mouseY, amount)) {
+			focus = Focus.TREE;
+			return true;
+		}
+		int x = panelX();
+		int leftWidth = targetPaneWidth();
+		int contentTop = windowY + 61;
+		int contentBottom = windowY + windowHeight - 36;
+		if (targetPaneExpanded
+				&& inside(mouseX, mouseY, x + 10, contentTop + 25, x + leftWidth - 6, contentBottom)) {
+			targetScroll = clamp(targetScroll - (int) Math.round(amount * 3), 0, maxTargetScroll());
+		} else {
+			componentScroll = clamp(componentScroll - (int) Math.round(amount * 3), 0, maxComponentScroll());
+		}
+		return true;
+	}
+
+	boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		if (!open || progress < 0.5F) return false;
+		if (treeEditor.hasPopup()) {
+			treeEditor.mouseClicked(event, doubleClick);
+			keyboardFocused = true;
+			focus = Focus.TREE;
+			// The popup is modal: clicks outside it are consumed instead of reaching
+			// copy/insert buttons or other controls below the overlay.
+			return true;
+		}
+		int x = panelX();
+		int right = x + windowWidth;
+		int bottom = windowY + windowHeight;
+		if (inside(event.x(), event.y(), right - 26, windowY + 4, right - 6, windowY + 24)) {
+			close();
+			return true;
+		}
+		int edges = resizeEdgesAt(event.x(), event.y());
+		if (edges != 0) {
+			resizeEdges = edges;
+			resizeStartMouseX = event.x();
+			resizeStartMouseY = event.y();
+			resizeStartX = x;
+			resizeStartY = windowY;
+			resizeStartWidth = windowWidth;
+			resizeStartHeight = windowHeight;
+			return true;
+		}
+		if (!pointInside(event.x(), event.y())) return false;
+		keyboardFocused = true;
+		if (inside(event.x(), event.y(), x, windowY, right, windowY + TITLE_HEIGHT)) {
+			if (dockSide.docked() && layoutLocked) return true;
+			dragging = true;
+			dragOffsetX = event.x() - x;
+			dragOffsetY = event.y() - windowY;
+			return true;
+		}
+		int tabsTop = windowY + 34;
+		if (event.y() >= tabsTop && event.y() <= tabsTop + 20) {
+			int tabWidth = Math.max(1, (windowWidth - 20) / Category.values().length);
+			int index = clamp((int) (event.x() - x - 10) / tabWidth, 0, Category.values().length - 1);
+			if (event.x() >= x + 10 && event.x() <= right - 10 && category != Category.values()[index]) {
+				category = Category.values()[index];
+				targetQuery = "";
+				targetPaneExpanded = true;
+				focus = Focus.TARGET_SEARCH;
+				refreshTargets(true);
+			}
+			return true;
+		}
+		int contentTop = windowY + 61;
+		int contentBottom = bottom - 36;
+		int leftWidth = targetPaneWidth();
+		int splitX = x + leftWidth;
+		if (!targetPaneExpanded && inside(event.x(), event.y(), x + 10, contentTop, x + 36, contentTop + 26)) {
+			targetPaneExpanded = true;
+			focus = Focus.TARGET_SEARCH;
+			return true;
+		}
+		if (targetPaneExpanded
+				&& inside(event.x(), event.y(), x + 10, contentTop, splitX - 6, contentTop + 20)) {
+			focus = Focus.TARGET_SEARCH;
+			return true;
+		}
+		int targetIndex = targetScroll + Math.max(0, (int) (event.y() - contentTop - 27) / ROW_HEIGHT);
+		if (targetPaneExpanded
+				&& inside(event.x(), event.y(), x + 10, contentTop + 25, splitX - 6, contentBottom)
+				&& targetIndex < targets.size()) {
+			targetRow = targetIndex;
+			loadSelectedTarget(true);
+			return true;
+		}
+		int rx = splitX + 3;
+		int rw = right - rx - 10;
+		int toggleWidth = 64;
+		if (inside(event.x(), event.y(), rx, contentTop, rx + rw - toggleWidth - 4, contentTop + 20)) {
+			focus = Focus.COMPONENT_SEARCH;
+			return true;
+		}
+		if (inside(event.x(), event.y(), rx + rw - toggleWidth, contentTop, rx + rw, contentTop + 20)) {
+			showAll = !showAll;
+			filterComponents();
+			return true;
+		}
+		int componentListTop = contentTop + 25;
+		int editorTop = componentListTop + Math.max(60, (contentBottom - componentListTop) * 34 / 100);
+		int selected = componentScroll + Math.max(0, (int) (event.y() - componentListTop - 2) / ROW_HEIGHT);
+		if (inside(event.x(), event.y(), rx, componentListTop, rx + rw, editorTop - 5)
+				&& selected < components.size()) {
+			componentRow = selected;
+			selectComponent(selected);
+			if (event.x() <= rx + 21) toggleSelectedComponent();
+			return true;
+		}
+		if (selectedComponent != null) {
+			int inputTop = editorTop + 59;
+			if (usesTreeEditor(selectedComponent)
+					&& treeEditor.mouseClicked(event, doubleClick)) {
+				focus = Focus.TREE;
+				return true;
+			}
+			if (inside(event.x(), event.y(), rx + 7, inputTop, rx + rw - 7, inputTop + 20)) {
+				String type = selectedComponent.editor();
+				if (type.equals("unit")) toggleSelectedComponent();
+				else if (type.equals("boolean")) toggleBoolean();
+				else {
+					focus = Focus.VALUE;
+					valueCursor = valueText.length();
+				}
+				return true;
+			}
+		}
+		int buttonY = bottom - 29;
+		int available = windowWidth - 20;
+		int buttonWidth = Math.max(72, (available - 8) / 3);
+		if (inside(event.x(), event.y(), x + 10, buttonY, x + 10 + buttonWidth, buttonY + 21)) {
+			export(Export.INSERT);
+			return true;
+		}
+		if (inside(event.x(), event.y(), x + 14 + buttonWidth, buttonY,
+				x + 14 + buttonWidth * 2, buttonY + 21)) {
+			export(Export.COPY_STACK);
+			return true;
+		}
+		if (inside(event.x(), event.y(), x + 18 + buttonWidth * 2, buttonY, right - 10, buttonY + 21)) {
+			export(Export.COPY_JSON);
+			return true;
+		}
+		return true;
+	}
+
+	boolean mouseDragged(MouseButtonEvent event) {
+		if (resizeEdges != 0) {
+			resize(event.x(), event.y());
+			return true;
+		}
+		if (!dragging) return false;
+		if (dockSide.docked()) undockForDrag(event.x(), event.y());
+		windowX = clamp((int) Math.round(event.x() - dragOffsetX), 0, Math.max(0, screenWidth - windowWidth));
+		windowY = clamp((int) Math.round(event.y() - dragOffsetY), 0, Math.max(0, screenHeight - windowHeight));
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+		return true;
+	}
+
+	boolean mouseReleased() {
+		if (!isInteracting()) return false;
+		dragging = false;
+		resizeEdges = 0;
+		return true;
+	}
+
+	private void refreshTargets(boolean selectFirst) {
+		List<LuaInsertCatalog.Entry> source = catalogs.computeIfAbsent(category,
+				key -> LuaInsertCatalog.load(key.catalogKind, minecraft));
+		String needle = targetQuery.strip().toLowerCase(Locale.ROOT);
+		targets = source.stream().filter(entry -> entry.matches(needle)).toList();
+		targetRow = clamp(selectFirst ? 0 : targetRow, 0, Math.max(0, targets.size() - 1));
+		targetScroll = 0;
+		if (selectFirst && !targets.isEmpty()) loadSelectedTarget(false);
+	}
+
+	private void loadSelectedTarget(boolean collapsePicker) {
+		if (targetRow < 0 || targetRow >= targets.size()) return;
+		LuaInsertCatalog.Entry target = targets.get(targetRow);
+		selectedTarget = target;
+		if (collapsePicker) {
+			targetPaneExpanded = false;
+			focus = Focus.COMPONENT_SEARCH;
+		}
+		int revision = ++requestRevision;
+		loading = true;
+		data = null;
+		components = List.of();
+		enabledValues.clear();
+		valueDrafts.clear();
+		invalidValues.clear();
+		status = "正在读取 " + target.value() + "…";
+		ScriptManager.componentEditorData(category.id, target.value()).whenComplete((result, failure) ->
+				minecraft.execute(() -> {
+					if (revision != requestRevision) return;
+					loading = false;
+					if (failure != null) {
+						status = "错误：" + ScriptManager.message(failure);
+						feedback.accept(status);
+						return;
+					}
+					data = result;
+					status = "已读取服务器注册的 " + result.components().size() + " 个组件";
+					filterComponents();
+				}));
+	}
+
+	private void clearLoadedTarget() {
+		requestRevision++;
+		loading = false;
+		data = null;
+		selectedTarget = null;
+		components = List.of();
+		selectedComponent = null;
+		enabledValues.clear();
+		valueDrafts.clear();
+		invalidValues.clear();
+	}
+
+	private int indexOfTarget(String id) {
+		if (id.isEmpty()) return -1;
+		for (int index = 0; index < targets.size(); index++) {
+			if (targets.get(index).value().equalsIgnoreCase(id)) return index;
+		}
+		return -1;
+	}
+
+	private static String normalizeResourceId(String raw) {
+		if (raw == null || raw.isBlank()) return "";
+		String value = raw.strip().toLowerCase(Locale.ROOT);
+		return value.indexOf(':') < 0 ? "minecraft:" + value : value;
+	}
+
+	private void filterComponents() {
+		if (data == null) {
+			components = List.of();
+			return;
+		}
+		String needle = componentQuery.strip().toLowerCase(Locale.ROOT);
+		components = data.components().stream()
+				.filter(component -> showAll || component.relevance() > 0)
+				.filter(component -> needle.isEmpty() || component.searchable().contains(needle))
+				.toList();
+		componentRow = clamp(componentRow, 0, Math.max(0, components.size() - 1));
+		componentScroll = 0;
+		selectComponent(componentRow);
+	}
+
+	private void selectComponent(int index) {
+		commitValue();
+		if (index < 0 || index >= components.size()) {
+			selectedComponent = null;
+			valueText = "";
+			return;
+		}
+		componentRow = index;
+		selectedComponent = components.get(index);
+		JsonElement value = enabledValues.getOrDefault(selectedComponent.id(), selectedComponent.defaultValue());
+		valueText = valueDrafts.getOrDefault(selectedComponent.id(), displayValue(selectedComponent, value));
+		valueCursor = valueText.length();
+		if (usesTreeEditor(selectedComponent)) {
+			treeEditor.setValue(selectedComponent.id(), value, selectedComponent.idHints());
+		}
+		ensureComponentVisible();
+	}
+
+	private void applyTreeValue(JsonElement value) {
+		if (selectedComponent == null || !usesTreeEditor(selectedComponent)) return;
+		JsonElement copy = value == null ? new JsonObject() : value.deepCopy();
+		enabledValues.put(selectedComponent.id(), copy);
+		valueText = copy.toString();
+		valueCursor = valueText.length();
+		valueDrafts.put(selectedComponent.id(), valueText);
+		invalidValues.remove(selectedComponent.id());
+	}
+
+	private void toggleSelectedComponent() {
+		if (selectedComponent == null) return;
+		if (enabledValues.remove(selectedComponent.id()) == null) {
+			enabledValues.put(selectedComponent.id(), selectedComponent.defaultValue().deepCopy());
+			valueDrafts.put(selectedComponent.id(), displayValue(selectedComponent, selectedComponent.defaultValue()));
+			status = "已启用 " + selectedComponent.label();
+		} else {
+			valueDrafts.remove(selectedComponent.id());
+			invalidValues.remove(selectedComponent.id());
+			status = "已停用 " + selectedComponent.label();
+		}
+		selectComponent(componentRow);
+	}
+
+	private void toggleBoolean() {
+		if (selectedComponent == null) return;
+		JsonElement current = enabledValues.get(selectedComponent.id());
+		boolean next = current == null || !current.getAsBoolean();
+		enabledValues.put(selectedComponent.id(), new JsonPrimitive(next));
+		valueText = Boolean.toString(next);
+		valueDrafts.put(selectedComponent.id(), valueText);
+		invalidValues.remove(selectedComponent.id());
+		status = "已设置 " + selectedComponent.label() + " = " + next;
+	}
+
+	private void commitValue() {
+		if (selectedComponent == null || usesTreeEditor(selectedComponent)
+				|| !enabledValues.containsKey(selectedComponent.id())) return;
+		try {
+			enabledValues.put(selectedComponent.id(), parseValue(selectedComponent, valueText));
+			valueDrafts.put(selectedComponent.id(), valueText);
+			invalidValues.remove(selectedComponent.id());
+			if (status.startsWith("错误：")) status = "值格式正确，导出时会由服务器再次校验";
+		} catch (RuntimeException error) {
+			valueDrafts.put(selectedComponent.id(), valueText);
+			invalidValues.add(selectedComponent.id());
+			status = "错误：" + (error.getMessage() == null ? "值格式无效" : error.getMessage());
+		}
+	}
+
+	private JsonElement parseValue(LuaComponentEditorData.ComponentInfo component, String raw) {
+		String value = raw.strip();
+		return switch (component.editor()) {
+			case "unit" -> new JsonObject();
+			case "boolean" -> {
+				if (!value.equals("true") && !value.equals("false")) throw new IllegalArgumentException("请输入 true 或 false");
+				yield new JsonPrimitive(Boolean.parseBoolean(value));
+			}
+			case "integer" -> new JsonPrimitive(Integer.parseInt(value));
+			case "number" -> {
+				double number = Double.parseDouble(value);
+				if (!Double.isFinite(number)) throw new IllegalArgumentException("请输入有限数字");
+				yield new JsonPrimitive(number);
+			}
+			case "text_component" -> {
+				JsonObject text = new JsonObject();
+				text.addProperty("text", raw);
+				yield text;
+			}
+			case "resource", "enum" -> new JsonPrimitive(raw);
+			default -> JsonParser.parseString(value);
+		};
+	}
+
+	private String displayValue(LuaComponentEditorData.ComponentInfo component, JsonElement value) {
+		if (component.editor().equals("text_component") && value.isJsonObject()
+				&& value.getAsJsonObject().has("text")) return value.getAsJsonObject().get("text").getAsString();
+		if ((component.editor().equals("resource") || component.editor().equals("enum"))
+				&& value.isJsonPrimitive()) return value.getAsString();
+		return value.toString();
+	}
+
+	private static boolean usesTreeEditor(LuaComponentEditorData.ComponentInfo component) {
+		return component != null && (component.editor().equals("json") || component.editor().equals("resource"));
+	}
+
+	private void export(Export action) {
+		if (data == null || exporting) return;
+		commitValue();
+		if (!invalidValues.isEmpty()) {
+			status = "错误：仍有 " + invalidValues.size() + " 个组件值格式无效";
+			return;
+		}
+		JsonObject patch = LuaComponentEditorData.patch(enabledValues);
+		exporting = true;
+		status = "正在由服务器校验组件…";
+		ScriptManager.validateComponents(data.kind(), data.requestedId(), patch.toString()).whenComplete((canonical, failure) ->
+				minecraft.execute(() -> {
+					exporting = false;
+					if (failure != null) {
+						status = "错误：" + ScriptManager.message(failure);
+						feedback.accept(status);
+						return;
+					}
+					JsonObject checked = JsonParser.parseString(canonical).getAsJsonObject();
+					if (action == Export.INSERT) {
+						insertion.accept(LuaComponentEditorData.luaComponents(checked));
+						status = "组件表已插入代码编辑器";
+					} else if (action == Export.COPY_STACK) {
+						if (data.kind().equals("entity")) {
+							minecraft.keyboardHandler.setClipboard(
+									LuaComponentEditorData.luaEntity(data.requestedId(), checked));
+							status = "已复制 Lua 实体组件配置";
+						} else {
+							minecraft.keyboardHandler.setClipboard(LuaComponentEditorData.luaStack(data.itemId(), checked));
+							status = "已复制 Lua 物品堆表";
+						}
+					} else {
+						minecraft.keyboardHandler.setClipboard(checked.toString());
+						status = "已复制组件 JSON";
+					}
+					feedback.accept(status);
+				}));
+	}
+
+	private void insertTyped(String text) {
+		if (text == null || text.isEmpty()) return;
+		if (focus == Focus.TARGET_SEARCH) {
+			targetQuery += text;
+			refreshTargets(false);
+		} else if (focus == Focus.COMPONENT_SEARCH) {
+			componentQuery += text;
+			filterComponents();
+		} else {
+			if (selectedComponent == null) return;
+			if (!enabledValues.containsKey(selectedComponent.id())) {
+				enabledValues.put(selectedComponent.id(), selectedComponent.defaultValue().deepCopy());
+			}
+			valueText = valueText.substring(0, valueCursor) + text + valueText.substring(valueCursor);
+			valueCursor += text.length();
+			valueDrafts.put(selectedComponent.id(), valueText);
+			commitValue();
+		}
+	}
+
+	private void backspace() {
+		if (focus == Focus.TARGET_SEARCH && !targetQuery.isEmpty()) {
+			targetQuery = removeLastCodepoint(targetQuery);
+			refreshTargets(false);
+		} else if (focus == Focus.COMPONENT_SEARCH && !componentQuery.isEmpty()) {
+			componentQuery = removeLastCodepoint(componentQuery);
+			filterComponents();
+		} else if (focus == Focus.VALUE && valueCursor > 0) {
+			int start = valueText.offsetByCodePoints(valueCursor, -1);
+			valueText = valueText.substring(0, start) + valueText.substring(valueCursor);
+			valueCursor = start;
+			commitValue();
+		}
+	}
+
+	private void deleteForward() {
+		if (focus == Focus.TARGET_SEARCH) {
+			targetQuery = "";
+			refreshTargets(false);
+		} else if (focus == Focus.COMPONENT_SEARCH) {
+			componentQuery = "";
+			filterComponents();
+		} else if (focus == Focus.VALUE && valueCursor < valueText.length()) {
+			int end = valueText.offsetByCodePoints(valueCursor, 1);
+			valueText = valueText.substring(0, valueCursor) + valueText.substring(end);
+			commitValue();
+		}
+	}
+
+	private void moveTarget(int direction) {
+		targetRow = clamp(targetRow + direction, 0, Math.max(0, targets.size() - 1));
+		ensureTargetVisible();
+	}
+
+	private void moveComponent(int direction) {
+		componentRow = clamp(componentRow + direction, 0, Math.max(0, components.size() - 1));
+		selectComponent(componentRow);
+	}
+
+	private void renderSearch(GuiGraphicsExtractor graphics, int x, int y, int width,
+			String value, String hint, boolean active) {
+		graphics.fill(x, y, x + width, y + 20, 0xFF080B10);
+		graphics.outline(x, y, width, 20, active ? 0xFFD0A7FF : 0xFF554666);
+		String shown = value.isEmpty() ? hint : value + (active ? "_" : "");
+		graphics.text(font, font.plainSubstrByWidth(shown, width - 10), x + 5, y + 6,
+				value.isEmpty() ? 0xFF6F6878 : 0xFFF1E9FA);
+	}
+
+	private String visibleValue(int maximumWidth) {
+		if (valueText.isEmpty()) return "";
+		int caret = Math.min(valueCursor, valueText.length());
+		int start = 0;
+		if (focus == Focus.VALUE) {
+			while (start < caret && font.width(valueText.substring(start, caret) + "_") > maximumWidth * 2 / 3) {
+				start = valueText.offsetByCodePoints(start, 1);
+			}
+		}
+		String shown = valueText.substring(start, caret) + (focus == Focus.VALUE ? "_" : "")
+				+ valueText.substring(caret);
+		return font.plainSubstrByWidth(shown, maximumWidth);
+	}
+
+	private void renderTargetIcon(GuiGraphicsExtractor graphics, LuaInsertCatalog.Entry entry, int x, int y) {
+		try {
+			if (category == Category.ENTITY) {
+				drawFallbackIcon(graphics, x, y, "实");
+				return;
+			}
+			Identifier id = Identifier.parse(entry.value());
+			ItemStack stack = switch (category) {
+				case ITEM -> BuiltInRegistries.ITEM.getValue(id).getDefaultInstance();
+				case BLOCK -> BuiltInRegistries.BLOCK.getValue(id).asItem().getDefaultInstance();
+				case ENTITY -> ItemStack.EMPTY;
+			};
+			if (!stack.isEmpty()) graphics.item(stack, x, y, entry.value().hashCode());
+			else drawFallbackIcon(graphics, x, y, category == Category.BLOCK ? "□" : "E");
+		} catch (RuntimeException | LinkageError ignored) {
+			drawFallbackIcon(graphics, x, y, "?");
+		}
+	}
+
+	private void renderCompactTarget(GuiGraphicsExtractor graphics, int mouseX, int mouseY, int x, int y) {
+		boolean hovered = inside(mouseX, mouseY, x, y, x + 26, y + 26);
+		graphics.fill(x, y, x + 26, y + 26, hovered ? 0xFF433158 : 0xFF20192A);
+		graphics.outline(x, y, 26, 26, hovered ? 0xFFD0A7FF : 0xFF7654A7);
+		if (selectedTarget != null) renderTargetIcon(graphics, selectedTarget, x + 5, y + 5);
+		else drawFallbackIcon(graphics, x + 5, y + 5, "?");
+		if (hovered) {
+			String target = selectedTarget == null ? "尚未选择目标" : selectedTarget.label();
+			graphics.setComponentTooltipForNextFrame(font, List.of(
+					Component.literal(target), Component.literal("点击重新选择")), mouseX, mouseY);
+		}
+	}
+
+	private void drawFallbackIcon(GuiGraphicsExtractor graphics, int x, int y, String label) {
+		graphics.fill(x, y, x + 16, y + 16, 0xFF20192A);
+		graphics.outline(x, y, 16, 16, 0xFF7654A7);
+		graphics.centeredText(font, label, x + 8, y + 4, 0xFFD7B8FF);
+	}
+
+	private void drawButton(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
+			int x, int y, int width, int height, String label, int color, int hover) {
+		graphics.fill(x, y, x + width, y + height,
+				inside(mouseX, mouseY, x, y, x + width, y + height) ? hover : color);
+		graphics.outline(x, y, width, height, 0xFF80669A);
+		graphics.centeredText(font, font.plainSubstrByWidth(label, width - 6), x + width / 2, y + 6, 0xFFFFFFFF);
+	}
+
+	private int targetVisibleRows() {
+		return Math.max(1, (windowHeight - 36 - (windowY + 86 - windowY) - 3) / ROW_HEIGHT);
+	}
+
+	private int targetPaneWidth() {
+		return targetPaneExpanded ? Math.max(86, Math.min(285, (int) (windowWidth * 0.36F))) : 42;
+	}
+
+	private int componentVisibleRows() {
+		int contentTop = windowY + 61;
+		int contentBottom = windowY + windowHeight - 36;
+		int listTop = contentTop + 25;
+		int editorTop = listTop + Math.max(60, (contentBottom - listTop) * 34 / 100);
+		return Math.max(1, (editorTop - listTop - 8) / ROW_HEIGHT);
+	}
+
+	private int maxTargetScroll() {
+		return Math.max(0, targets.size() - targetVisibleRows());
+	}
+
+	private int maxComponentScroll() {
+		return Math.max(0, components.size() - componentVisibleRows());
+	}
+
+	private void ensureTargetVisible() {
+		if (targetRow < targetScroll) targetScroll = targetRow;
+		if (targetRow >= targetScroll + targetVisibleRows()) targetScroll = targetRow - targetVisibleRows() + 1;
+		targetScroll = clamp(targetScroll, 0, maxTargetScroll());
+	}
+
+	private void ensureComponentVisible() {
+		if (componentRow < componentScroll) componentScroll = componentRow;
+		if (componentRow >= componentScroll + componentVisibleRows()) {
+			componentScroll = componentRow - componentVisibleRows() + 1;
+		}
+		componentScroll = clamp(componentScroll, 0, maxComponentScroll());
+	}
+
+	private int panelX() {
+		return Math.round(screenWidth + (windowX - screenWidth) * progress);
+	}
+
+	private boolean pointInside(double mouseX, double mouseY) {
+		int x = panelX();
+		return inside(mouseX, mouseY, x, windowY, x + windowWidth, windowY + windowHeight);
+	}
+
+	private int resizeEdgesAt(double mouseX, double mouseY) {
+		if (dockSide.docked()) return 0;
+		int x = panelX();
+		int right = x + windowWidth;
+		int bottom = windowY + windowHeight;
+		if (mouseX < x - RESIZE_MARGIN || mouseX > right + RESIZE_MARGIN
+				|| mouseY < windowY - RESIZE_MARGIN || mouseY > bottom + RESIZE_MARGIN) return 0;
+		int edges = 0;
+		if (Math.abs(mouseX - x) <= RESIZE_MARGIN) edges |= EDGE_LEFT;
+		if (Math.abs(mouseX - right) <= RESIZE_MARGIN) edges |= EDGE_RIGHT;
+		if (Math.abs(mouseY - windowY) <= RESIZE_MARGIN) edges |= EDGE_TOP;
+		if (Math.abs(mouseY - bottom) <= RESIZE_MARGIN) edges |= EDGE_BOTTOM;
+		return edges;
+	}
+
+	private void resize(double mouseX, double mouseY) {
+		int dx = (int) Math.round(mouseX - resizeStartMouseX);
+		int dy = (int) Math.round(mouseY - resizeStartMouseY);
+		int left = resizeStartX;
+		int right = resizeStartX + resizeStartWidth;
+		int top = resizeStartY;
+		int bottom = resizeStartY + resizeStartHeight;
+		if ((resizeEdges & EDGE_LEFT) != 0) left = Math.max(0, Math.min(right - MIN_WIDTH, resizeStartX + dx));
+		if ((resizeEdges & EDGE_RIGHT) != 0) right = Math.min(screenWidth,
+				Math.max(left + MIN_WIDTH, resizeStartX + resizeStartWidth + dx));
+		if ((resizeEdges & EDGE_TOP) != 0) top = Math.max(0, Math.min(bottom - MIN_HEIGHT, resizeStartY + dy));
+		if ((resizeEdges & EDGE_BOTTOM) != 0) bottom = Math.min(screenHeight,
+				Math.max(top + MIN_HEIGHT, resizeStartY + resizeStartHeight + dy));
+		windowX = left;
+		windowY = top;
+		windowWidth = right - left;
+		windowHeight = bottom - top;
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+	}
+
+	private void ensureGeometry() {
+		if (screenWidth <= 0 || screenHeight <= 0 || dockSide.docked()) return;
+		int availableWidth = Math.max(300, screenWidth - 20);
+		int availableHeight = Math.max(220, screenHeight - 20);
+		if (windowWidth < 0) windowWidth = Math.min(availableWidth, Math.max(MIN_WIDTH, (int) (screenWidth * 0.78F)));
+		if (windowHeight < 0) windowHeight = Math.min(availableHeight, Math.max(MIN_HEIGHT, (int) (screenHeight * 0.82F)));
+		windowWidth = Math.min(windowWidth, screenWidth);
+		windowHeight = Math.min(windowHeight, screenHeight);
+		if (windowX < 0) windowX = Math.max(0, (screenWidth - windowWidth) / 2);
+		windowX = clamp(windowX, 0, Math.max(0, screenWidth - windowWidth));
+		windowY = clamp(windowY, 0, Math.max(0, screenHeight - windowHeight));
+	}
+
+	private void rememberFloatingGeometry() {
+		floatingX = windowX;
+		floatingY = windowY;
+		floatingWidth = windowWidth;
+		floatingHeight = windowHeight;
+	}
+
+	private void restoreFloatingGeometry() {
+		if (floatingWidth > 0) windowWidth = floatingWidth;
+		if (floatingHeight > 0) windowHeight = floatingHeight;
+		if (floatingX >= 0) windowX = floatingX;
+		windowY = floatingY;
+		ensureGeometry();
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+	}
+
+	private void undockForDrag(double mouseX, double mouseY) {
+		dockSide = DockSide.FLOATING;
+		restoreFloatingGeometry();
+		dragOffsetX = Math.min(Math.max(18.0, dragOffsetX), Math.max(18.0, windowWidth - 18.0));
+		dragOffsetY = 12.0;
+		windowX = clamp((int) Math.round(mouseX - dragOffsetX), 0, Math.max(0, screenWidth - windowWidth));
+		windowY = clamp((int) Math.round(mouseY - dragOffsetY), 0, Math.max(0, screenHeight - windowHeight));
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+	}
+
+	private static String removeLastCodepoint(String value) {
+		return value.substring(0, value.offsetByCodePoints(value.length(), -1));
+	}
+
+	private static int clamp(int value, int minimum, int maximum) {
+		return Math.max(minimum, Math.min(maximum, value));
+	}
+
+	private static boolean inside(double x, double y, int left, int top, int right, int bottom) {
+		return x >= left && x <= right && y >= top && y <= bottom;
+	}
+
+	private enum Category {
+		ITEM("item", "物品", LuaInsertCatalog.Kind.ITEM),
+		BLOCK("block", "方块", LuaInsertCatalog.Kind.BLOCK),
+		ENTITY("entity", "实体", LuaInsertCatalog.Kind.ENTITY);
+
+		private final String id;
+		private final String label;
+		private final LuaInsertCatalog.Kind catalogKind;
+
+		Category(String id, String label, LuaInsertCatalog.Kind catalogKind) {
+			this.id = id;
+			this.label = label;
+			this.catalogKind = catalogKind;
+		}
+
+		private static Category from(LuaInsertCatalog.Kind kind) {
+			if (kind == null) return null;
+			return switch (kind) {
+				case ITEM -> ITEM;
+				case BLOCK -> BLOCK;
+				case ENTITY -> ENTITY;
+				case PLAYER -> null;
+			};
+		}
+	}
+
+	private enum Focus {
+		TARGET_SEARCH,
+		COMPONENT_SEARCH,
+		VALUE,
+		TREE
+	}
+
+	private enum Export {
+		INSERT,
+		COPY_STACK,
+		COPY_JSON
+	}
+}

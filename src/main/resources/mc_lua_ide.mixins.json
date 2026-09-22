@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "wiki.ica.xiaomiao.mcluaide.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "BlockItemMixin",
+    "CommandsMixin",
+    "ServerCommonPacketListenerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
