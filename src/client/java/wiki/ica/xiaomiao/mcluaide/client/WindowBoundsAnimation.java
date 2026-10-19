@@ -42,6 +42,11 @@ final class WindowBoundsAnimation {
 		return active;
 	}
 
+	WindowGeometry destination(int x, int y, int width, int height) {
+		return active ? new WindowGeometry(targetX, targetY, targetWidth, targetHeight)
+				: new WindowGeometry(x, y, width, height);
+	}
+
 	private static int approach(int current, int target) {
 		int difference = target - current;
 		if (Math.abs(difference) <= 1) return target;

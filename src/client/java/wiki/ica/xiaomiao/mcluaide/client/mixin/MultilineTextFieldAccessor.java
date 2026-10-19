@@ -8,6 +8,8 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 
 @Mixin(MultilineTextField.class)
 public interface MultilineTextFieldAccessor {
+	@Accessor("displayLines")
+	java.util.List<?> mcLuaIde$getDisplayLines();
 	@Accessor("cursor")
 	int mcLuaIde$getCursor();
 

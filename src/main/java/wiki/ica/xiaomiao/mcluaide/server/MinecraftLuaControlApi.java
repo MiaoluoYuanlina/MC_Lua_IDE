@@ -1,16 +1,23 @@
 package wiki.ica.xiaomiao.mcluaide.server;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSoundPacket;
+import net.minecraft.network.protocol.game.ClientboundSoundEntityPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
@@ -19,6 +26,15 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.food.FoodData;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.ShapedRecipe;
+import net.minecraft.world.item.crafting.ShapelessRecipe;
+import net.minecraft.world.item.crafting.display.SlotDisplayContext;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.luaj.vm2.LuaError;
@@ -26,6 +42,8 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 import org.luaj.vm2.lib.VarArgFunction;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import wiki.ica.xiaomiao.mcluaide.network.LuaSeekSound;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +52,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -42,6 +61,7 @@ import java.util.regex.Pattern;
 /** Broad server-control namespaces layered on top of the small strongly typed core API. */
 final class MinecraftLuaControlApi {
 	private static final int API_TIMEOUT_SECONDS = 10;
+	private static final int BULK_BLOCK_TIMEOUT_SECONDS = 120;
 	private static final Identifier DEFAULT_DIMENSION = Identifier.withDefaultNamespace("overworld");
 	private static final Pattern SAFE_TOKEN = Pattern.compile("[A-Za-z0-9_.:+\\-/]{1,128}");
 	private static final Pattern SCORE_NAME = Pattern.compile("[A-Za-z0-9_.+\\-]{1,64}");
@@ -49,7 +69,7 @@ final class MinecraftLuaControlApi {
 	private MinecraftLuaControlApi() {
 	}
 
-	static void install(LuaTable mc, MinecraftServer server) {
+	static void install(LuaTable mc, MinecraftServer server, ServerScriptManager.ScriptExecution execution) {
 		extend(mc, "Block", blockApi(server));
 		extend(mc, "Item", itemApi(server));
 		extend(mc, "Player", playerApi(server));
@@ -57,7 +77,7 @@ final class MinecraftLuaControlApi {
 		extend(mc, "Server", serverApi(server));
 		setNamespace(mc, "Entity", entityApi(server));
 		setNamespace(mc, "Effect", effectApi(server));
-		setNamespace(mc, "Sound", soundApi(server));
+		setNamespace(mc, "Sound", soundApi(server, execution));
 		setNamespace(mc, "Particle", particleApi(server));
 		setNamespace(mc, "Title", titleApi(server));
 		setNamespace(mc, "Score", scoreApi(server));
@@ -81,6 +101,7 @@ final class MinecraftLuaControlApi {
 					.orElseThrow(() -> new LuaError("未知方块：" + id));
 			return LuaValue.valueOf(Component.translatable(block.getDescriptionId()).getString());
 		});
+		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.BLOCK));
 		bind(api, "fill", args -> fillBlocks(server, args, false));
 		bind(api, "replace", args -> fillBlocks(server, args, true));
 		bind(api, "clone", args -> cloneBlocks(server, args));
@@ -100,6 +121,7 @@ final class MinecraftLuaControlApi {
 			Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
 			return LuaValue.valueOf(item.getDefaultMaxStackSize());
 		});
+		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.ITEM));
 		bind(api, "clear", args -> {
 			if (!args.arg(4).isnil()) {
 				if (args.arg(2).isnil()) throw new LuaError("按组件清除物品时必须填写 itemId");
@@ -108,12 +130,11 @@ final class MinecraftLuaControlApi {
 						: rangedInt(args.checkint(3), 0, 999999, "清除数量");
 				onServer(server, current -> {
 					ServerPlayer player = player(current, uuid);
-					ItemStack expected = LuaItemStackCodec.create(
-							current, args.arg(2), LuaValue.valueOf(1), args.arg(4), 1);
+					var filter = LuaItemStackCodec.filter(current, args.arg(2), args.arg(4));
 					int remaining = maximum;
 					for (int slot = 0; slot < player.getInventory().getContainerSize() && remaining > 0; slot++) {
 						ItemStack stack = player.getInventory().getItem(slot);
-						if (!LuaItemStackCodec.sameItemAndComponents(stack, expected)) continue;
+						if (!filter.matches(stack)) continue;
 						int removed = Math.min(stack.getCount(), remaining);
 						stack.shrink(removed);
 						remaining -= removed;
@@ -223,6 +244,11 @@ final class MinecraftLuaControlApi {
 
 	private static LuaTable entityApi(MinecraftServer server) {
 		LuaTable api = new LuaTable();
+		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.ENTITY_TYPE));
+		bind(api, "components", args -> {
+			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
+			return onServer(server, current -> LuaComponentSnapshots.entity(current, requireEntity(current, uuid)));
+		});
 		bind(api, "get", args -> {
 			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
 			return onServer(server, current -> {
@@ -260,7 +286,32 @@ final class MinecraftLuaControlApi {
 				if (entity == null) throw new LuaError("该实体类型不能由脚本生成：" + entityId);
 				entity.setPos(x, y, z);
 				applyEntityComponents(current, entity, components);
-				return LuaValue.valueOf(level.addFreshEntity(entity));
+				return level.addFreshEntity(entity) ? LuaValue.valueOf(entity.getStringUUID()) : LuaValue.FALSE;
+			});
+		});
+		bind(api, "ride", args -> {
+			UUID passengerUuid = uuid(args.checkjstring(1), "乘客 UUID");
+			UUID vehicleUuid = uuid(args.checkjstring(2), "坐骑 UUID");
+			boolean force = args.optboolean(3, true);
+			return onServer(server, current -> {
+				Entity passenger = requireEntity(current, passengerUuid);
+				Entity vehicle = requireEntity(current, vehicleUuid);
+				if (passenger == vehicle) throw new LuaError("实体不能骑乘自己");
+				if (passenger.level() != vehicle.level()) throw new LuaError("乘客和坐骑必须在同一个维度");
+				if (vehicle instanceof ServerPlayer) throw new LuaError("玩家可以作为乘客，但不能作为坐骑");
+				if (passenger.hasIndirectPassenger(vehicle)) throw new LuaError("不能形成循环骑乘：坐骑已经是乘客的下级乘客");
+				if (passenger.getVehicle() == vehicle) return LuaValue.TRUE;
+				// Use the native relation and mount notifications; vanilla clients need no custom packet.
+				return LuaValue.valueOf(passenger.startRiding(vehicle, force, true));
+			});
+		});
+		bind(api, "dismount", args -> {
+			UUID passengerUuid = uuid(args.checkjstring(1), "乘客 UUID");
+			return onServer(server, current -> {
+				Entity passenger = requireEntity(current, passengerUuid);
+				if (!passenger.isPassenger()) return LuaValue.FALSE;
+				passenger.stopRiding();
+				return LuaValue.valueOf(!passenger.isPassenger());
 			});
 		});
 		bind(api, "teleport", args -> {
@@ -338,7 +389,7 @@ final class MinecraftLuaControlApi {
 			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
 			return onServer(server, current -> {
 				Entity entity = requireEntity(current, uuid);
-				if (!(entity instanceof LivingEntity living)) throw new LuaError("该实体不是生物，不能拥有状态效果");
+				if (!(entity instanceof LivingEntity living)) throw new LuaError("该实体不是有生命实体（LivingEntity），不能拥有状态效果");
 				LuaTable result = new LuaTable();
 				int index = 1;
 				for (var effect : living.getActiveEffects()) {
@@ -356,16 +407,54 @@ final class MinecraftLuaControlApi {
 		return api;
 	}
 
-	private static LuaTable soundApi(MinecraftServer server) {
+	private static LuaTable soundApi(MinecraftServer server, ServerScriptManager.ScriptExecution execution) {
 		LuaTable api = new LuaTable();
 		bind(api, "play", args -> {
-			String target = args.arg(9).isnil() ? "@a" : playerTarget(server, args, 9);
+			double startSeconds = positive(args.optdouble(10, 0.0), "起播时间 startSeconds（秒）");
+			Identifier soundId = id(args, 1);
+			// nil here means all dimensions, not this API family's usual overworld default.
+			Identifier dimension = args.arg(8).isnil() ? null : id(args, 8);
+			LuaSoundAudience audience = LuaSoundAudience.read(args, dimension);
+			UUID target = args.arg(9).isnil() ? null : playerUuid(args, 9);
 			String category = enumToken(args.optjstring(7, "master"), "声音分类",
 					"master", "music", "record", "weather", "block", "hostile", "neutral", "player", "ambient", "voice", "ui");
-			String command = "playsound " + id(args, 1) + " " + category + " " + target + " "
-					+ coordinate(args, 2) + " " + coordinate(args, 3) + " " + coordinate(args, 4) + " "
-					+ positive(args.optdouble(5, 1.0), "音量") + " " + positive(args.optdouble(6, 1.0), "音调");
-			return runInDimension(server, optionalDimension(args, 8), command);
+			SoundSource source = java.util.Arrays.stream(SoundSource.values())
+					.filter(value -> value.getName().equals(category)).findFirst().orElseThrow();
+			float volume = (float) positive(args.optdouble(5, 1), "音量");
+			float pitch = (float) positive(args.optdouble(6, 1), "音调");
+			if (!Float.isFinite(volume)) throw new LuaError("音量超出可播放的有限数字范围");
+			if (!Float.isFinite(pitch) || pitch > 2) throw new LuaError("音调必须在 0 到 2 之间");
+			long seed = ThreadLocalRandom.current().nextLong();
+			return onServer(server, current -> {
+				if (startSeconds > 0) MinecraftLuaClientApi.requireEnabled(execution, "MC.Sound.play 的非零起播时间");
+				if (dimension != null) level(current, dimension); // Reject unknown explicit dimensions even with no listeners.
+				List<ServerPlayer> candidates = target == null ? current.getPlayerList().getPlayers()
+						: List.of(player(current, target));
+				List<ServerPlayer> recipients = candidates.stream().filter(recipient -> audience.includes(
+						recipient.level().dimension().identifier(), recipient.getX(), recipient.getY(), recipient.getZ(), volume)).toList();
+				if (startSeconds > 0) {
+					// Preflight the complete group; never send half a broadcast to incompatible clients.
+					for (ServerPlayer recipient : recipients) if (!ServerPlayNetworking.canSend(recipient, LuaSeekSound.TYPE))
+						throw new LuaError("从指定秒数播放需要目标玩家安装兼容的 MC Lua IDE 客户端模组：" + recipient.getUUID());
+					if (recipients.isEmpty()) throw new LuaError("没有同维度且在声音播放范围内的目标玩家");
+					for (ServerPlayer recipient : recipients) ServerPlayNetworking.send(recipient, new LuaSeekSound(
+							soundId, source, recipient.level().dimension().identifier(),
+							audience.positional() ? audience.x() : 0, audience.positional() ? audience.y() : 0,
+							audience.positional() ? audience.z() : 0, volume, pitch, startSeconds, seed, !audience.positional()));
+				} else {
+					Holder<SoundEvent> event = Holder.direct(SoundEvent.createVariableRangeEvent(soundId));
+					for (ServerPlayer recipient : recipients) {
+						if (audience.positional()) recipient.connection.send(new ClientboundSoundPacket(event, source,
+								audience.x(), audience.y(), audience.z(), volume, pitch, seed));
+						else {
+							// Vanilla entity-attached sound follows this listener when they move;
+							// broadcasting a fixed origin or inflating volume would fade/change loudness.
+							recipient.connection.send(new ClientboundSoundEntityPacket(event, source, recipient, volume, pitch, seed));
+						}
+					}
+				}
+				return LuaValue.TRUE;
+			});
 		});
 		bind(api, "stop", args -> {
 			String category = args.arg(3).isnil() ? "*" : enumToken(args.checkjstring(3), "声音分类",
@@ -427,8 +516,29 @@ final class MinecraftLuaControlApi {
 		bind(api, "create", args -> runCommand(server, "team add " + scoreName(args, 1)
 				+ (args.arg(2).isnil() ? "" : " " + LuaTextComponentCodec.commandJson(server, args.arg(2)))));
 		bind(api, "remove", args -> runCommand(server, "team remove " + scoreName(args, 1)));
-		bind(api, "join", args -> runCommand(server, "team join " + scoreName(args, 1) + " " + scoreHolder(args.checkjstring(2))));
-		bind(api, "leave", args -> runCommand(server, "team leave " + scoreHolder(args.checkjstring(1))));
+		bind(api, "join", args -> {
+			String name = scoreName(args, 1), holder = scoreHolder(args.checkjstring(2));
+			return onServer(server, current -> {
+				var scoreboard = current.getScoreboard();
+				var team = scoreboard.getPlayerTeam(name);
+				if (team == null) throw new LuaError("队伍不存在：" + name);
+				scoreboard.addPlayerToTeam(teamHolder(current, holder), team);
+				return LuaValue.TRUE;
+			});
+		});
+		bind(api, "leave", args -> {
+			String holder = scoreHolder(args.checkjstring(1));
+			return onServer(server, current -> LuaValue.valueOf(
+					current.getScoreboard().removePlayerFromTeam(teamHolder(current, holder))));
+		});
+		bind(api, "has", args -> {
+			String name = scoreName(args, 1), holder = scoreHolder(args.checkjstring(2));
+			return onServer(server, current -> {
+				var scoreboard = current.getScoreboard();
+				var team = scoreboard.getPlayerTeam(name);
+				return LuaValue.valueOf(team != null && scoreboard.getPlayersTeam(teamHolder(current, holder)) == team);
+			});
+		});
 		bind(api, "color", args -> teamModify(server, args, "color", safeToken(args.checkjstring(2), "颜色")));
 		bind(api, "friendlyFire", args -> teamModify(server, args, "friendlyFire", Boolean.toString(args.checkboolean(2))));
 		bind(api, "prefix", args -> teamModify(server, args, "prefix", LuaTextComponentCodec.commandJson(server, args.arg(2))));
@@ -440,7 +550,8 @@ final class MinecraftLuaControlApi {
 		LuaTable api = new LuaTable();
 		bind(api, "names", args -> registryTable(BuiltInRegistries.GAME_RULE));
 		bind(api, "set", args -> runInDimension(server, optionalDimension(args, 3), "gamerule "
-				+ safeToken(args.checkjstring(1), "游戏规则") + " " + safeToken(args.checkjstring(2), "规则值")));
+				+ safeToken(args.checkjstring(1), "游戏规则") + " "
+				+ safeToken(args.arg(2).isboolean() ? Boolean.toString(args.checkboolean(2)) : args.checkjstring(2), "规则值")));
 		return api;
 	}
 
@@ -483,7 +594,143 @@ final class MinecraftLuaControlApi {
 		LuaTable api = new LuaTable();
 		bind(api, "give", args -> runCommand(server, "recipe give " + playerTarget(server, args, 1) + " " + id(args, 2)));
 		bind(api, "take", args -> runCommand(server, "recipe take " + playerTarget(server, args, 1) + " " + id(args, 2)));
+		bind(api, "forItem", args -> recipeQuery(server, id(args, 1)));
+		bind(api, "fromGrid", args -> recipeFromGrid(server, args.checktable(1)));
+		bind(api, "usingItem", args -> recipeFromGrid(server, args.checktable(1)));
 		return api;
+	}
+
+	private static LuaTable recipeQuery(MinecraftServer server, Identifier itemId) {
+		return onServer(server, current -> {
+			Item item = BuiltInRegistries.ITEM.getOptional(itemId)
+					.orElseThrow(() -> new LuaError("未知物品 ID：" + itemId));
+			var displayContext = SlotDisplayContext.fromLevel(current.overworld());
+			LuaTable results = new LuaTable();
+			int index = 1;
+			for (RecipeHolder<?> holder : current.getRecipeManager().getRecipes().stream()
+					.sorted((left, right) -> left.id().identifier().toString()
+							.compareTo(right.id().identifier().toString())).toList()) {
+				var recipe = holder.value();
+				if (recipe.getType() != RecipeType.CRAFTING) continue;
+				LuaTable outputs = new LuaTable();
+				int outputIndex = 1;
+				boolean producesItem = false;
+				for (var display : recipe.display()) {
+					try {
+						for (ItemStack stack : display.result().resolveForStacks(displayContext)) {
+							if (stack.isEmpty()) continue;
+							if (stack.getItem() == item) producesItem = true;
+							outputs.set(outputIndex++, LuaItemStackCodec.toLua(current, stack));
+						}
+					} catch (RuntimeException ignored) {
+						// A modded or dynamic display may not resolve to a fixed ItemStack.
+					}
+				}
+				if (!producesItem) continue;
+				LuaTable entry = new LuaTable();
+				entry.set("id", holder.id().identifier().toString());
+				entry.set("type", BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType()).toString());
+				entry.set("group", recipe.group());
+				entry.set("special", LuaValue.valueOf(recipe.isSpecial()));
+				entry.set("outputs", outputs);
+				entry.set("result", outputs.get(1));
+				LuaTable ingredientGrid = recipeIngredientGrid(recipe);
+				entry.set("ingredients", ingredientGrid);
+				LuaTable exampleGrid = new LuaTable();
+				for (int slot = 1; slot <= 9; slot++) {
+					LuaValue choice = ingredientGrid.get(slot).get(1);
+					exampleGrid.set(slot, choice.isnil() ? "" : choice.tojstring());
+				}
+				entry.set("grid", exampleGrid);
+				String craftingMode = recipe instanceof ShapedRecipe ? "shaped"
+						: recipe instanceof ShapelessRecipe ? "shapeless" : "other";
+				entry.set("craftingMode", craftingMode);
+				entry.set("shaped", LuaValue.valueOf(recipe instanceof ShapedRecipe));
+				entry.set("shapeless", LuaValue.valueOf(recipe instanceof ShapelessRecipe));
+				entry.set("ordered", LuaValue.valueOf(recipe instanceof ShapedRecipe));
+				entry.set("unordered", LuaValue.valueOf(recipe instanceof ShapelessRecipe));
+				if (recipe instanceof ShapedRecipe shaped) {
+					entry.set("width", shaped.getWidth());
+					entry.set("height", shaped.getHeight());
+				}
+				results.set(index++, entry);
+			}
+			return results;
+		});
+	}
+
+	private static LuaValue recipeFromGrid(MinecraftServer server, LuaTable grid) {
+		return onServer(server, current -> {
+			LuaValue key = LuaValue.NIL;
+			while (true) {
+				Varargs next = grid.next(key);
+				key = next.arg1();
+				if (key.isnil()) break;
+				if (!key.isint() || key.checkint() < 1 || key.checkint() > 9) {
+					throw new LuaError("合成格子下标必须为 1～9");
+				}
+			}
+			List<ItemStack> slots = new ArrayList<>(9);
+			for (int slot = 1; slot <= 9; slot++) {
+				LuaValue value = grid.get(slot);
+				if (value.isnil()) {
+					slots.add(ItemStack.EMPTY);
+					continue;
+				}
+				if (!value.isstring()) throw new LuaError("第 " + slot + " 格应填写物品 ID 字符串，空格填 nil");
+				String raw = value.checkjstring().trim();
+				if (raw.isEmpty() || raw.equals("air") || raw.equals("minecraft:air")) {
+					slots.add(ItemStack.EMPTY);
+					continue;
+				}
+				Identifier itemId = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
+				if (itemId == null) throw new LuaError("第 " + slot + " 格的物品 ID 无效：" + raw);
+				Item item = BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
+				if (item == null) throw new LuaError("第 " + slot + " 格的物品 ID 不存在：" + raw);
+				slots.add(new ItemStack(item));
+			}
+			CraftingInput input = CraftingInput.of(3, 3, slots);
+			if (input.isEmpty()) return LuaValue.NIL;
+			var match = current.getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, current.overworld());
+			if (match.isEmpty()) return LuaValue.NIL;
+			RecipeHolder<CraftingRecipe> holder = match.get();
+			ItemStack output = holder.value().assemble(input);
+			if (output.isEmpty()) return LuaValue.NIL;
+			LuaTable result = LuaItemStackCodec.toLua(current, output);
+			result.set("recipeId", holder.id().identifier().toString());
+			result.set("ordered", LuaValue.valueOf(holder.value() instanceof ShapedRecipe));
+			result.set("unordered", LuaValue.valueOf(holder.value() instanceof ShapelessRecipe));
+			return result;
+		});
+	}
+
+	private static LuaTable recipeIngredientGrid(Recipe<?> recipe) {
+		LuaTable grid = new LuaTable();
+		for (int slot = 1; slot <= 9; slot++) grid.set(slot, new LuaTable());
+		if (recipe instanceof ShapedRecipe shaped) {
+			var pattern = shaped.getIngredients();
+			for (int row = 0; row < shaped.getHeight() && row < 3; row++) {
+				for (int column = 0; column < shaped.getWidth() && column < 3; column++) {
+					int patternIndex = row * shaped.getWidth() + column;
+					if (patternIndex < pattern.size() && pattern.get(patternIndex).isPresent()) {
+						grid.set(row * 3 + column + 1,
+								recipeIngredientChoices(pattern.get(patternIndex).get()));
+					}
+				}
+			}
+		} else {
+			var ingredients = recipe.placementInfo().ingredients();
+			for (int index = 0; index < Math.min(9, ingredients.size()); index++) {
+				grid.set(index + 1, recipeIngredientChoices(ingredients.get(index)));
+			}
+		}
+		return grid;
+	}
+
+	private static LuaTable recipeIngredientChoices(Ingredient ingredient) {
+		return stringTable(ingredient.items()
+				.map(value -> BuiltInRegistries.ITEM.getKey(value.value()).toString())
+				.sorted().toList());
 	}
 
 	private static LuaTable lootApi(MinecraftServer server) {
@@ -606,18 +853,20 @@ final class MinecraftLuaControlApi {
 		Identifier fromId = replaceOnly ? id(args, 7) : null;
 		Identifier toId = id(args, replaceOnly ? 8 : 7);
 		Identifier dimension = optionalDimension(args, replaceOnly ? 9 : 8);
-		return onServer(server, current -> {
+		return onServerBulk(server, current -> {
 			ServerLevel level = level(current, dimension);
 			var toBlock = BuiltInRegistries.BLOCK.getOptional(toId)
 					.orElseThrow(() -> new LuaError("未知方块：" + toId));
 			var fromBlock = replaceOnly ? BuiltInRegistries.BLOCK.getOptional(fromId)
 					.orElseThrow(() -> new LuaError("未知方块：" + fromId)) : null;
+			int minX=Math.min(x1,x2), minY=Math.min(y1,y2), minZ=Math.min(z1,z2);
+			int maxX=Math.max(x1,x2), maxY=Math.max(y1,y2), maxZ=Math.max(z1,z2);
+			validateBlockBox(level,minX,minY,minZ,maxX,maxY,maxZ,"填充");
 			long changed=0;
-			for(long xx=Math.min(x1,x2); xx<=Math.max(x1,x2); xx++)
-			for(long yy=Math.min(y1,y2); yy<=Math.max(y1,y2); yy++)
-			for(long zz=Math.min(z1,z2); zz<=Math.max(z1,z2); zz++) {
+			for(long xx=minX; xx<=maxX; xx++)
+			for(long yy=minY; yy<=maxY; yy++)
+			for(long zz=minZ; zz<=maxZ; zz++) {
 				BlockPos pos=new BlockPos((int)xx,(int)yy,(int)zz);
-				if(!level.isInWorldBounds(pos)) throw new LuaError("填充区域超出世界边界：" + pos.toShortString());
 				if(replaceOnly && level.getBlockState(pos).getBlock()!=fromBlock) continue;
 				if(level.setBlockAndUpdate(pos,toBlock.defaultBlockState())) changed++;
 			}
@@ -630,10 +879,15 @@ final class MinecraftLuaControlApi {
 		int x2=args.checkint(4), y2=args.checkint(5), z2=args.checkint(6);
 		int toX=args.checkint(7), toY=args.checkint(8), toZ=args.checkint(9);
 		Identifier dimension=optionalDimension(args,10);
-		return onServer(server,current -> {
+		return onServerBulk(server,current -> {
 			ServerLevel level=level(current,dimension);
 			int minX=Math.min(x1,x2), minY=Math.min(y1,y2), minZ=Math.min(z1,z2);
 			int maxX=Math.max(x1,x2), maxY=Math.max(y1,y2), maxZ=Math.max(z1,z2);
+			validateBlockBox(level,minX,minY,minZ,maxX,maxY,maxZ,"复制源");
+			long targetMaxX=(long)toX+(maxX-minX), targetMaxY=(long)toY+(maxY-minY), targetMaxZ=(long)toZ+(maxZ-minZ);
+			if(targetMaxX>Integer.MAX_VALUE||targetMaxY>Integer.MAX_VALUE||targetMaxZ>Integer.MAX_VALUE)
+				throw new LuaError("复制目标坐标超出整数范围");
+			validateBlockBox(level,toX,toY,toZ,(int)targetMaxX,(int)targetMaxY,(int)targetMaxZ,"复制目标");
 			long volume=((long)maxX-minX+1)*((long)maxY-minY+1)*((long)maxZ-minZ+1);
 			List<CloneCell> cells=new ArrayList<>((int)Math.min(volume,65536L));
 			for(long xx=minX;xx<=maxX;xx++) for(long yy=minY;yy<=maxY;yy++) for(long zz=minZ;zz<=maxZ;zz++) {
@@ -665,11 +919,95 @@ final class MinecraftLuaControlApi {
 
 	private record CloneCell(BlockPos target, BlockState state, CompoundTag blockEntityTag) {}
 
+	private static void validateBlockBox(ServerLevel level, int minX, int minY, int minZ,
+			int maxX, int maxY, int maxZ, String label) {
+		BlockPos minimum = new BlockPos(minX, minY, minZ);
+		BlockPos maximum = new BlockPos(maxX, maxY, maxZ);
+		if (!level.isInWorldBounds(minimum) || !level.isInWorldBounds(maximum)) {
+			throw new LuaError(label + "区域超出世界边界；操作尚未修改任何方块");
+		}
+		// Preflight every intersecting chunk before touching either region. Never force-load chunks.
+		for (int chunkX = minX >> 4; chunkX <= (maxX >> 4); chunkX++) {
+			for (int chunkZ = minZ >> 4; chunkZ <= (maxZ >> 4); chunkZ++) {
+				if (!level.hasChunkAt(new BlockPos(chunkX << 4, minY, chunkZ << 4))) {
+					throw new LuaRecoverableError(label + "区域区块尚未加载：" + chunkX + ", " + chunkZ
+							+ "；操作尚未修改任何方块");
+				}
+			}
+		}
+	}
+
 	private static void applyEntityComponents(MinecraftServer server, Entity entity, LuaValue components) {
-		if(components==null || components.isnil()) return;
-		DataComponentPatch patch=LuaItemStackCodec.decodePatch(server.registryAccess(),components);
-		for(var entry:patch.entrySet()) {
-			if(entry.getValue().isPresent()) setEntityComponent(entity,entry.getKey(),entry.getValue().get());
+		if (components == null || components.isnil()) return;
+		String rawConfig = components.istable()
+				? LuaItemStackCodec.objectToJson(components).toString()
+				: components.checkjstring();
+		Identifier entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+		LuaComponentEditorCatalog.validate(server, "entity\n" + entityId, rawConfig);
+		if (components.isstring()) components = LuaItemStackCodec.jsonObjectToLua(rawConfig);
+		LuaValue patchValue = components;
+		if (components.istable()) {
+			LuaTable patchTable = new LuaTable();
+			for (LuaValue key : components.checktable().keys()) {
+				String name = key.checkjstring();
+				if (name.equals(LuaEntityAttachments.FIELD)) continue;
+				if (name.indexOf(':') > 0) patchTable.set(name, components.get(key));
+				else if (!Set.of("health", "equipment", "glowing", "invulnerable", "noGravity").contains(name)
+						&& !LuaDisplayEntityConfig.supports(entity, name) && !LuaItemEntityConfig.supports(entity, name))
+					throw new LuaError("未知实体配置字段：" + name);
+			}
+			patchValue = patchTable;
+		}
+		DataComponentPatch patch = LuaItemStackCodec.decodePatch(server.registryAccess(), patchValue);
+		JsonObject entityConfig = JsonParser.parseString(rawConfig).getAsJsonObject();
+		if (entityConfig.has(LuaEntityAttachments.FIELD))
+			LuaEntityAttachments.apply(server, entity, entityConfig.get(LuaEntityAttachments.FIELD));
+		for (var entry : patch.entrySet()) {
+			if (entry.getValue().isPresent()) setEntityComponent(entity, entry.getKey(), entry.getValue().get());
+		}
+		if (!components.istable()) return;
+		LuaValue health = components.get("health");
+		if (!health.isnil()) {
+			if (!(entity instanceof LivingEntity living)) throw new LuaError("只有有生命实体（LivingEntity，包括玩家）可以设置生命值");
+			double value = health.checkdouble();
+			if (!Double.isFinite(value) || value < 0 || value > living.getMaxHealth())
+				throw new LuaError("生命值须在 0 到 " + living.getMaxHealth() + " 之间");
+			living.setHealth((float) value);
+		}
+		LuaValue equipment = components.get("equipment");
+		if (!equipment.isnil()) {
+			if (!(entity instanceof LivingEntity living) || !equipment.istable())
+				throw new LuaError("只有有生命实体（LivingEntity，包括玩家）可以设置穿戴装备表");
+			for (LuaValue slotKey : equipment.checktable().keys()) {
+				String slotName = slotKey.checkjstring();
+				if (!Set.of("mainhand", "offhand", "head", "chest", "legs", "feet", "body", "saddle").contains(slotName))
+					throw new LuaError("未知装备槽位：" + slotName);
+				LuaValue stack = equipment.get(slotKey);
+				if (!stack.istable()) throw new LuaError("装备 " + slotName + " 必须是物品堆表");
+				ItemStack item = LuaItemStackCodec.create(server, stack.get("id"), stack.get("count"),
+						stack.get("components"), 999);
+				living.setItemSlot(EquipmentSlot.byName(slotName), item);
+			}
+		}
+		LuaValue glowing = components.get("glowing");
+		if (!glowing.isnil()) entity.setGlowingTag(glowing.checkboolean());
+		LuaValue invulnerable = components.get("invulnerable");
+		if (!invulnerable.isnil()) entity.setInvulnerable(invulnerable.checkboolean());
+		LuaValue noGravity = components.get("noGravity");
+		if (!noGravity.isnil()) entity.setNoGravity(noGravity.checkboolean());
+		if (LuaDisplayEntityConfig.isDisplay(entity)) {
+			JsonObject displayValues = new JsonObject();
+			for (var field : JsonParser.parseString(rawConfig).getAsJsonObject().entrySet()) {
+				if (LuaDisplayEntityConfig.supports(entity, field.getKey()))
+					displayValues.add(field.getKey(), field.getValue().deepCopy());
+			}
+			LuaDisplayEntityConfig.apply(server, entity, displayValues);
+		}
+		if (entity instanceof net.minecraft.world.entity.item.ItemEntity) {
+			JsonObject itemValues = new JsonObject();
+			for (var field : JsonParser.parseString(rawConfig).getAsJsonObject().entrySet())
+				if (LuaItemEntityConfig.supports(entity, field.getKey())) itemValues.add(field.getKey(), field.getValue().deepCopy());
+			LuaItemEntityConfig.apply(server, entity, itemValues);
 		}
 	}
 
@@ -739,6 +1077,9 @@ final class MinecraftLuaControlApi {
 		result.set("glowing", LuaValue.valueOf(entity.isCurrentlyGlowing()));
 		result.set("invulnerable", LuaValue.valueOf(entity.isInvulnerable()));
 		result.set("gravity", LuaValue.valueOf(!entity.isNoGravity()));
+		Entity vehicle = entity.getVehicle();
+		result.set("vehicleUuid", vehicle == null ? LuaValue.NIL : LuaValue.valueOf(vehicle.getStringUUID()));
+		result.set("passengerUuids", stringTable(entity.getPassengers().stream().map(Entity::getStringUUID).toList()));
 		if (entity instanceof LivingEntity living) {
 			result.set("health", living.getHealth());
 			result.set("maxHealth", living.getMaxHealth());
@@ -756,7 +1097,7 @@ final class MinecraftLuaControlApi {
 
 	private static Entity requireEntity(MinecraftServer server, UUID uuid) {
 		Entity entity = findEntity(server, uuid);
-		if (entity == null) throw new LuaError("实体不存在或尚未加载：" + uuid);
+		if (entity == null) throw new LuaRecoverableError("实体不存在或尚未加载：" + uuid);
 		return entity;
 	}
 
@@ -780,6 +1121,12 @@ final class MinecraftLuaControlApi {
 
 	private static LuaTable registryTable(Registry<?> registry) {
 		return stringTable(registry.keySet().stream().map(Identifier::toString).sorted().toList());
+	}
+
+	private static LuaValue randomRegistryId(Registry<?> registry) {
+		List<Identifier> ids = registry.keySet().stream().sorted().toList();
+		if (ids.isEmpty()) return LuaValue.NIL;
+		return LuaValue.valueOf(ids.get(ThreadLocalRandom.current().nextInt(ids.size())).toString());
 	}
 
 	private static LuaTable stringTable(List<String> values) {
@@ -835,7 +1182,7 @@ final class MinecraftLuaControlApi {
 
 	private static ServerPlayer player(MinecraftServer server, UUID uuid) {
 		ServerPlayer player = server.getPlayerList().getPlayer(uuid);
-		if (player == null) throw new LuaError("玩家不在线或 UUID 不存在：" + uuid);
+		if (player == null) throw new LuaRecoverableError("玩家不在线或 UUID 不存在：" + uuid);
 		return player;
 	}
 
@@ -869,6 +1216,18 @@ final class MinecraftLuaControlApi {
 		} catch (IllegalArgumentException ignored) {
 			return scoreName(LuaValue.varargsOf(new LuaValue[]{LuaValue.valueOf(holder)}), 1);
 		}
+	}
+
+	/** Vanilla uses player names but UUID strings for non-player entities. Server thread only. */
+	private static String teamHolder(MinecraftServer server, String holder) {
+		UUID uuid;
+		try { uuid = UUID.fromString(holder); }
+		catch (IllegalArgumentException ignored) { return holder; }
+		ServerPlayer player = server.getPlayerList().getPlayer(uuid);
+		if (player != null) return player.getScoreboardName();
+		Entity entity = findEntity(server, uuid);
+		// Retain UUID-based membership for unloaded non-player entities and virtual holders.
+		return entity == null ? uuid.toString() : entity.getScoreboardName();
 	}
 
 	private static String enumToken(String value, String label, String... allowed) {
@@ -928,6 +1287,21 @@ final class MinecraftLuaControlApi {
 		return await(server.submit(() -> action.apply(server)), "等待 Minecraft 服务端响应超时");
 	}
 
+	private static <T> T onServerBulk(MinecraftServer server, Function<MinecraftServer, T> action) {
+		if (server.isSameThread()) return action.apply(server);
+		CompletableFuture<T> future = server.submit(() -> action.apply(server));
+		try {
+			return future.get(BULK_BLOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+		} catch (InterruptedException error) {
+			Thread.currentThread().interrupt();
+			throw new LuaError("脚本已停止");
+		} catch (TimeoutException error) {
+			throw new LuaError("批量方块操作超过 120 秒；服务端仍可能正在完成该操作");
+		} catch (ExecutionException error) {
+			throw LuaRecoverableError.fromServer(error.getCause(), message(error.getCause()));
+		}
+	}
+
 	private static <T> T await(CompletableFuture<T> future, String timeoutMessage) {
 		try {
 			return future.get(API_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -937,7 +1311,7 @@ final class MinecraftLuaControlApi {
 		} catch (TimeoutException error) {
 			throw new LuaError(timeoutMessage);
 		} catch (ExecutionException error) {
-			throw new LuaError(message(error.getCause()));
+			throw LuaRecoverableError.fromServer(error.getCause(), message(error.getCause()));
 		}
 	}
 

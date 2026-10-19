@@ -19,23 +19,51 @@ final class LuaResourceAssetCatalog {
 	static final String TOOLTIP_STYLE = "mc_lua_ide:tooltip_style_asset";
 	static final String TEXTURE = "mc_lua_ide:texture_asset";
 	static final String FONT = "mc_lua_ide:font_asset";
+	static final String MODEL = "mc_lua_ide:model_asset";
+	static final String SOUND_FILE = "mc_lua_ide:sound_asset";
+	static final String PARTICLE = "mc_lua_ide:particle_asset";
+	static final String BLOCKSTATE = "mc_lua_ide:blockstate_asset";
+	static final String ATLAS = "mc_lua_ide:atlas_asset";
 	static final String ATTRIBUTE_MODIFIER = "mc_lua_ide:attribute_modifier_id";
+	private static final Map<String, List<LuaInsertCatalog.Entry>> CACHE = new LinkedHashMap<>();
+	private static List<LuaResourcePackWorkspace.Entry> workspaceFiles;
+	static synchronized void invalidate() { CACHE.clear(); workspaceFiles = null; }
+	static synchronized List<LuaResourcePackWorkspace.Entry> workspaceFiles() {
+		if (workspaceFiles == null) {
+			try { workspaceFiles = LuaResourcePackWorkspace.list(); }
+			catch (java.io.IOException error) {
+				wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.LOGGER.warn("Could not index resourcepack workspace IDs", error);
+				workspaceFiles = List.of();
+			}
+		}
+		return workspaceFiles;
+	}
 
 	private LuaResourceAssetCatalog() {
 	}
 
 	/** Returns {@code null} when the identifier names a normal server registry. */
-	static List<LuaInsertCatalog.Entry> load(String catalogId, Minecraft minecraft) {
+	static synchronized List<LuaInsertCatalog.Entry> load(String catalogId, Minecraft minecraft) {
+		if (!java.util.Set.of(ITEM_MODEL, EQUIPMENT, TOOLTIP_STYLE, TEXTURE, FONT, MODEL, SOUND_FILE,
+				PARTICLE, BLOCKSTATE, ATLAS, ATTRIBUTE_MODIFIER).contains(catalogId)) return null;
+		if (CACHE.containsKey(catalogId)) return CACHE.get(catalogId);
 		ResourceManager resources = minecraft.getResourceManager();
-		return switch (catalogId) {
+		List<LuaInsertCatalog.Entry> result = switch (catalogId) {
 			case ITEM_MODEL -> itemModels(resources);
 			case EQUIPMENT -> scan(resources, "equipment", ".json", "装备模型资源");
 			case TOOLTIP_STYLE -> tooltipStyles(resources);
 			case TEXTURE -> scan(resources, "textures", ".png", "纹理资源");
 			case FONT -> scan(resources, "font", ".json", "字体资源");
+			case MODEL -> scan(resources, "models", ".json", "模型资源（不是物品注册 ID）");
+			case SOUND_FILE -> scan(resources, "sounds", ".ogg", "音频文件资源（不是 sounds.json 音效事件 ID）");
+			case PARTICLE -> scan(resources, "particles", ".json", "粒子贴图定义（不是粒子类型注册 ID）");
+			case BLOCKSTATE -> scan(resources, "blockstates", ".json", "方块状态模型映射（不是方块注册 ID）");
+			case ATLAS -> scan(resources, "atlases", ".json", "纹理图集定义");
 			case ATTRIBUTE_MODIFIER -> attributeModifiers();
 			default -> null;
 		};
+		CACHE.put(catalogId, result);
+		return result;
 	}
 
 	static List<LuaRegistryCatalogData.RegistryType> types(Minecraft minecraft) {
@@ -45,6 +73,11 @@ final class LuaResourceAssetCatalog {
 		addType(result, minecraft, TOOLTIP_STYLE, "提示框样式 ID", "成对的 tooltip/*_background 与 *_frame 精灵");
 		addType(result, minecraft, TEXTURE, "纹理资源 ID", "当前客户端资源包与 Mod 的全部 PNG 纹理");
 		addType(result, minecraft, FONT, "字体资源 ID", "当前客户端资源包与 Mod 的 assets/*/font/*.json");
+		addType(result, minecraft, MODEL, "模型资源 ID", "assets/*/models/*.json，包括物品和方块模型");
+		addType(result, minecraft, SOUND_FILE, "OGG 音频文件 ID", "assets/*/sounds/*.ogg，不等同于音效事件 ID");
+		addType(result, minecraft, PARTICLE, "粒子贴图定义 ID", "assets/*/particles/*.json，不创建新的粒子类型");
+		addType(result, minecraft, BLOCKSTATE, "方块状态模型 ID", "assets/*/blockstates/*.json，不创建新的方块");
+		addType(result, minecraft, ATLAS, "纹理图集 ID", "assets/*/atlases/*.json");
 		addType(result, minecraft, ATTRIBUTE_MODIFIER, "属性修饰符 ID",
 				"从全部原版与 Mod 物品的默认组件收集到的属性修饰符 ID");
 		return List.copyOf(result);
@@ -110,16 +143,65 @@ final class LuaResourceAssetCatalog {
 			String value = resource.getNamespace() + ":" + logicalPath;
 			result.putIfAbsent(value, entry(value, resource.getNamespace(), logicalPath, description));
 		}
+		for (var file : workspaceFiles()) {
+			if (file.directory()) continue;
+			Identifier resource = wiki.ica.xiaomiao.mcluaide.editor.PackResourceId.workspaceFile(file.path(), "assets");
+			if (resource == null) continue;
+			String value = wiki.ica.xiaomiao.mcluaide.editor.PackResourceId.logical(resource, directory, suffix, false);
+			if (value != null) result.putIfAbsent(value, entry(value, resource.getNamespace(), Identifier.parse(value).getPath(),
+					description + " · 编辑目录中的定义，可能尚未启用或重载"));
+		}
+		return sorted(result);
+	}
+
+	static synchronized List<LuaInsertCatalog.Entry> sounds(Minecraft minecraft) {
+		String key = "minecraft:sound_event";
+		if (CACHE.containsKey(key)) return CACHE.get(key);
+		Map<String, LuaInsertCatalog.Entry> result = new LinkedHashMap<>();
+		ResourceManager manager = minecraft.getResourceManager();
+		// Root files cannot be enumerated with an empty listResources directory in this game version.
+		for (String namespace : manager.getNamespaces()) {
+			Identifier id = Identifier.fromNamespaceAndPath(namespace, "sounds.json");
+			for (var resource : manager.getResourceStack(id)) {
+				try (var reader = resource.openAsReader()) {
+					addSounds(result, namespace, com.google.gson.JsonParser.parseReader(reader).getAsJsonObject(), "已加载客户端音效定义");
+				} catch (Exception error) {
+					wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.LOGGER.warn("Could not read sound IDs from {}", id, error);
+				}
+			}
+		}
+		for (var file : workspaceFiles()) {
+			if (file.directory()) continue;
+			Identifier id = wiki.ica.xiaomiao.mcluaide.editor.PackResourceId.workspaceFile(file.path(), "assets");
+			if (id == null || !id.getPath().equals("sounds.json")) continue;
+			try {
+				addSounds(result, id.getNamespace(), com.google.gson.JsonParser.parseString(LuaResourcePackWorkspace.readText(file.path())).getAsJsonObject(),
+						"编辑目录中的音效定义，可能尚未启用或重载资源包");
+			} catch (Exception error) {
+				wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.LOGGER.warn("Could not read sound IDs from workspace {}", file.path(), error);
+			}
+		}
+		List<LuaInsertCatalog.Entry> entries = sorted(result); CACHE.put(key, entries); return entries;
+	}
+	static void addSounds(Map<String, LuaInsertCatalog.Entry> result, String namespace, com.google.gson.JsonObject json, String description) {
+		for (String name : json.keySet()) {
+			Identifier id = Identifier.tryParse(namespace + ":" + name);
+			if (id != null) result.putIfAbsent(id.toString(), entry(id.toString(), namespace, name, description));
+		}
+	}
+	static List<LuaInsertCatalog.Entry> merge(List<LuaInsertCatalog.Entry> loaded, List<LuaInsertCatalog.Entry> extra) {
+		Map<String, LuaInsertCatalog.Entry> result = new LinkedHashMap<>();
+		loaded.forEach(entry -> result.put(entry.value(), entry));
+		extra.forEach(entry -> result.putIfAbsent(entry.value(), entry));
 		return sorted(result);
 	}
 
 	private static List<LuaInsertCatalog.Entry> tooltipStyles(ResourceManager resources) {
 		Map<String, Integer> masks = new LinkedHashMap<>();
 		String directory = "textures/gui/sprites/tooltip";
-		String prefix = directory + "/";
-		for (Identifier resource : resources.listResources(directory,
-				id -> id.getPath().startsWith(prefix) && id.getPath().endsWith(".png")).keySet()) {
-			String relative = resource.getPath().substring(prefix.length(), resource.getPath().length() - 4);
+		for (LuaInsertCatalog.Entry resource : scan(resources, directory, ".png", "提示框精灵")) {
+			Identifier resourceId = Identifier.parse(resource.value());
+			String relative = resourceId.getPath();
 			int bit;
 			String style;
 			if (relative.endsWith("_background")) {
@@ -132,7 +214,7 @@ final class LuaResourceAssetCatalog {
 				continue;
 			}
 			if (style.isBlank()) continue;
-			String value = resource.getNamespace() + ":" + style;
+			String value = resourceId.getNamespace() + ":" + style;
 			masks.merge(value, bit, (left, right) -> left | right);
 		}
 		Map<String, LuaInsertCatalog.Entry> result = new LinkedHashMap<>();

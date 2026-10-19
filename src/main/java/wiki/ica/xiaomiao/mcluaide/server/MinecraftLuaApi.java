@@ -1,10 +1,13 @@
 package wiki.ica.xiaomiao.mcluaide.server;
 
+import com.mojang.serialization.JsonOps;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -13,8 +16,12 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.storage.TagValueInput;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaTable;
@@ -37,6 +44,7 @@ import java.util.function.Function;
 
 /** Curated Minecraft/Fabric API backed exclusively by the authoritative server. */
 final class MinecraftLuaApi {
+	private static final String API_VERSION = "1";
 	private static final int API_TIMEOUT_SECONDS = 10;
 	private static final Identifier DEFAULT_DIMENSION = Identifier.withDefaultNamespace("overworld");
 
@@ -58,15 +66,22 @@ final class MinecraftLuaApi {
 		setNamespace(mc, "Event", eventApi(execution));
 		MinecraftLuaUiApi.install(mc, server, execution);
 		MinecraftLuaClientApi.install(mc, server, execution);
-		MinecraftLuaControlApi.install(mc, server);
-		MinecraftLuaInteractionApi.install(mc, server);
+		MinecraftLuaControlApi.install(mc, server, execution);
+		MinecraftLuaInteractionApi.install(mc, server, execution);
+		LuaLocalizedNames.install(mc, server);
+		LuaManagedPackApi.install(mc, server);
 		applyLimits(mc, limits);
 		MinecraftLuaFileApi.install(mc, execution);
 		MinecraftLuaNetworkApi.install(mc, limits);
 		setNamespace(mc, "Limits", limitsApi(limits));
-		bind(mc, "apiVersion", args -> LuaValue.valueOf("13"));
+		bind(mc, "sleep", args -> {
+			execution.sleepMilliseconds(args.checkint(1));
+			return LuaValue.TRUE;
+		});
+		bind(mc, "apiVersion", args -> LuaValue.valueOf(API_VERSION));
 		globals.set("MC", mc);
 		McLuaIdeApi.installInto(globals, mc, server, execution.name());
+		LuaRuntimeWarnings.install(mc, globals, execution.warnings(), execution::checkRuntime);
 	}
 
 	private static void applyLimits(LuaTable mc, LuaLimits limits) {
@@ -79,16 +94,16 @@ final class MinecraftLuaApi {
 		if (!limits.allowEntityApi()) removeNamespaces(mc, "Entity");
 		if (!limits.allowInventoryApi()) {
 			removeNamespaces(mc, "Item", "Container");
-			removeMethods(mc, "Player", "openBlock", "openCrafting", "openEnderChest", "openAnvil",
+			removeMethods(mc, "Player", "openChest", "menuItem", "setMenuItem", "carried", "setCarried", "openBlock", "openCrafting", "openEnderChest", "openAnvil",
 					"openEnchanting", "openGrindstone", "openLoom", "openCartography",
 					"openStonecutter", "openSmithing", "closeMenu", "menu");
-			removeMethods(mc, "Entity", "equipment", "setEquipment");
+			removeMethods(mc, "Entity", "equipment", "setEquipment", "components");
 		}
 		if (!limits.allowPresentationApi()) removeNamespaces(mc,
 				"Chat", "Sound", "Particle", "Title", "UI", "Client");
 		if (!limits.allowServerApi()) removeNamespaces(mc,
-				"Server", "Game", "Mod", "Score", "Team", "Advancement", "Recipe");
-		if (!limits.allowRegistryApi()) removeNamespaces(mc, "Registry");
+				"Server", "Game", "Mod", "Score", "Team", "Advancement", "Recipe", "Pack");
+		if (!limits.allowRegistryApi()) removeNamespaces(mc, "Registry", "Enchantment");
 	}
 
 	private static LuaTable limitsApi(LuaLimits limits) {
@@ -123,8 +138,14 @@ final class MinecraftLuaApi {
 
 	private static LuaTable eventApi(ServerScriptManager.ScriptExecution execution) {
 		LuaTable api = new LuaTable();
-		bind(api, "on", args -> LuaValue.valueOf(execution.registerEvent(
-				args.checkjstring(1), args.checkfunction(2), args.optint(3, 1))));
+		bind(api, "on", args -> {
+			String eventName = args.checkjstring(1);
+			return LuaValue.valueOf(eventName.equals("interval")
+					? execution.registerInterval(args.optdouble(3, 1000), args.checkfunction(2))
+					: execution.registerEvent(eventName, args.checkfunction(2), args.optint(3, 1)));
+		});
+		bind(api, "onInterval", args -> LuaValue.valueOf(execution.registerInterval(
+				args.checkdouble(1), args.checkfunction(2))));
 		bind(api, "names", args -> {
 			LuaTable names = new LuaTable();
 			for (int index = 0; index < ServerScriptManager.EVENT_NAMES.size(); index++) {
@@ -133,11 +154,18 @@ final class MinecraftLuaApi {
 			return names;
 		});
 		Map<String, String> methods = new LinkedHashMap<>();
+		methods.put("onScriptStarted", "scriptStarted");
+		methods.put("onScriptStopped", "scriptStopped");
 		methods.put("onBlockPlaced", "blockPlaced");
 		methods.put("onBlockBroken", "blockBroken");
 		methods.put("onBlockAttacked", "blockAttacked");
 		methods.put("onBlockUsed", "blockUsed");
 		methods.put("onItemUsed", "itemUsed");
+		methods.put("onContainerClicked", "containerClicked");
+		methods.put("onContainerItemTaken", "containerItemTaken");
+		methods.put("onContainerItemPlaced", "containerItemPlaced");
+		methods.put("onContainerItemToCursor", "containerItemToCursor");
+		methods.put("onInventoryItemToCursor", "inventoryItemToCursor");
 		methods.put("onEntityAttacked", "entityAttacked");
 		methods.put("onEntityUsed", "entityUsed");
 		methods.put("onEntityLoaded", "entityLoaded");
@@ -149,6 +177,7 @@ final class MinecraftLuaApi {
 		methods.put("onEquipmentChanged", "equipmentChanged");
 		methods.put("onPlayerJoined", "playerJoined");
 		methods.put("onPlayerLeft", "playerLeft");
+		methods.put("onPlayerDied", "playerDied");
 		methods.put("onPlayerRespawned", "playerRespawned");
 		methods.put("onPlayerChangedDimension", "playerChangedDimension");
 		methods.put("onEffectAdded", "effectAdded");
@@ -193,6 +222,9 @@ final class MinecraftLuaApi {
 				result.set("y", pos.getY());
 				result.set("z", pos.getZ());
 				result.set("dimension", dimension.toString());
+				LuaTable states = new LuaTable();
+				for (Property<?> property : state.getProperties()) states.set(property.getName(), stateValue(state, property));
+				result.set("states", states);
 				ItemStack blockStack = block.asItem().getDefaultInstance();
 				BlockEntity blockEntity = level.getBlockEntity(pos);
 				if (!blockStack.isEmpty() && blockEntity != null) {
@@ -201,6 +233,7 @@ final class MinecraftLuaApi {
 				LuaTable itemData = LuaItemStackCodec.toLua(current, blockStack);
 				result.set("itemComponents", itemData.get("components"));
 				result.set("itemComponentsJson", itemData.get("componentsJson"));
+				LuaComponentSnapshots.blockEntity(current, blockEntity, result);
 				return result;
 			});
 		});
@@ -230,12 +263,37 @@ final class MinecraftLuaApi {
 			Identifier dimension = optionalDimension(args.arg(5));
 			boolean changed = onServer(server, current -> {
 				ServerLevel level = level(current, dimension);
-				ensureUsablePosition(level, pos);
 				Block block = BuiltInRegistries.BLOCK.getOptional(id)
 						.orElseThrow(() -> new IllegalArgumentException("未知方块：" + id));
+				ensureUsablePosition(level, pos);
+				LuaValue config = args.arg(6);
+				if (config.isstring()) config = LuaItemStackCodec.jsonObjectToLua(config.checkjstring());
+				boolean blockConfig = config.istable() && (config.checktable().keys().length == 0 || !config.get("states").isnil()
+						|| !config.get("blockEntityData").isnil() || !config.get("itemComponents").isnil());
+				BlockState state = block.defaultBlockState();
+				if (blockConfig) {
+				LuaComponentEditorCatalog.validate(current, "block\n" + id,
+						LuaItemStackCodec.objectToJson(config).toString());
+					LuaValue states = config.get("states");
+					if (!states.isnil()) {
+						if (!states.istable()) throw new LuaError("方块 states 必须是属性表");
+						for (LuaValue key : states.checktable().keys()) {
+							String propertyName = key.checkjstring();
+							Property<?> property = block.getStateDefinition().getProperty(propertyName);
+							if (property == null) throw new LuaError("该方块没有状态属性：" + propertyName);
+							state = withStateValue(state, property, states.get(key).checkjstring());
+						}
+					}
+					for (LuaValue key : config.checktable().keys()) {
+						String field = key.checkjstring();
+						if (!field.equals("states") && !field.equals("blockEntityData") && !field.equals("itemComponents"))
+							throw new LuaError("未知方块配置字段：" + field);
+					}
+				}
 				ItemStack blockStack = ItemStack.EMPTY;
-				if (!args.arg(6).isnil()) {
-					if (!block.defaultBlockState().hasBlockEntity()) {
+				LuaValue itemComponents = blockConfig ? config.get("itemComponents") : config;
+				if (!itemComponents.isnil()) {
+					if (!state.hasBlockEntity()) {
 						throw new IllegalArgumentException("该方块没有可接收物品堆组件的方块实体：" + id);
 					}
 					Identifier itemId = BuiltInRegistries.ITEM.getKey(block.asItem());
@@ -243,15 +301,36 @@ final class MinecraftLuaApi {
 						throw new IllegalArgumentException("该方块没有可承载数据组件的物品形式：" + id);
 					}
 					blockStack = LuaItemStackCodec.create(current, LuaValue.valueOf(itemId.toString()),
-							LuaValue.valueOf(1), args.arg(6), 1);
+							LuaValue.valueOf(1), itemComponents, 1);
 				}
-				boolean placed = level.setBlockAndUpdate(pos, block.defaultBlockState());
+				CompoundTag blockEntityData = null;
+				if (blockConfig && !config.get("blockEntityData").isnil()) {
+					if (!state.hasBlockEntity()) throw new LuaError("该方块没有方块实体数据：" + id);
+					var json = LuaItemStackCodec.objectToJson(config.get("blockEntityData"));
+					var tag = JsonOps.INSTANCE.convertTo(NbtOps.INSTANCE, json);
+					if (!(tag instanceof CompoundTag compound)) throw new LuaError("方块实体数据必须是对象");
+					blockEntityData = compound;
+					if (block instanceof EntityBlock entityBlock) {
+						BlockEntity probe = entityBlock.newBlockEntity(pos, state);
+						if (probe != null) probe.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING,
+								current.registryAccess(), blockEntityData));
+					}
+				}
+				boolean placed = level.setBlockAndUpdate(pos, state);
 				if (placed && !blockStack.isEmpty()) {
 					BlockEntity blockEntity = level.getBlockEntity(pos);
 					if (blockEntity == null) {
 						throw new IllegalArgumentException("该方块没有可接收物品堆组件的方块实体：" + id);
 					}
 					blockEntity.applyComponentsFromItemStack(blockStack);
+					blockEntity.setChanged();
+					level.sendBlockUpdated(pos, level.getBlockState(pos), level.getBlockState(pos), 3);
+				}
+				if (placed && blockEntityData != null) {
+					BlockEntity blockEntity = level.getBlockEntity(pos);
+					if (blockEntity == null) throw new LuaError("方块实体未能创建：" + id);
+					blockEntity.loadCustomOnly(TagValueInput.create(ProblemReporter.DISCARDING,
+							current.registryAccess(), blockEntityData));
 					blockEntity.setChanged();
 					level.sendBlockUpdated(pos, level.getBlockState(pos), level.getBlockState(pos), 3);
 				}
@@ -273,8 +352,23 @@ final class MinecraftLuaApi {
 		return api;
 	}
 
+	private static <T extends Comparable<T>> String stateValue(BlockState state, Property<T> property) {
+		return property.getName(state.getValue(property));
+	}
+
+	private static <T extends Comparable<T>> BlockState withStateValue(BlockState state,
+			Property<T> property, String value) {
+		T parsed = property.getValue(value)
+				.orElseThrow(() -> new LuaError("方块状态 " + property.getName() + " 不支持值：" + value));
+		return state.setValue(property, parsed);
+	}
+
 	private static LuaTable itemApi(MinecraftServer server) {
 		LuaTable api = new LuaTable();
+		bind(api, "isOnCooldown", args -> itemCooldown(server, args, LuaItemCooldowns.Action.QUERY));
+		bind(api, "startCooldown", args -> itemCooldown(server, args, LuaItemCooldowns.Action.START));
+		bind(api, "setCooldown", args -> itemCooldown(server, args, LuaItemCooldowns.Action.SET));
+		bind(api, "clearCooldown", args -> itemCooldown(server, args, LuaItemCooldowns.Action.CLEAR));
 		bind(api, "held", args -> {
 			UUID uuid = playerUuid(args, 1);
 			return onServer(server, current -> LuaItemStackCodec.toLua(
@@ -282,18 +376,13 @@ final class MinecraftLuaApi {
 		});
 		bind(api, "count", args -> {
 			UUID uuid = playerUuid(args, 1);
-			Identifier id = identifier(args.checkjstring(2));
 			int count = onServer(server, current -> {
 				ServerPlayer player = player(current, uuid);
-				Item item = BuiltInRegistries.ITEM.getOptional(id)
-						.orElseThrow(() -> new IllegalArgumentException("未知物品：" + id));
-				ItemStack expected = args.arg(3).isnil() ? null : LuaItemStackCodec.create(
-						current, args.arg(2), LuaValue.valueOf(1), args.arg(3), 1);
+				var filter = LuaItemStackCodec.filter(current, args.arg(2), args.arg(3));
 				int total = 0;
 				for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
 					ItemStack stack = player.getInventory().getItem(slot);
-					if (stack.getItem() == item && (expected == null
-							|| LuaItemStackCodec.sameItemAndComponents(stack, expected))) total += stack.getCount();
+					if (filter.matches(stack)) total += stack.getCount();
 				}
 				return total;
 			});
@@ -322,6 +411,20 @@ final class MinecraftLuaApi {
 			return LuaItemStackCodec.toLua(current, stack);
 		}));
 		return api;
+	}
+
+	private static LuaValue itemCooldown(MinecraftServer server, Varargs args, LuaItemCooldowns.Action action) {
+		UUID uuid = playerUuid(args, 1);
+		boolean timed = action == LuaItemCooldowns.Action.START || action == LuaItemCooldowns.Action.SET;
+		Integer ticks = timed ? LuaItemCooldowns.duration(args.arg(3), action == LuaItemCooldowns.Action.START) : null;
+		return onServer(server, current -> {
+			ServerPlayer player = player(current, uuid);
+			var filter = LuaItemStackCodec.filter(current, args.arg(2), args.arg(timed ? 4 : 3));
+			if (action == LuaItemCooldowns.Action.QUERY)
+				return LuaValue.valueOf(LuaItemCooldowns.isOnCooldown(player.getInventory(), player.getCooldowns(), filter));
+			return LuaValue.valueOf(LuaItemCooldowns.change(player.getInventory(), player.getCooldowns(),
+					filter, ticks, action == LuaItemCooldowns.Action.CLEAR));
+		});
 	}
 
 	private static LuaTable playerApi(MinecraftServer server) {
@@ -589,7 +692,7 @@ final class MinecraftLuaApi {
 
 	private static ServerPlayer player(MinecraftServer server, UUID uuid) {
 		ServerPlayer player = server.getPlayerList().getPlayer(uuid);
-		if (player == null) throw new IllegalArgumentException("玩家不在线或 UUID 不存在：" + uuid);
+		if (player == null) throw new LuaRecoverableError("玩家不在线或 UUID 不存在：" + uuid);
 		return player;
 	}
 
@@ -631,7 +734,7 @@ final class MinecraftLuaApi {
 
 	private static void ensureUsablePosition(ServerLevel level, BlockPos pos) {
 		if (!level.isInWorldBounds(pos)) throw new IllegalArgumentException("坐标超出世界边界");
-		if (!level.isLoaded(pos)) throw new IllegalArgumentException("目标区块尚未加载");
+		if (!level.isLoaded(pos)) throw new LuaRecoverableError("目标区块尚未加载：" + pos.toShortString());
 	}
 
 	private static PlayerSnapshot snapshot(ServerPlayer player) {
@@ -658,7 +761,7 @@ final class MinecraftLuaApi {
 		} catch (TimeoutException error) {
 			throw new LuaError(timeoutMessage);
 		} catch (ExecutionException error) {
-			throw new LuaError(message(error.getCause()));
+			throw LuaRecoverableError.fromServer(error.getCause(), message(error.getCause()));
 		}
 	}
 

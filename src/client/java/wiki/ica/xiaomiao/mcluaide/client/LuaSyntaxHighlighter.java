@@ -24,6 +24,11 @@ public final class LuaSyntaxHighlighter {
 			"and", "break", "do", "else", "elseif", "end", "for", "function", "goto", "if", "in",
 			"local", "not", "or", "repeat", "return", "then", "until", "while");
 	private static final Set<String> LITERALS = Set.of("true", "false", "nil");
+	private static final Set<String> FUNCTION_SUBCOMMANDS = Set.of(
+			"as", "at", "if", "unless", "run", "store", "result", "success", "positioned",
+			"rotated", "facing", "anchored", "in", "align", "on", "summon", "entity",
+			"block", "blocks", "score", "matches", "data", "predicate", "biome", "loaded",
+			"give", "clear", "replace", "with", "from", "set", "add", "remove", "list");
 	private static final Set<String> BUILTINS = Set.of(
 			"assert", "collectgarbage", "error", "getmetatable", "ipairs", "next", "pairs", "pcall", "print",
 			"rawequal", "rawget", "rawlen", "rawset", "select", "setmetatable", "tonumber", "tostring", "type",
@@ -38,6 +43,36 @@ public final class LuaSyntaxHighlighter {
 
 	public static void register(MultiLineEditBox editor) {
 		LUA_EDITORS.put(editor, new EditorState());
+	}
+
+	public static void setJsonMode(MultiLineEditBox editor, boolean jsonMode) {
+		EditorState state = state(editor);
+		synchronized (state) {
+			if (state.jsonMode == jsonMode) return;
+			state.jsonMode = jsonMode;
+			state.cachedSource = null;
+			state.cachedTokens = List.of();
+		}
+	}
+
+	public static void setPlainMode(MultiLineEditBox editor, boolean plainMode) {
+		EditorState state = state(editor);
+		synchronized (state) {
+			if (state.plainMode == plainMode) return;
+			state.plainMode = plainMode;
+			state.cachedSource = null;
+			state.cachedTokens = List.of();
+		}
+	}
+
+	public static void setFunctionMode(MultiLineEditBox editor, boolean functionMode) {
+		EditorState state = state(editor);
+		synchronized (state) {
+			if (state.functionMode == functionMode) return;
+			state.functionMode = functionMode;
+			state.cachedSource = null;
+			state.cachedTokens = List.of();
+		}
 	}
 
 	public static boolean isLuaEditor(MultiLineEditBox editor) {
@@ -56,7 +91,7 @@ public final class LuaSyntaxHighlighter {
 		synchronized (state) {
 			state.errorRanges = ranges.stream()
 					.filter(range -> range.start() >= 0 && range.end() > range.start())
-					.sorted((left, right) -> Integer.compare(left.start(), right.start()))
+					.sorted(java.util.Comparator.comparingInt(ErrorRange::start).thenComparing(ErrorRange::warning))
 					.toList();
 		}
 	}
@@ -82,6 +117,26 @@ public final class LuaSyntaxHighlighter {
 		}
 	}
 
+	public static void setPersonalization(MultiLineEditBox editor, LuaPersonalizationSettings settings) {
+		EditorState state = state(editor);
+		synchronized (state) {
+			state.lineHeight = settings.lineHeight;
+			state.cellWidth = settings.cellWidth;
+			state.cursorShape = settings.cursorShape;
+			state.cursorWidth = settings.cursorWidth;
+			state.cursorColor = settings.cursorColor;
+			state.cursorBlink = settings.cursorBlink;
+			state.syntaxColors = Map.copyOf(settings.syntaxColors);
+		}
+	}
+
+	public static float lineHeight(MultiLineEditBox editor) { return state(editor).lineHeight; }
+	public static float cellWidth(MultiLineEditBox editor) { return state(editor).cellWidth; }
+	public static LuaPersonalizationSettings.CursorShape cursorShape(MultiLineEditBox editor) { return state(editor).cursorShape; }
+	public static int cursorWidth(MultiLineEditBox editor) { return state(editor).cursorWidth; }
+	public static int cursorColor(MultiLineEditBox editor) { return state(editor).cursorColor; }
+	public static boolean cursorBlink(MultiLineEditBox editor) { return state(editor).cursorBlink; }
+
 	private static EditorState state(MultiLineEditBox editor) {
 		synchronized (LUA_EDITORS) {
 			return LUA_EDITORS.computeIfAbsent(editor, ignored -> new EditorState());
@@ -92,19 +147,24 @@ public final class LuaSyntaxHighlighter {
 			int absoluteStart, int logicalLine) {
 		EditorState state = state(editor);
 		Theme theme;
+		Map<ColorRole, Integer> syntaxColors;
 		List<ErrorRange> errorRanges;
 		List<TokenSpan> tokens;
 		synchronized (state) {
 			theme = state.theme;
+			syntaxColors = state.syntaxColors;
 			errorRanges = state.errorRanges;
 			refreshCache(state, source);
 			tokens = state.cachedTokens;
 		}
 		if (absoluteStart < 0 || absoluteStart + visibleText.length() > source.length()
 				|| !source.regionMatches(absoluteStart, visibleText, 0, visibleText.length())) {
-			return highlightSegment(visibleText, visibleText, 0, tokenize(visibleText), theme, List.of());
+			return highlightSegment(visibleText, visibleText, 0,
+					state.plainMode ? List.of() : state.functionMode ? tokenizeFunction(visibleText)
+							: state.jsonMode ? tokenizeJson(visibleText) : tokenize(visibleText), theme,
+					syntaxColors, List.of());
 		}
-		return highlightSegment(source, visibleText, absoluteStart, tokens, theme, errorRanges);
+		return highlightSegment(source, visibleText, absoluteStart, tokens, theme, syntaxColors, errorRanges);
 	}
 
 	public static int logicalLineAt(MultiLineEditBox editor, String source, int absoluteStart) {
@@ -124,7 +184,8 @@ public final class LuaSyntaxHighlighter {
 			return;
 		}
 		state.cachedSource = source;
-		state.cachedTokens = tokenize(source);
+		state.cachedTokens = state.plainMode ? List.of() : state.functionMode ? tokenizeFunction(source)
+				: state.jsonMode ? tokenizeJson(source) : tokenize(source);
 		state.lineStarts = findLineStarts(source);
 	}
 
@@ -142,15 +203,20 @@ public final class LuaSyntaxHighlighter {
 	}
 
 	public static Component highlightSnippet(String text, Theme theme) {
-		return highlightSegment(text, text, 0, tokenize(text), theme, List.of());
+		return highlightSnippet(text, theme, Map.of());
+	}
+
+	public static Component highlightSnippet(String text, Theme theme, Map<ColorRole, Integer> syntaxColors) {
+		return highlightSegment(text, text, 0, tokenize(text), theme, syntaxColors, List.of());
 	}
 
 	public static Component highlightSnippet(String source, String visibleText, int absoluteStart, Theme theme) {
-		return highlightSegment(source, visibleText, absoluteStart, tokenize(source), theme, List.of());
+		return highlightSegment(source, visibleText, absoluteStart, tokenize(source), theme, Map.of(), List.of());
 	}
 
 	private static Component highlightSegment(String source, String visibleText, int absoluteStart,
-			List<TokenSpan> tokens, Theme theme, List<ErrorRange> errorRanges) {
+			List<TokenSpan> tokens, Theme theme, Map<ColorRole, Integer> syntaxColors,
+			List<ErrorRange> errorRanges) {
 		MutableComponent result = Component.empty();
 		int segmentEnd = absoluteStart + visibleText.length();
 		int cursor = absoluteStart;
@@ -164,19 +230,41 @@ public final class LuaSyntaxHighlighter {
 			int tokenStart = Math.max(token.start(), absoluteStart);
 			int tokenEnd = Math.min(token.end(), segmentEnd);
 			if (tokenStart > cursor) {
-				appendRange(result, source, cursor, tokenStart, theme.normal, theme.error, errorRanges);
+				appendRange(result, source, cursor, tokenStart,
+						color(theme, syntaxColors, ColorRole.NORMAL), color(theme, syntaxColors, ColorRole.ERROR), errorRanges);
 			}
-			appendRange(result, source, tokenStart, tokenEnd, theme.color(token.type()), theme.error, errorRanges);
+			appendRange(result, source, tokenStart, tokenEnd,
+					color(theme, syntaxColors, role(token.type())), color(theme, syntaxColors, ColorRole.ERROR), errorRanges);
 			cursor = tokenEnd;
 		}
 		if (cursor < segmentEnd) {
-			appendRange(result, source, cursor, segmentEnd, theme.normal, theme.error, errorRanges);
+			appendRange(result, source, cursor, segmentEnd,
+					color(theme, syntaxColors, ColorRole.NORMAL), color(theme, syntaxColors, ColorRole.ERROR), errorRanges);
 		}
 		return result;
 	}
 
+	private static int color(Theme theme, Map<ColorRole, Integer> syntaxColors, ColorRole role) {
+		return syntaxColors.getOrDefault(role, theme.defaultColor(role));
+	}
+
+	private static ColorRole role(TokenType type) {
+		return switch (type) {
+			case KEYWORD -> ColorRole.KEYWORD;
+			case STRING -> ColorRole.STRING;
+			case NUMBER -> ColorRole.NUMBER;
+			case FUNCTION, BUILTIN -> ColorRole.FUNCTION;
+			case COMMENT -> ColorRole.COMMENT;
+			case LITERAL, LABEL -> ColorRole.LITERAL;
+			case OPERATOR -> ColorRole.OPERATOR;
+			case MEMBER -> ColorRole.MEMBER;
+			case PARAMETER -> ColorRole.PARAMETER;
+			case IDENTIFIER, PUNCTUATION -> ColorRole.NORMAL;
+		};
+	}
+
 	private static void appendRange(MutableComponent result, String source, int start, int end,
-			ChatFormatting normal, ChatFormatting error, List<ErrorRange> ranges) {
+			int normal, int error, List<ErrorRange> ranges) {
 		int cursor = start;
 		for (ErrorRange range : ranges) {
 			if (range.end() <= cursor) continue;
@@ -184,16 +272,16 @@ public final class LuaSyntaxHighlighter {
 			int errorStart = Math.max(cursor, range.start());
 			int errorEnd = Math.min(end, range.end());
 			if (errorStart > cursor) append(result, source.substring(cursor, errorStart), normal);
-			if (errorEnd > errorStart) append(result, source.substring(errorStart, errorEnd), error);
+			if (errorEnd > errorStart) append(result, source.substring(errorStart, errorEnd), range.warning() ? 0xFFE6AD45 : error);
 			cursor = Math.max(cursor, errorEnd);
 			if (cursor >= end) break;
 		}
 		if (cursor < end) append(result, source.substring(cursor, end), normal);
 	}
 
-	private static void append(MutableComponent result, String text, ChatFormatting color) {
+	private static void append(MutableComponent result, String text, int color) {
 		if (!text.isEmpty()) {
-			result.append(Component.literal(text).withStyle(color));
+			result.append(Component.literal(text).withStyle(style -> style.withColor(color)));
 		}
 	}
 
@@ -274,6 +362,135 @@ public final class LuaSyntaxHighlighter {
 		classifyIdentifiers(tokens, source);
 		classifyParameters(tokens, source);
 		return List.copyOf(tokens);
+	}
+
+	private static List<TokenSpan> tokenizeJson(String source) {
+		List<TokenSpan> tokens = new ArrayList<>();
+		int index = 0;
+		while (index < source.length()) {
+			char c = source.charAt(index);
+			if (Character.isWhitespace(c)) { index++; continue; }
+			if (c == '"') {
+				int end = index + 1;
+				boolean escaped = false;
+				while (end < source.length()) {
+					char next = source.charAt(end++);
+					if (next == '"' && !escaped) break;
+					if (next == '\\' && !escaped) escaped = true;
+					else escaped = false;
+				}
+				int lookahead = end;
+				while (lookahead < source.length() && Character.isWhitespace(source.charAt(lookahead))) lookahead++;
+				tokens.add(new TokenSpan(index, end,
+						lookahead < source.length() && source.charAt(lookahead) == ':' ? TokenType.MEMBER : TokenType.STRING));
+				index = end;
+				continue;
+			}
+			if (c == '-' || Character.isDigit(c)) {
+				int end = index + 1;
+				while (end < source.length() && "0123456789.eE+-".indexOf(source.charAt(end)) >= 0) end++;
+				tokens.add(new TokenSpan(index, end, TokenType.NUMBER));
+				index = end;
+				continue;
+			}
+			if (Character.isLetter(c)) {
+				int end = index + 1;
+				while (end < source.length() && Character.isLetter(source.charAt(end))) end++;
+				tokens.add(new TokenSpan(index, end, TokenType.LITERAL));
+				index = end;
+				continue;
+			}
+			tokens.add(new TokenSpan(index, index + 1,
+					c == ':' || c == ',' || c == '{' || c == '}' || c == '[' || c == ']'
+							? TokenType.OPERATOR : TokenType.PUNCTUATION));
+			index++;
+		}
+		return List.copyOf(tokens);
+	}
+
+	private static List<TokenSpan> tokenizeFunction(String source) {
+		List<TokenSpan> tokens = new ArrayList<>();
+		int lineStart = 0;
+		while (lineStart < source.length()) {
+			int end = source.indexOf('\n', lineStart);
+			if (end < 0) end = source.length();
+			int index = lineStart;
+			while (index < end && Character.isWhitespace(source.charAt(index))) index++;
+			if (index < end && source.charAt(index) == '#') {
+				tokens.add(new TokenSpan(index, end, TokenType.COMMENT));
+			} else if (index < end) {
+				if (source.charAt(index) == '$') {
+					tokens.add(new TokenSpan(index, index + 1, TokenType.OPERATOR));
+					index++;
+				}
+				int commandEnd = index;
+				while (commandEnd < end && !Character.isWhitespace(source.charAt(commandEnd))) commandEnd++;
+				if (commandEnd > index) tokens.add(new TokenSpan(index, commandEnd, TokenType.KEYWORD));
+				index = commandEnd;
+				while (index < end) {
+					char c = source.charAt(index);
+					if (Character.isWhitespace(c)) { index++; continue; }
+					if (c == '"' || c == '\'') {
+						int stringEnd = Math.min(end, quotedStringEnd(source, index, c));
+						tokens.add(new TokenSpan(index, stringEnd, TokenType.STRING));
+						index = stringEnd; continue;
+					}
+					if (c == '$' && index + 1 < end && source.charAt(index + 1) == '(') {
+						int close = source.indexOf(')', index + 2);
+						int macroEnd = close < 0 || close >= end ? end : close + 1;
+						tokens.add(new TokenSpan(index, macroEnd, TokenType.LABEL));
+						index = macroEnd; continue;
+					}
+					if (c == '@' && index + 1 < end && "paresn".indexOf(source.charAt(index + 1)) >= 0) {
+						tokens.add(new TokenSpan(index, index + 2, TokenType.FUNCTION));
+						index += 2; continue;
+					}
+					if (c == '#' && index + 1 < end && isResourcePart(source.charAt(index + 1))) {
+						int tagEnd = index + 1;
+						while (tagEnd < end && isResourcePart(source.charAt(tagEnd))) tagEnd++;
+						tokens.add(new TokenSpan(index, tagEnd, TokenType.LITERAL));
+						index = tagEnd; continue;
+					}
+					if (c == '~' || c == '^' || Character.isDigit(c)
+							|| c == '-' && index + 1 < end && Character.isDigit(source.charAt(index + 1))) {
+						int numberEnd = index + 1;
+						while (numberEnd < end && (Character.isDigit(source.charAt(numberEnd))
+								|| source.charAt(numberEnd) == '.' || source.charAt(numberEnd) == '-')) numberEnd++;
+						tokens.add(new TokenSpan(index, numberEnd, TokenType.NUMBER));
+						index = numberEnd; continue;
+					}
+					if (isResourcePart(c)) {
+						int wordEnd = index + 1;
+						while (wordEnd < end && isResourcePart(source.charAt(wordEnd))) wordEnd++;
+						String word = source.substring(index, wordEnd);
+						TokenType type = word.indexOf(':') >= 0 ? TokenType.MEMBER
+								: word.equals("true") || word.equals("false") ? TokenType.LITERAL
+								: FUNCTION_SUBCOMMANDS.contains(word) ? TokenType.KEYWORD
+								: TokenType.IDENTIFIER;
+						tokens.add(new TokenSpan(index, wordEnd, type));
+						index = wordEnd; continue;
+					}
+					tokens.add(new TokenSpan(index, index + 1, TokenType.OPERATOR));
+					index++;
+				}
+			}
+			lineStart = end + 1;
+		}
+		return List.copyOf(tokens);
+	}
+
+	private static boolean isResourcePart(char c) {
+		return Character.isLetterOrDigit(c) || c == '_' || c == ':' || c == '/' || c == '.' || c == '-';
+	}
+
+	static void verifyFunctionHighlighting() {
+		List<TokenSpan> tokens = tokenizeFunction("# 注释\nexecute as @p run give @s minecraft:diamond #minecraft:logs\n$say $(name)");
+		if (tokens.stream().noneMatch(token -> token.type() == TokenType.COMMENT)
+				|| tokens.stream().noneMatch(token -> token.type() == TokenType.FUNCTION)
+				|| tokens.stream().noneMatch(token -> token.type() == TokenType.MEMBER)
+				|| tokens.stream().noneMatch(token -> token.type() == TokenType.LITERAL)
+				|| tokens.stream().noneMatch(token -> token.type() == TokenType.LABEL))
+			throw new IllegalStateException("mcfunction 高亮分类缺失");
 	}
 
 	private static void classifyIdentifiers(List<TokenSpan> tokens, String source) {
@@ -455,24 +672,38 @@ public final class LuaSyntaxHighlighter {
 			this.background = background;
 		}
 
-		private ChatFormatting color(TokenType type) {
-			return switch (type) {
+		public int defaultColor(ColorRole role) {
+			ChatFormatting formatting = switch (role) {
+				case NORMAL -> normal;
 				case KEYWORD -> keyword;
 				case STRING -> string;
 				case NUMBER -> number;
-				case FUNCTION, BUILTIN -> function;
+				case FUNCTION -> function;
 				case COMMENT -> comment;
-				case LITERAL, LABEL -> literal;
+				case LITERAL -> literal;
 				case OPERATOR -> operator;
 				case MEMBER -> member;
 				case PARAMETER -> parameter;
-				case IDENTIFIER, PUNCTUATION -> normal;
+				case ERROR -> error;
 			};
+			return formatting.getColor();
 		}
 
 		public int background() {
 			return background;
 		}
+	}
+
+	public enum ColorRole {
+		NORMAL("普通文本", "variable"), KEYWORD("关键字", "local / function"),
+		STRING("字符串", "\"hello\""), NUMBER("数字", "123.45"),
+		FUNCTION("函数与内置 API", "MC.Player.list"), COMMENT("注释", "-- 注释"),
+		LITERAL("常量与标签", "true / nil"), OPERATOR("运算符", "+ = =="),
+		MEMBER("成员与字段", "addExperience"), PARAMETER("函数参数", "playerUuid"),
+		ERROR("语法错误", "错误字段");
+		public final String label;
+		public final String sample;
+		ColorRole(String label, String sample) { this.label = label; this.sample = sample; }
 	}
 
 	private enum TokenType {
@@ -483,13 +714,24 @@ public final class LuaSyntaxHighlighter {
 	private record TokenSpan(int start, int end, TokenType type) {
 	}
 
-	public record ErrorRange(int start, int end) {
+	public record ErrorRange(int start, int end, boolean warning) {
+		public ErrorRange(int start, int end) { this(start, end, false); }
 	}
 
 	private static final class EditorState {
+		private boolean jsonMode;
+		private boolean plainMode;
+		private boolean functionMode;
 		private List<ErrorRange> errorRanges = List.of();
 		private Theme theme = Theme.DARK;
 		private float scale = 1.0F;
+		private volatile float lineHeight = 1.0F;
+		private volatile float cellWidth = 1.0F;
+		private volatile LuaPersonalizationSettings.CursorShape cursorShape = LuaPersonalizationSettings.CursorShape.BAR;
+		private volatile int cursorWidth = 1;
+		private volatile int cursorColor = 0xFFE6F3FF;
+		private volatile boolean cursorBlink = true;
+		private Map<ColorRole, Integer> syntaxColors = Map.of();
 		private String cachedSource = "";
 		private List<TokenSpan> cachedTokens = List.of();
 		private int[] lineStarts = { 0 };

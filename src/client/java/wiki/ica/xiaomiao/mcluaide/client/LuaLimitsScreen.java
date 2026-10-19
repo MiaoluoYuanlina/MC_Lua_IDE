@@ -17,7 +17,7 @@ import java.util.Map;
 public final class LuaLimitsScreen extends Screen {
 	private static final List<Page> PAGES = List.of(
 			new Page("执行资源", "限制脚本体积、运行时间以及输出量", List.of(
-					number("maxScriptChars", "脚本最大字符数", "1,024 - 100,000；保存和执行时检查"),
+					number("maxScriptChars", "执行脚本最大字符数", "1,024 - 5,000,000；仅限制执行／模块加载，不限制编辑保存"),
 					number("maxRuntimeSeconds", "最长运行秒数", "0 表示不限时；事件脚本也会计时"),
 					number("maxOutputLines", "最大输出行数", "每次 print 计算一行"),
 					number("maxOutputCharsPerLine", "单行输出字符数", "超过后终止脚本，避免网络日志洪泛"),
@@ -66,10 +66,10 @@ public final class LuaLimitsScreen extends Screen {
 	private boolean loading;
 	private boolean loadAttempted;
 	private boolean saving;
-	private String status = "正在读取服务端限制…";
+	private String status = LuaUiText.text("正在读取服务端限制…");
 
 	public LuaLimitsScreen(Screen previousScreen) {
-		super(Component.literal("Lua 限制"));
+		super(Component.literal(LuaUiText.text("Lua 限制")));
 		this.previousScreen = previousScreen;
 	}
 
@@ -120,11 +120,11 @@ public final class LuaLimitsScreen extends Screen {
 			rowY += rowHeight(setting, panelWidth);
 		}
 
-		Button defaults = Button.builder(Component.literal("恢复默认"), button -> resetDefaults())
+		Button defaults = Button.builder(Component.literal(LuaUiText.text("恢复默认")), button -> resetDefaults())
 				.bounds(left, height - 32, 90, 20).build();
 		defaults.active = loaded && !saving;
 		addRenderableWidget(defaults);
-		String saveLabel = saving ? "保存中…" : loaded ? "保存到服务器" : "重试读取";
+		String saveLabel = saving ? LuaUiText.text("保存中…") : loaded ? LuaUiText.text("保存到服务器") : LuaUiText.text("重试读取");
 		Button save = Button.builder(Component.literal(saveLabel), button -> {
 			if (loaded) save();
 			else load();
@@ -132,7 +132,7 @@ public final class LuaLimitsScreen extends Screen {
 				.bounds(width / 2 - 65, height - 32, 130, 20).build();
 		save.active = !loading && !saving;
 		addRenderableWidget(save);
-		addRenderableWidget(Button.builder(Component.literal("返回"), button -> onClose())
+		addRenderableWidget(Button.builder(Component.literal(LuaUiText.text("返回")), button -> onClose())
 				.bounds(left + panelWidth - 90, height - 32, 90, 20).build());
 
 		if (!loaded && !loading && !loadAttempted) load();
@@ -141,12 +141,12 @@ public final class LuaLimitsScreen extends Screen {
 	private void load() {
 		loadAttempted = true;
 		loading = true;
-		status = "正在读取服务端限制…";
+		status = LuaUiText.text("正在读取服务端限制…");
 		ScriptManager.getLimits().whenComplete((limits, failure) -> minecraft.execute(() -> {
 			loading = false;
 			loaded = failure == null;
 			if (failure != null) {
-				status = "读取失败：" + ScriptManager.message(failure);
+				status = LuaUiText.text("读取失败：") + ScriptManager.message(failure);
 			} else {
 				values.clear();
 				values.putAll(limits.toMap());
@@ -165,12 +165,12 @@ public final class LuaLimitsScreen extends Screen {
 			return;
 		}
 		saving = true;
-		status = "正在保存到服务器…";
+		status = LuaUiText.text("正在保存到服务器…");
 		rebuildWidgets();
 		ScriptManager.saveLimits(limits).whenComplete((saved, failure) -> minecraft.execute(() -> {
 			saving = false;
 			if (failure != null) {
-				status = "保存失败：" + ScriptManager.message(failure);
+				status = LuaUiText.text("保存失败：") + ScriptManager.message(failure);
 			} else {
 				values.clear();
 				values.putAll(saved.toMap());
@@ -203,7 +203,7 @@ public final class LuaLimitsScreen extends Screen {
 		int left = (width - panelWidth) / 2;
 		Page page = PAGES.get(pageIndex);
 		graphics.centeredText(font, title, width / 2, 7, 0xFFFFFFFF);
-		graphics.centeredText(font, Component.literal("服务端全局设置：所有管理员与所有新脚本共用"),
+		graphics.centeredText(font, Component.literal(LuaUiText.text("服务端全局设置：所有管理员与所有新脚本共用")),
 				width / 2, 18, 0xFFFF5555);
 		graphics.centeredText(font, Component.literal(page.title() + "  " + (pageIndex + 1) + "/" + PAGES.size()),
 				width / 2, 34, 0xFFFFFFFF);
@@ -214,9 +214,9 @@ public final class LuaLimitsScreen extends Screen {
 			if (isRisk(setting)) {
 				boolean dangerous = setting.type() == SettingType.DANGEROUS_BOOLEAN;
 				int riskColor = dangerous ? 0xFFFF5555 : 0xFFFFCC55;
-				String riskLabel = dangerous ? "⚠ 高危" : "⚠ 警告";
+				String riskLabel = dangerous ? "⚠ 高危" : LuaUiText.text("⚠ 警告");
 				graphics.text(font, Component.literal(riskLabel), left + panelWidth - 210, rowY + 6, riskColor);
-				String reason = (dangerous ? "危险理由：" : "警告理由：") + setting.description();
+				String reason = (dangerous ? LuaUiText.text("危险理由：") : LuaUiText.text("警告理由：")) + setting.description();
 				int reasonY = rowY + 24;
 				for (var line : font.split(Component.literal(reason), panelWidth - 4)) {
 					graphics.text(font, line, left + 2, reasonY, riskColor);
@@ -226,7 +226,7 @@ public final class LuaLimitsScreen extends Screen {
 			rowY += rowHeight(setting, panelWidth);
 		}
 		graphics.centeredText(font, Component.literal(status), width / 2, height - 48,
-				status.contains("失败") || status.contains("无效") ? 0xFFFF7777 : 0xFFAAAAAA);
+				status.contains(LuaUiText.text("失败")) || status.contains(LuaUiText.text("无效")) ? 0xFFFF7777 : 0xFFAAAAAA);
 		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 	}
 
@@ -263,7 +263,7 @@ public final class LuaLimitsScreen extends Screen {
 
 	private int rowHeight(Setting setting, int panelWidth) {
 		if (!isRisk(setting)) return 28;
-		String prefix = setting.type() == SettingType.DANGEROUS_BOOLEAN ? "危险理由：" : "警告理由：";
+		String prefix = setting.type() == SettingType.DANGEROUS_BOOLEAN ? LuaUiText.text("危险理由：") : LuaUiText.text("警告理由：");
 		return 30 + font.split(Component.literal(prefix + setting.description()), panelWidth - 4).size() * 10;
 	}
 

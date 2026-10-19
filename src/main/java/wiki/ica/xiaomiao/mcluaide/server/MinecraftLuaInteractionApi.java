@@ -53,9 +53,11 @@ final class MinecraftLuaInteractionApi {
 	private MinecraftLuaInteractionApi() {
 	}
 
-	static void install(LuaTable mc, MinecraftServer server) {
+	static void install(LuaTable mc, MinecraftServer server, ServerScriptManager.ScriptExecution execution) {
 		extend(mc, "Player", playerApi(server));
+		extend(mc, "Player", LuaPlayerMenuApi.create(server, execution));
 		extend(mc, "Item", itemApi(server));
+		extend(mc, "Item", LuaInventoryTrade.api(server));
 		extend(mc, "Entity", entityItemApi(server));
 		setNamespace(mc, "Container", containerApi(server));
 	}
@@ -104,6 +106,11 @@ final class MinecraftLuaInteractionApi {
 				result.set("containerId", menu.containerId);
 				result.set("slots", menu.slots.size());
 				result.set("className", menu.getClass().getSimpleName());
+				LuaContainerEvents.describe(menu, player).forEach((key, value) -> {
+					if (value instanceof Boolean b) result.set(key, LuaValue.valueOf(b));
+					else if (value instanceof Number n) result.set(key, LuaValue.valueOf(n.doubleValue()));
+					else result.set(key, String.valueOf(value));
+				});
 				if (open) {
 					Identifier type = BuiltInRegistries.MENU.getKey(menu.getType());
 					result.set("type", type == null ? "unknown" : type.toString());
@@ -356,7 +363,9 @@ final class MinecraftLuaInteractionApi {
 			MenuProvider provider = level.getBlockState(pos).getMenuProvider(level, pos);
 			if (provider == null) throw new LuaError("该方块没有可打开的菜单："
 					+ BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock()));
-			return openMenu(player, provider);
+			int opened = openMenu(player, provider);
+			if (opened >= 0) LuaContainerEvents.origin(player.containerMenu, pos, dimension.toString());
+			return opened;
 		});
 		return menuResult(containerId);
 	}
@@ -370,7 +379,9 @@ final class MinecraftLuaInteractionApi {
 				ContainerLevelAccess access = ContainerLevelAccess.create(menuPlayer.level(), menuPlayer.blockPosition());
 				return createStationMenu(station, id, inventory, access);
 			}, Component.literal(title));
-			return openMenu(player, provider);
+			int opened = openMenu(player, provider);
+			if (opened >= 0) LuaContainerEvents.originless(player.containerMenu);
+			return opened;
 		});
 		return menuResult(containerId);
 	}
@@ -513,9 +524,9 @@ final class MinecraftLuaInteractionApi {
 		}
 	}
 
-	private static ServerPlayer player(MinecraftServer server, UUID uuid) {
+	static ServerPlayer player(MinecraftServer server, UUID uuid) {
 		ServerPlayer player = server.getPlayerList().getPlayer(uuid);
-		if (player == null) throw new LuaError("玩家不在线或 UUID 不存在：" + uuid);
+		if (player == null) throw new LuaRecoverableError("玩家不在线或 UUID 不存在：" + uuid);
 		return player;
 	}
 
@@ -532,9 +543,9 @@ final class MinecraftLuaInteractionApi {
 			Entity entity = level.getEntity(uuid);
 			if (entity == null) continue;
 			if (entity instanceof LivingEntity living) return living;
-			throw new LuaError("目标实体不是生物，不能读写装备：" + uuid);
+			throw new LuaError("目标实体不是有生命实体（LivingEntity），不能读写装备：" + uuid);
 		}
-		throw new LuaError("实体不存在或未加载：" + uuid);
+		throw new LuaRecoverableError("实体不存在或未加载：" + uuid);
 	}
 
 	private static ServerLevel level(MinecraftServer server, Identifier dimension) {
@@ -546,7 +557,7 @@ final class MinecraftLuaInteractionApi {
 
 	private static void ensurePosition(ServerLevel level, BlockPos pos) {
 		if (!level.isInWorldBounds(pos)) throw new LuaError("坐标超出世界边界：" + pos.toShortString());
-		if (!level.hasChunkAt(pos)) throw new LuaError("坐标所在区块尚未加载：" + pos.toShortString());
+		if (!level.hasChunkAt(pos)) throw new LuaRecoverableError("坐标所在区块尚未加载：" + pos.toShortString());
 	}
 
 	private static void checkSlot(int slot, int size, String label) {
@@ -595,7 +606,7 @@ final class MinecraftLuaInteractionApi {
 		});
 	}
 
-	private static <T> T onServer(MinecraftServer server, Function<MinecraftServer, T> action) {
+	static <T> T onServer(MinecraftServer server, Function<MinecraftServer, T> action) {
 		if (server.isSameThread()) return action.apply(server);
 		return await(server.submit(() -> action.apply(server)));
 	}
@@ -609,7 +620,7 @@ final class MinecraftLuaInteractionApi {
 		} catch (TimeoutException error) {
 			throw new LuaError("等待 Minecraft 服务端响应超时");
 		} catch (ExecutionException error) {
-			throw new LuaError(message(error.getCause()));
+			throw LuaRecoverableError.fromServer(error.getCause(), message(error.getCause()));
 		}
 	}
 

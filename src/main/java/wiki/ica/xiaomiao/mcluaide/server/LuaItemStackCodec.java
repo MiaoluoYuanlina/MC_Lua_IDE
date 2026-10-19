@@ -9,12 +9,14 @@ import com.google.gson.JsonPrimitive;
 import com.mojang.serialization.JsonOps;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponentPatch;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
@@ -92,8 +94,28 @@ final class LuaItemStackCodec {
 		return jsonToJava(encodePatch(server.registryAccess(), stack));
 	}
 
-	static boolean sameItemAndComponents(ItemStack actual, ItemStack expected) {
-		return actual != null && !actual.isEmpty() && ItemStack.isSameItemSameComponents(actual, expected);
+	/** A filter is the explicit patch, not a constructed stack: prototypes must not add conditions. */
+	record ItemFilter(Item item, DataComponentPatch components) {
+		boolean matches(ItemStack actual) {
+			if (actual == null || actual.isEmpty() || !actual.is(item)) return false;
+			for (var entry : components.entrySet()) {
+				Object value = actual.get(entry.getKey());
+				if (entry.getValue().isEmpty()) { if (value != null) return false; continue; }
+				Object expected = entry.getValue().get();
+				if (entry.getKey() == DataComponents.CUSTOM_DATA && expected instanceof CustomData pattern) {
+					if (!(value instanceof CustomData data) || !data.matchedBy(pattern.copyTag())) return false;
+				} else if (!java.util.Objects.equals(value, expected)) return false;
+			}
+			return true;
+		}
+	}
+	static ItemFilter filter(MinecraftServer server, LuaValue itemId, LuaValue components) {
+		return filter(server.registryAccess(), itemId, components);
+	}
+	static ItemFilter filter(HolderLookup.Provider registries, LuaValue itemId, LuaValue components) {
+		Identifier id = identifier(itemId.checkjstring());
+		Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
+		return new ItemFilter(item, decodePatch(registries, components));
 	}
 
 	static LuaTable normalizeComponents(HolderLookup.Provider registries, LuaValue value) {
@@ -135,6 +157,24 @@ final class LuaItemStackCodec {
 		} catch (RuntimeException error) {
 			throw new LuaError("无效物品堆栈组件：" + message(error));
 		}
+	}
+
+	static JsonObject objectToJson(LuaValue value) {
+		JsonElement encoded = luaToJson(value, new Budget(), 0, true);
+		if (!encoded.isJsonObject()) throw new LuaError("配置必须是 Lua 对象表");
+		return encoded.getAsJsonObject();
+	}
+
+	static LuaValue jsonObjectToLua(String raw) {
+		if (raw.length() > MAX_COMPONENT_JSON_CHARS) throw new LuaError("配置 JSON 过长");
+		JsonElement parsed;
+		try {
+			parsed = JsonParser.parseString(raw);
+		} catch (RuntimeException error) {
+			throw new LuaError("配置 JSON 格式错误：" + message(error));
+		}
+		if (!parsed.isJsonObject()) throw new LuaError("配置 JSON 最外层必须是对象");
+		return jsonToLua(parsed);
 	}
 
 	private static JsonElement encodePatch(HolderLookup.Provider registries, ItemStack stack) {

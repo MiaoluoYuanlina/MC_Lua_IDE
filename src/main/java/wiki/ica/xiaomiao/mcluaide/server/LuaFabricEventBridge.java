@@ -62,10 +62,8 @@ public final class LuaFabricEventBridge {
 
 		PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
 			if (!(level instanceof ServerLevel serverLevel) || !(player instanceof ServerPlayer serverPlayer)) return;
-			Map<String, Object> data = playerData(serverPlayer);
-			putBlock(data, pos, state, serverLevel);
-			data.put("hadBlockEntity", blockEntity != null);
-			emit("blockBroken", data);
+			if (LuaBlockBreakCapture.markFabricEvent(serverLevel, serverPlayer, pos))
+				blockBroken(serverLevel, serverPlayer, pos, state, blockEntity != null);
 		});
 		AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) -> {
 			if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
@@ -150,6 +148,12 @@ public final class LuaFabricEventBridge {
 			Map<String, Object> data = entityData(entity);
 			putDamage(data, source);
 			emit("entityDied", data);
+			if (entity instanceof ServerPlayer player) {
+				Map<String, Object> playerDeath = playerData(player);
+				putDamage(playerDeath, source);
+				playerDeath.put("deathMessage", source.getLocalizedDeathMessage(player).getString());
+				emit("playerDied", playerDeath);
+			}
 		});
 		ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((level, killer, killed, source) -> {
 			Map<String, Object> data = new LinkedHashMap<>();
@@ -196,6 +200,7 @@ public final class LuaFabricEventBridge {
 				emit("chunkUnloaded", chunkData(level, chunk.getPos().x(), chunk.getPos().z())));
 		ServerLevelEvents.LOAD.register((server, level) -> emit("levelLoaded", levelData(level)));
 		ServerLevelEvents.UNLOAD.register((server, level) -> emit("levelUnloaded", levelData(level)));
+		ServerTickEvents.START_SERVER_TICK.register(ServerScriptManager::tickDebugger);
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			Map<String, Object> data = new LinkedHashMap<>();
 			data.put("tick", server.getTickCount());
@@ -266,6 +271,13 @@ public final class LuaFabricEventBridge {
 		data.put(prefix + "X", entity.getX());
 		data.put(prefix + "Y", entity.getY());
 		data.put(prefix + "Z", entity.getZ());
+	}
+
+	static void blockBroken(ServerLevel level, ServerPlayer player, BlockPos pos, BlockState state, boolean hadBlockEntity) {
+		Map<String, Object> data = playerData(player);
+		putBlock(data, pos, state, level);
+		data.put("hadBlockEntity", hadBlockEntity);
+		emit("blockBroken", data);
 	}
 
 	private static void putBlock(Map<String, Object> data, BlockPos pos, BlockState state, ServerLevel level) {

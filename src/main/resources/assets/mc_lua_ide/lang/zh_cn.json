@@ -1,6 +1,13 @@
 {
   "key.category.mc_lua_ide.keys": "MC Lua IDE",
   "key.mc_lua_ide.open": "打开 Lua 脚本管理器",
+  "key.mc_lua_ide.debug": "打开 Lua 调试面板",
+  "key.mc_lua_ide.pause": "Lua 暂停 / 继续（Shift：停止）",
+  "key.mc_lua_ide.step_into": "Lua 单步进入",
+  "key.mc_lua_ide.step_over": "Lua 单步越过",
+  "key.mc_lua_ide.step_out": "Lua 单步跳出",
+  "key.mc_lua_ide.debug_scroll_up": "向上滚动 Lua 变量",
+  "key.mc_lua_ide.debug_scroll_down": "向下滚动 Lua 变量",
   "screen.mc_lua_ide.title": "MC Lua IDE",
   "screen.mc_lua_ide.directory": "脚本目录",
   "screen.mc_lua_ide.scripts": "脚本",

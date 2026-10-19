@@ -19,6 +19,9 @@
 		],
 		"client": [
 			"wiki.ica.xiaomiao.mcluaide.client.McLuaIdeClient"
+		],
+		"modmenu": [
+			"wiki.ica.xiaomiao.mcluaide.client.McLuaIdeModMenuApi"
 		]
 	},
 	"mixins": [

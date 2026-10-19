@@ -60,7 +60,7 @@ public record LuaLimits(
 
 	public static LuaLimits defaults() {
 		return new LuaLimits(
-				100_000, 0, 10_000, 8_192,
+				LuaProtocol.MAX_SCRIPT_CHARS, 0, 10_000, 8_192,
 				128, 1_024, 1, 500,
 				1_048_576, 64, 10, 1_048_576,
 				false,

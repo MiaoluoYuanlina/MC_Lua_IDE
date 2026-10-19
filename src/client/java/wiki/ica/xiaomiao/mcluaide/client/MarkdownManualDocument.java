@@ -11,10 +11,10 @@ public final class MarkdownManualDocument {
 	}
 
 	public static Document load() {
-		String resource = "/assets/mc_lua_ide/manual/zh_cn.md";
+		String resource = "/assets/mc_lua_ide/manual/" + LuaUiText.manualLocale() + ".md";
 		try (InputStream stream = MarkdownManualDocument.class.getResourceAsStream(resource)) {
 			if (stream == null) {
-				return errorDocument("无法加载 Markdown 使用手册");
+				return errorDocument(LuaUiText.text("无法加载 Markdown 使用手册", "Could not load the Markdown user guide"));
 			}
 			return parse(new String(stream.readAllBytes(), StandardCharsets.UTF_8));
 		} catch (IOException error) {

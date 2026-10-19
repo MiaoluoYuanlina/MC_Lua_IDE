@@ -92,6 +92,13 @@ public final class McLuaIdeRegistryApi {
 		return List.copyOf(COMPONENT_HINTS.getOrDefault(componentId, List.of()));
 	}
 
+	/** Complete metadata snapshot, including hints needed inside nested item stacks. */
+	public static synchronized Map<String, List<ComponentHint>> componentHintCatalog() {
+		Map<String, List<ComponentHint>> result = new LinkedHashMap<>();
+		COMPONENT_HINTS.forEach((id, hints) -> result.put(id, List.copyOf(hints)));
+		return Collections.unmodifiableMap(result);
+	}
+
 	public enum Target {
 		KEY,
 		VALUE
@@ -214,6 +221,7 @@ public final class McLuaIdeRegistryApi {
 		builtinRegistry("game_event", "游戏事件 ID", "幽匿传感器等系统使用的游戏事件");
 		builtinRegistry("damage_type", "伤害类型 ID", "伤害来源的规则与显示类型");
 		builtinRegistry("loot_table", "战利品表 ID", "数据包与模组提供的战利品表");
+		builtinRegistry("structure_template", "结构模板 ID", "当前服务端与数据包提供、可用于 MC.Structure.place 的模板");
 		builtinRegistry("instrument", "乐器 ID", "山羊角等物品使用的乐器声音");
 		builtinRegistry("jukebox_song", "唱片歌曲 ID", "唱片机可播放的歌曲");
 		builtinRegistry("painting_variant", "画变种 ID", "画的图案与尺寸变种");
@@ -250,6 +258,26 @@ public final class McLuaIdeRegistryApi {
 		builtinEntry("enchantment", "unbreaking", "耐久", "降低物品消耗耐久的概率");
 		builtinEntry("enchantment", "mending", "经验修补", "使用经验修复物品耐久");
 		builtinEntry("enchantment", "efficiency", "效率", "提高工具挖掘速度");
+		builtinEntry("item", "air", "空气", "空物品；不能用作要求非空物品堆的容器内容");
+		builtinEntry("item", "stone", "石头", "基础建筑材料，对应石头的物品形式");
+		builtinEntry("item", "enchanted_book", "附魔书", "使用 stored_enchantments 保存可转移的附魔");
+		builtinEntry("item", "potion", "药水", "使用 potion_contents 指定药水或自定义状态效果");
+		builtinEntry("item", "arrow", "箭", "弓和弩常用的弹药物品");
+		builtinEntry("item", "glass_bottle", "玻璃瓶", "常用于 use_remainder 指定使用后剩余的物品");
+		builtinEntry("block", "air", "空气", "可用于移除或清空方块");
+		builtinEntry("block", "chest", "箱子", "有物品容器的方块，内容使用 container 组件编辑");
+		builtinEntry("mob_effect", "night_vision", "夜视", "提高黑暗环境中的可见度");
+		builtinEntry("mob_effect", "fire_resistance", "抗火", "抵抗火焰和熔岩伤害");
+		builtinEntry("mob_effect", "water_breathing", "水下呼吸", "避免在水下消耗氧气");
+		builtinEntry("enchantment", "protection", "保护", "盔甲的常用减伤附魔");
+		builtinEntry("enchantment", "fortune", "时运", "提高部分方块的掉落数量");
+		builtinEntry("enchantment", "silk_touch", "精准采集", "允许采集部分方块自身");
+		builtinEntry("entity_type", "zombie", "僵尸", "常见敌对生物实体类型");
+		builtinEntry("entity_type", "item", "掉落物", "承载地面物品堆的实体类型，不是物品 ID");
+		builtinEntry("timeline", "moon", "月相时间轴", "主世界月相的周期变化");
+		builtinEntry("timeline", "villager_schedule", "村民作息时间轴", "村民日常活动的时间安排");
+		builtinRegistry("block_entity_type", "方块实体类型 ID", "箱子等方块实体的类型，不等同于方块 ID");
+		builtinRegistry("advancement", "进度 ID", "当前服务器数据包和模组提供的全部进度");
 
 		builtinHint("enchantments", "/*", Target.KEY, "enchantment", "附魔 ID");
 		builtinHint("stored_enchantments", "/*", Target.KEY, "enchantment", "附魔 ID");
@@ -336,6 +364,26 @@ public final class McLuaIdeRegistryApi {
 		builtinHint("banner_patterns", "/*/pattern", Target.VALUE, "banner_pattern", "旗帜图案 ID");
 		builtinHint("pot_decorations", "/*", Target.VALUE, "item", "物品 ID");
 		builtinHint("bees", "/*/entity_data/id", Target.VALUE, "entity_type", "实体 ID");
+
+		// ItemStackTemplate also accepts a bare item ID, not just {id, count, components}.
+		builtinHint("use_remainder", "", Target.VALUE, "item", "剩余物品 ID");
+		builtinHint("container", "/*/item", Target.VALUE, "item", "容器物品 ID");
+		builtinHint("bundle_contents", "/*", Target.VALUE, "item", "收纳物品 ID");
+		builtinHint("charged_projectiles", "/*", Target.VALUE, "item", "弹药物品 ID");
+		builtinHint("equippable", "/allowed_entities", Target.VALUE, "entity_type", "实体类型 ID");
+		builtinHint("entity_data", "/id", Target.VALUE, "entity_type", "实体类型 ID");
+		builtinHint("block_entity_data", "/id", Target.VALUE, "block_entity_type", "方块实体类型 ID");
+		for (String component : List.of("can_place_on", "can_break")) {
+			for (String prefix : List.of("", "/predicates/*", "/*")) {
+				builtinHint(component, prefix + "/blocks", Target.VALUE, "block", "方块 ID / 标签");
+				builtinHint(component, prefix + "/blocks/*", Target.VALUE, "block", "方块 ID");
+			}
+		}
+		for (String component : List.of("consumable", "death_protection")) {
+			String prefix = component.equals("consumable") ? "/on_consume_effects/*" : "/death_effects/*";
+			builtinHint(component, prefix + "/sound", Target.VALUE, "sound_event", "声音 ID");
+			builtinHint(component, prefix + "/effects", Target.VALUE, "mob_effect", "状态效果 ID / 标签");
+		}
 	}
 
 	private static void builtinRegistry(String path, String label, String description) {
@@ -388,7 +436,7 @@ public final class McLuaIdeRegistryApi {
 			throw new IllegalArgumentException("字段路径必须为空或形如 /field/*/id：" + raw);
 		}
 		for (String segment : value.substring(1).split("/", -1)) {
-			if (segment.isEmpty() || (!segment.equals("*") && !segment.matches("[A-Za-z0-9_.:-]+"))) {
+			if (segment.isEmpty() || (!segment.equals("*") && !segment.matches("(?:[A-Za-z0-9_.:-]|~[01])+"))) {
 				throw new IllegalArgumentException("字段路径包含无效片段：" + raw);
 			}
 		}

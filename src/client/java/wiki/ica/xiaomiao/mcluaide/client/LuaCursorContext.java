@@ -8,8 +8,51 @@ final class LuaCursorContext {
 	private LuaCursorContext() {
 	}
 
+	/** Only the innermost call owns completion; an outer ID argument must not leak into a table/callback. */
+	static Parameter parameterAt(String source, int requestedCursor) {
+		CursorState state = scanToCursor(source, requestedCursor);
+		if (state.lexicalState() == LexicalState.LINE_COMMENT || state.lexicalState() == LexicalState.LONG_COMMENT
+				|| state.lexicalState() == LexicalState.LONG_STRING) return null;
+		Frame frame = state.delimiters().peek();
+		if (frame == null || frame.delimiter != '(' || frame.symbol.isEmpty() || frame.functionNesting > 0) return null;
+		LuaApiDocumentation.Entry entry = LuaApiDocumentation.find(frame.symbol);
+		if (entry == null || frame.argumentIndex >= entry.parameters().size()) return null;
+		int cursor = state.cursor();
+		int start = cursor;
+		int end = cursor;
+		boolean quoted = state.lexicalState() == LexicalState.STRING;
+		if (quoted) {
+			int trimmed = frame.argumentStart;
+			while (trimmed < cursor && Character.isWhitespace(source.charAt(trimmed))) trimmed++;
+			if (trimmed >= cursor || source.charAt(trimmed) != '\'' && source.charAt(trimmed) != '"') return null;
+			start = trimmed + 1;
+			end = findQuoteEnd(source, start, source.charAt(trimmed));
+			if (end < 0) end = cursor;
+		} else {
+			boolean resource = LuaApiDocumentation.insertionKind(frame.symbol, frame.argumentIndex) != null;
+			while (start > frame.argumentStart && completionCharacter(source.charAt(start - 1), resource)) start--;
+			while (end < source.length() && completionCharacter(source.charAt(end), resource)) end++;
+			// Completion immediately after a closed string is not inside that string.
+			if (cursor > 0 && (source.charAt(cursor - 1) == '\'' || source.charAt(cursor - 1) == '"')) return null;
+		}
+		String parameter = entry.parameters().get(frame.argumentIndex);
+		return new Parameter(frame.symbol, frame.argumentIndex, parameter, start, end,
+				source.substring(start, cursor), quoted);
+	}
+
+	private static boolean completionCharacter(char character, boolean resource) {
+		return resource ? isResourceCharacter(character)
+				: Character.isLetterOrDigit(character) || character == '_' || character == '.';
+	}
+
 	static Argument argumentAt(String source, int requestedCursor) {
 		CursorState cursorState = scanToCursor(source, requestedCursor);
+		for (Frame frame : cursorState.delimiters()) {
+			if (frame.delimiter == '{' && frame.symbol.equals("enchantment_keys")) {
+				Argument key = enchantmentKeyAt(source, cursorState.cursor(), frame);
+				if (key != null) return key;
+			}
+		}
 		for (Frame frame : cursorState.delimiters()) {
 			if (frame.delimiter != '(' || frame.symbol.isEmpty()) continue;
 			LuaInsertCatalog.Kind kind = LuaApiDocumentation.insertionKind(frame.symbol, frame.argumentIndex);
@@ -34,9 +77,24 @@ final class LuaCursorContext {
 		return null;
 	}
 
+	static TextJsonArgument textJsonArgumentAt(String source, int requestedCursor) {
+		CursorState cursorState = scanToCursor(source, requestedCursor);
+		if (cursorState.lexicalState() == LexicalState.LINE_COMMENT
+				|| cursorState.lexicalState() == LexicalState.LONG_COMMENT) return null;
+		for (Frame frame : cursorState.delimiters()) {
+			if (frame.delimiter != '(' || frame.symbol.isEmpty()) continue;
+			if (!LuaApiDocumentation.isTextJsonArgument(frame.symbol, frame.argumentIndex)) continue;
+			ArgumentRange range = findArgumentRange(source, cursorState.cursor(), frame.argumentStart);
+			return new TextJsonArgument(frame.symbol, frame.argumentIndex, range.start(), range.end());
+		}
+		return null;
+	}
+
 	private static CursorState scanToCursor(String source, int requestedCursor) {
 		int cursor = Math.max(0, Math.min(source.length(), requestedCursor));
 		Deque<Frame> delimiters = new ArrayDeque<>();
+		Deque<LexicalBlock> blocks = new ArrayDeque<>();
+		int pendingLoopDo = 0;
 		LexicalState state = LexicalState.NORMAL;
 		char quote = 0;
 		boolean escaped = false;
@@ -63,7 +121,29 @@ final class LuaCursorContext {
 					}
 				}
 				case NORMAL -> {
-					if (character == '-' && index + 1 < cursor && source.charAt(index + 1) == '-') {
+					if (Character.isLetter(character) || character == '_') {
+						int wordEnd = index + 1;
+						while (wordEnd < cursor && (Character.isLetterOrDigit(source.charAt(wordEnd)) || source.charAt(wordEnd) == '_')) wordEnd++;
+						String word = source.substring(index, wordEnd);
+						switch (word) {
+							case "function" -> {
+								Frame owner = delimiters.peek();
+								if (owner != null && owner.delimiter == '(') owner.functionNesting++;
+								else owner = null;
+								blocks.push(new LexicalBlock(owner));
+							}
+							case "if", "repeat" -> blocks.push(new LexicalBlock(null));
+							case "for", "while" -> { blocks.push(new LexicalBlock(null)); pendingLoopDo++; }
+							case "do" -> { if (pendingLoopDo > 0) pendingLoopDo--; else blocks.push(new LexicalBlock(null)); }
+							case "end", "until" -> {
+								if (!blocks.isEmpty()) {
+									Frame owner = blocks.pop().functionOwner();
+									if (owner != null) owner.functionNesting = Math.max(0, owner.functionNesting - 1);
+								}
+							}
+						}
+						index = wordEnd - 1;
+					} else if (character == '-' && index + 1 < cursor && source.charAt(index + 1) == '-') {
 						if (index + 3 < cursor && source.charAt(index + 2) == '[' && source.charAt(index + 3) == '[') {
 							state = LexicalState.LONG_COMMENT;
 							index += 3;
@@ -79,11 +159,13 @@ final class LuaCursorContext {
 						quote = character;
 						escaped = false;
 					} else if (character == '(' || character == '[' || character == '{') {
-						String symbol = character == '(' ? symbolBefore(source, index) : "";
+						String symbol = character == '(' ? symbolBefore(source, index)
+								: character == '{' ? componentMapBefore(source, index) : "";
 						delimiters.push(new Frame(character, symbol, 0, index + 1));
 					} else if (character == ')' || character == ']' || character == '}') {
 						popMatching(delimiters, matchingOpen(character));
-					} else if (character == ',' && !delimiters.isEmpty() && delimiters.peek().delimiter == '(') {
+					} else if (character == ',' && !delimiters.isEmpty() && delimiters.peek().delimiter == '('
+							&& delimiters.peek().functionNesting == 0) {
 						Frame call = delimiters.peek();
 						call.argumentIndex++;
 						call.argumentStart = index + 1;
@@ -92,7 +174,7 @@ final class LuaCursorContext {
 				}
 			}
 		}
-		return new CursorState(cursor, delimiters);
+		return new CursorState(cursor, delimiters, state);
 	}
 
 	private static String argumentText(String source, Frame frame, int argumentIndex, int cursor) {
@@ -258,6 +340,27 @@ final class LuaCursorContext {
 		return source.substring(start, end);
 	}
 
+	private static String componentMapBefore(String source, int openBrace) {
+		String prefix = source.substring(Math.max(0, openBrace - 100), openBrace);
+		return prefix.matches("(?s).*\\[\\s*['\"]minecraft:(?:enchantments|stored_enchantments)['\"]\\s*\\]\\s*=\\s*")
+				|| prefix.matches("(?s).*(?:enchantments|stored_enchantments)\\s*=\\s*")
+				? "enchantment_keys" : "";
+	}
+
+	private static Argument enchantmentKeyAt(String source, int cursor, Frame frame) {
+		int bracket = source.lastIndexOf('[', Math.max(0, cursor - 1));
+		if (bracket < frame.argumentStart) return null;
+		int quoteAt = bracket + 1;
+		while (quoteAt < cursor && Character.isWhitespace(source.charAt(quoteAt))) quoteAt++;
+		if (quoteAt >= cursor || (source.charAt(quoteAt) != '\'' && source.charAt(quoteAt) != '"')) return null;
+		int start = quoteAt + 1;
+		int end = findQuoteEnd(source, start, source.charAt(quoteAt));
+		if (end >= 0 && cursor > end) return null;
+		if (end < 0) end = cursor;
+		return new Argument("附魔组件", 0, LuaInsertCatalog.Kind.ENCHANTMENT,
+				start, end, source.substring(start, Math.max(start, Math.min(cursor, end))));
+	}
+
 	private static char matchingOpen(char close) {
 		return switch (close) {
 			case ')' -> '(';
@@ -276,12 +379,20 @@ final class LuaCursorContext {
 			int replacementStart, int replacementEnd, String query) {
 	}
 
+	record Parameter(String symbol, int index, String name, int start, int end, String query, boolean quoted) {
+	}
+
 	record ComponentArgument(String symbol, int index, int replacementStart, int replacementEnd,
 			LuaInsertCatalog.Kind targetKind, String targetId) {
 	}
 
-	private record CursorState(int cursor, Deque<Frame> delimiters) {
+	record TextJsonArgument(String symbol, int index, int replacementStart, int replacementEnd) {
 	}
+
+	private record CursorState(int cursor, Deque<Frame> delimiters, LexicalState lexicalState) {
+	}
+
+	private record LexicalBlock(Frame functionOwner) { }
 
 	private record ArgumentRange(int start, int end) {
 	}
@@ -292,6 +403,7 @@ final class LuaCursorContext {
 		private final java.util.List<Integer> argumentStarts = new java.util.ArrayList<>();
 		private int argumentIndex;
 		private int argumentStart;
+		private int functionNesting;
 
 		private Frame(char delimiter, String symbol, int argumentIndex, int argumentStart) {
 			this.delimiter = delimiter;

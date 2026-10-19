@@ -36,14 +36,35 @@ final class LuaRegistryCatalogData {
 			String annotation = entry.has("annotation") ? entry.get("annotation").getAsString() : "";
 			String description = entry.has("description") ? entry.get("description").getAsString() : "";
 			String localized = localName(minecraft, registryId, id);
-			Identifier identifier = Identifier.tryParse(id);
+			Identifier identifier = Identifier.tryParse(id.startsWith("#") ? id.substring(1) : id);
 			result.add(new LuaInsertCatalog.Entry(id,
-					annotation.isBlank() ? (localized.isBlank() ? fallback : localized) : annotation,
+					entryLabel(localized, fallback, annotation),
 					identifier == null ? "" : identifier.getNamespace(), description));
 		}
 		int nextOffset = root.has("nextOffset") ? root.get("nextOffset").getAsInt() : -1;
 		int total = root.has("total") ? root.get("total").getAsInt() : result.size();
 		return new Page(List.copyOf(result), nextOffset, total);
+	}
+
+	static String entryLabel(String localized, String fallback, String annotation) {
+		String ordinary = localized.isBlank() ? fallback : localized;
+		if (annotation.isBlank()) return ordinary;
+		// Keep server/mod annotations, but never let their fallback hide a real Japanese name.
+		return !LuaUiText.chinese() && !localized.isBlank() && !localized.equals(annotation)
+				? localized + " / " + annotation : annotation;
+	}
+
+	private static String registryLabel(String id, String original) {
+		if (LuaUiText.chinese()) return original;
+		LuaInsertCatalog.Kind kind = switch (id) {
+			case "minecraft:item" -> LuaInsertCatalog.Kind.ITEM;
+			case "minecraft:block" -> LuaInsertCatalog.Kind.BLOCK;
+			case "minecraft:entity_type" -> LuaInsertCatalog.Kind.ENTITY;
+			default -> java.util.Arrays.stream(LuaInsertCatalog.Kind.values()).filter(candidate -> candidate.registryId().equals(id)).findFirst().orElse(null);
+		};
+		if (kind == null) return original;
+		String translated = kind.label();
+		return translated.equals(original) || original.isBlank() ? translated : translated + " / " + original;
 	}
 
 	static List<RegistryType> decodeTypes(String encoded) {
@@ -61,6 +82,8 @@ final class LuaRegistryCatalogData {
 	private static String localName(Minecraft minecraft, String registryId, String rawId) {
 		Identifier id = Identifier.tryParse(rawId);
 		if (id == null) return "";
+		if (registryId.equals("minecraft:dimension")) return LuaInsertCatalog.dimensionName(id);
+		if (registryId.equals("minecraft:game_rule")) return LuaInsertCatalog.gameRuleName(id);
 		Object value = registryValue(minecraft, registryId, id);
 		try {
 			return switch (value) {
@@ -95,17 +118,18 @@ final class LuaRegistryCatalogData {
 	}
 
 	record RegistryType(String id, String label, String description, String namespace, int count) {
+		public String label() { return registryLabel(id, label); }
 		private String searchable() {
-			return (id + " " + label + " " + description + " " + namespace + " "
-					+ ChineseSearchIndex.initials(label + " " + description)).toLowerCase(java.util.Locale.ROOT);
+			return (id + " " + label() + " " + description + " " + namespace + " "
+					+ LuaUiText.searchInitials(label() + " " + description)).toLowerCase(java.util.Locale.ROOT);
 		}
 
 		boolean matches(String needle) {
-			return needle == null || needle.isBlank() || searchable().contains(needle.toLowerCase(java.util.Locale.ROOT));
+			return LuaUiText.matchesSearch(searchable(), needle);
 		}
 
 		String display() {
-			return label + "  " + id + "  (" + count + ")";
+			return label() + "  " + id + "  (" + count + ")";
 		}
 	}
 }

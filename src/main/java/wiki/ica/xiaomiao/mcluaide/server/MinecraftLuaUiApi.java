@@ -202,7 +202,7 @@ public final class MinecraftLuaUiApi {
 		return onServer(server, current -> {
 			if (!ServerScriptManager.isActive(execution)) throw new LuaError("当前脚本已停止");
 			ServerPlayer player = current.getPlayerList().getPlayer(playerUuid);
-			if (player == null) throw new LuaError("玩家不在线：" + playerUuid);
+			if (player == null) throw new LuaRecoverableError("玩家不在线：" + playerUuid);
 			UUID token = UUID.randomUUID();
 			UiSession session = new UiSession(token, execution, player, playerUuid, uiId,
 					definition.actionIds(), definition.inputDecoders());
@@ -219,7 +219,7 @@ public final class MinecraftLuaUiApi {
 	private static boolean close(MinecraftServer server, UUID playerUuid) {
 		return onServer(server, current -> {
 			ServerPlayer player = current.getPlayerList().getPlayer(playerUuid);
-			if (player == null) throw new LuaError("玩家不在线：" + playerUuid);
+			if (player == null) throw new LuaRecoverableError("玩家不在线：" + playerUuid);
 			boolean hadSession;
 			synchronized (MinecraftLuaUiApi.class) {
 				UUID token = PLAYER_TOKENS.remove(playerUuid);

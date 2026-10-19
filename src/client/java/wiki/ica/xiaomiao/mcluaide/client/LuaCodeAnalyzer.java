@@ -2,6 +2,7 @@ package wiki.ica.xiaomiao.mcluaide.client;
 
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.lib.jse.JsePlatform;
+import net.minecraft.resources.Identifier;
 import wiki.ica.xiaomiao.mcluaide.api.McLuaIdeApi;
 
 import java.util.ArrayDeque;
@@ -9,6 +10,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.IdentityHashMap;
+import java.util.AbstractMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,8 +27,8 @@ final class LuaCodeAnalyzer {
 	private static final int MAX_DIAGNOSTICS = 100;
 	private static final Pattern ERROR_LINE = Pattern.compile(":(\\d+):");
 	private static final Pattern ERROR_NEAR = Pattern.compile("near ['\"]([^'\"]+)['\"]");
+	private static final Pattern ERROR_SYMBOL = Pattern.compile("unexpected symbol \\d+ \\(([^)]*)\\)");
 	private static final Pattern ERROR_OPENING = Pattern.compile("to close ['\"]([^'\"]+)['\"] at line (\\d+)");
-	private static final Pattern RESOURCE_ID = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_/.-]+");
 	private static final Pattern NUMBER = Pattern.compile(
 			"(?i)(?:0x[0-9a-f]+(?:\\.[0-9a-f]*)?(?:p[+-]?\\d+)?|(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?)");
 	private static final Set<String> KEYWORDS = Set.of(
@@ -31,7 +36,11 @@ final class LuaCodeAnalyzer {
 			"local", "not", "or", "repeat", "return", "then", "until", "while");
 	private static final Set<String> TWO_CHARACTER_SYMBOLS = Set.of(
 			"==", "~=", "<=", ">=", "..", "::", "//", "<<", ">>");
-	private static final Set<String> PREDEFINED_GLOBALS = Set.of(
+	private static final Set<String> EXPRESSION_CONTINUATIONS = Set.of(
+			".", ":", "[", "(", "+", "-", "*", "/", "//", "%", "^", "..",
+			"==", "~=", "<", ">", "<=", ">=", "and", "or", "&", "|", "<<", ">>");
+	private static final Set<String> TABLE_PARAMETERS = Set.of("definition", "grid", "entries", "items", "costs", "rewards");
+	static final Set<String> PREDEFINED_GLOBALS = Set.of(
 			"_G", "_VERSION", "assert", "collectgarbage", "dofile", "error", "getmetatable",
 			"ipairs", "load", "loadfile", "next", "pairs", "pcall", "print", "rawequal", "rawget",
 			"rawlen", "rawset", "require", "select", "setmetatable", "tonumber", "tostring", "type",
@@ -41,23 +50,24 @@ final class LuaCodeAnalyzer {
 			"drops", "mayFly", "flying", "levels", "visible", "enabled", "showParticles", "force");
 	private static final Set<String> INTEGER_PARAMETERS = Set.of(
 			"count", "firstSlot", "secondSlot", "food", "ticks", "fuseTicks", "chunkX", "chunkZ",
-			"fadeIn", "stay", "fadeOut", "amplifier", "intervalTicks", "registrationId");
+			"fadeIn", "stay", "fadeOut", "amplifier", "intervalTicks", "registrationId", "milliseconds", "intervalMs");
 	private static final Set<String> NUMBER_PARAMETERS = Set.of(
 			"x", "y", "z", "x1", "y1", "z1", "x2", "y2", "z2", "toX", "toY", "toZ",
 			"walkingSpeed", "flyingSpeed", "amount", "saturation", "yaw", "pitch", "radius", "seconds",
-			"duration", "volume", "spread", "speed", "power", "size", "distance", "rate");
+			"duration", "volume", "spread", "speed", "power", "size", "distance", "rate", "startSeconds");
 	private static final Set<String> RESOURCE_PARAMETERS = Set.of(
 			"id", "itemId", "blockId", "fromId", "toId", "entityType", "effectId", "soundId",
 			"particleId", "attributeId", "modifierId", "advancementId", "recipeId", "lootTableId",
-			"structureId", "dimension", "damageType");
+			"structureId", "dimension", "damageType", "enchantmentId");
 	private static final Set<String> EVENT_NAMES = Set.of(
 			"blockPlaced", "blockBroken", "blockAttacked", "blockUsed", "itemUsed",
 			"entityAttacked", "entityUsed", "entityLoaded", "entityUnloaded", "entityChangedDimension",
 			"entityDamaged", "entityDied", "entityKilledOther", "equipmentChanged",
-			"playerJoined", "playerLeft", "playerRespawned", "playerChangedDimension",
+			"playerJoined", "playerLeft", "playerDied", "playerRespawned", "playerChangedDimension",
 			"effectAdded", "effectRemoved", "sleepStarted", "sleepStopped",
 			"chunkLoaded", "chunkGenerated", "chunkUnloaded", "levelLoaded", "levelUnloaded",
-			"serverTick", "levelTick", "chat", "command", "uiAction");
+			"serverTick", "levelTick", "chat", "command", "uiAction", "interval", "scriptStarted", "scriptStopped",
+			"containerClicked", "containerItemTaken", "containerItemPlaced", "containerItemToCursor", "inventoryItemToCursor");
 	private static final Map<String, Set<String>> ENUM_VALUES = Map.ofEntries(
 			Map.entry("mode", Set.of("survival", "creative", "adventure", "spectator")),
 			Map.entry("weather", Set.of("clear", "rain", "thunder")),
@@ -76,6 +86,8 @@ final class LuaCodeAnalyzer {
 		String safeSource = source == null ? "" : source;
 		Diagnostic syntax = compile(safeSource, scriptName == null || scriptName.isBlank() ? "script" : scriptName);
 		if (syntax != null) return new Analysis(List.of(syntax));
+		List<Diagnostic> semantic = LuaSemanticAnalyzer.analyze(safeSource);
+		if (semantic != null) return new Analysis(semantic);
 		List<Diagnostic> diagnostics = new ArrayList<>(validateUndefinedVariables(safeSource));
 		if (diagnostics.size() < MAX_DIAGNOSTICS) diagnostics.addAll(validateApiCalls(safeSource));
 		if (diagnostics.size() > MAX_DIAGNOSTICS) diagnostics = new ArrayList<>(diagnostics.subList(0, MAX_DIAGNOSTICS));
@@ -102,6 +114,8 @@ final class LuaCodeAnalyzer {
 		int lineEnd = lineEnd(source, lineStart);
 		Matcher nearMatcher = ERROR_NEAR.matcher(raw);
 		String near = nearMatcher.find() ? nearMatcher.group(1) : null;
+		Matcher symbolMatcher = ERROR_SYMBOL.matcher(raw);
+		if (near == null && symbolMatcher.find()) near = symbolMatcher.group(1);
 		int start;
 		int end;
 		Matcher openingMatcher = ERROR_OPENING.matcher(raw);
@@ -118,7 +132,10 @@ final class LuaCodeAnalyzer {
 			start = lastVisibleCharacter(source);
 			end = Math.min(source.length(), start + 1);
 		} else if (near != null && !near.isEmpty()) {
-			int relative = source.substring(lineStart, lineEnd).lastIndexOf(near);
+			String nearText = near;
+			Token marked = lex(source.substring(lineStart, lineEnd)).stream()
+					.filter(token -> token.text().equals(nearText)).findFirst().orElse(null);
+			int relative = marked == null ? source.substring(lineStart, lineEnd).lastIndexOf(near) : marked.start();
 			start = relative >= 0 ? lineStart + relative : lastVisibleCharacter(source, lineStart, lineEnd);
 			end = Math.min(source.length(), start + Math.max(1, relative >= 0 ? near.length() : 1));
 		} else if (raw.contains("unfinished string")) {
@@ -233,53 +250,449 @@ final class LuaCodeAnalyzer {
 		if (nameIndex > 0 && (tokens.get(nameIndex - 1).text().equals(".")
 				|| tokens.get(nameIndex - 1).text().equals(":"))) return;
 		if (nameIndex + 2 >= tokens.size() || !tokens.get(nameIndex + 1).text().equals("=")) return;
-		StaticValue value = infer(List.of(tokens.get(nameIndex + 2)), source, variables);
-		if (value.type() != ValueType.UNKNOWN) variables.put(tokens.get(nameIndex).text(), value);
+		int valueIndex = nameIndex + 2;
+		StaticValue value = infer(List.of(tokens.get(valueIndex)), source, variables);
+		if (valueIndex + 1 < tokens.size() && continuesExpression(tokens.get(valueIndex + 1).text()))
+			value = new StaticValue(ValueType.UNKNOWN, null);
+		// A later dynamic assignment invalidates a previously inferred literal.
+		variables.put(tokens.get(nameIndex).text(), value);
+	}
+
+	private static boolean continuesExpression(String token) {
+		return EXPRESSION_CONTINUATIONS.contains(token);
+	}
+
+	/** Names visible at the caret, using the same comment/string lexer as diagnostics. */
+	static List<String> visibleVariables(String source, int cursor) {
+		return List.copyOf(visibleVariableValues(source, cursor).keySet());
+	}
+
+	static Map<String, StaticValue> visibleVariableValues(String source, int cursor) {
+		if (source == null || source.isEmpty()) return Map.of();
+		int end = Math.max(0, Math.min(cursor, source.length()));
+		List<Token> tokens = lex(source.substring(0, end));
+		Deque<Set<String>> scopes = new ArrayDeque<>();
+		scopes.push(new LinkedHashSet<>());
+		Map<Set<String>, Map<String, StaticValue>> values = new IdentityHashMap<>();
+		Map<String, StaticValue> lookup = new AbstractMap<>() {
+			@Override public StaticValue get(Object key) {
+				if (!(key instanceof String name)) return null;
+				Set<String> scope = variableScope(scopes, name);
+				return scope == null ? null : values.getOrDefault(scope, Map.of()).getOrDefault(name,
+						new StaticValue(ValueType.UNKNOWN, null));
+			}
+			@Override public Set<Map.Entry<String, StaticValue>> entrySet() { return scopeValues(scopes, values).entrySet(); }
+		};
+		Deque<VariableBlock> blocks = new ArrayDeque<>();
+		int pendingLoopDo = 0;
+		int tableDepth = 0;
+		boolean closeRepeatAfterCondition = false;
+		for (int index = 0; index < tokens.size(); index++) {
+			Token token = tokens.get(index);
+			if (closeRepeatAfterCondition && index > 0) {
+				Token previousToken = tokens.get(index - 1);
+				if (previousToken.text().equals(";")
+						|| source.substring(previousToken.end(), token.start()).indexOf('\n') >= 0) {
+					if (!blocks.isEmpty() && blocks.peek().kind().equals("repeat"))
+						popVariableBlock(scopes, blocks);
+					closeRepeatAfterCondition = false;
+				}
+			}
+			String text = token.text();
+			if (text.equals("{")) { tableDepth++; continue; }
+			if (text.equals("}")) { tableDepth = Math.max(0, tableDepth - 1); continue; }
+			if (text.equals("local")) {
+				int next = index + 1;
+				if (next < tokens.size() && tokens.get(next).text().equals("function")) {
+					if (next + 1 < tokens.size() && tokens.get(next + 1).type() == TokenType.IDENTIFIER) {
+						scopes.peek().add(tokens.get(next + 1).text());
+						values.computeIfAbsent(scopes.peek(), ignored -> new HashMap<>()).put(
+								tokens.get(next + 1).text(), new StaticValue(ValueType.FUNCTION, null));
+					}
+				} else {
+					while (next < tokens.size() && tokens.get(next).type() == TokenType.IDENTIFIER) {
+						scopes.peek().add(tokens.get(next).text());
+						next++;
+						if (next >= tokens.size() || !tokens.get(next).text().equals(",")) break;
+						next++;
+					}
+				}
+				continue;
+			}
+			if (text.equals("function")) {
+				int next = index + 1;
+				boolean method = false;
+				if (next < tokens.size() && tokens.get(next).type() == TokenType.IDENTIFIER) {
+					String name = tokens.get(next).text();
+					if (index == 0 || !tokens.get(index - 1).text().equals("local")) {
+						if (next + 1 >= tokens.size() || !tokens.get(next + 1).text().equals(".")
+								&& !tokens.get(next + 1).text().equals(":")) {
+							Set<String> owner = variableScope(scopes, name);
+							if (owner == null) owner = scopes.getLast();
+							owner.add(name);
+							values.computeIfAbsent(owner, ignored -> new HashMap<>()).put(name,
+									new StaticValue(ValueType.FUNCTION, null));
+						}
+					}
+					while (next + 2 < tokens.size() && (tokens.get(next + 1).text().equals(".")
+							|| tokens.get(next + 1).text().equals(":"))
+							&& tokens.get(next + 2).type() == TokenType.IDENTIFIER) {
+						method |= tokens.get(next + 1).text().equals(":");
+						next += 2;
+					}
+				}
+				while (next < tokens.size() && !tokens.get(next).text().equals("(")) next++;
+				Set<String> parameters = new LinkedHashSet<>();
+				if (method) parameters.add("self");
+				for (int parameter = next + 1; parameter < tokens.size()
+						&& !tokens.get(parameter).text().equals(")"); parameter++) {
+					if (tokens.get(parameter).type() == TokenType.IDENTIFIER)
+						parameters.add(tokens.get(parameter).text());
+				}
+				scopes.push(parameters);
+				blocks.push(new VariableBlock("function", true));
+				continue;
+			}
+			if (text.equals("for")) {
+				Set<String> loop = new LinkedHashSet<>();
+				for (int next = index + 1; next < tokens.size(); next++) {
+					String candidate = tokens.get(next).text();
+					if (candidate.equals("=") || candidate.equals("in") || candidate.equals("do")) break;
+					if (tokens.get(next).type() == TokenType.IDENTIFIER) loop.add(candidate);
+				}
+				scopes.push(loop);
+				int afterNames = index + 1 + loop.size() * 2 - 1;
+				if (afterNames < tokens.size() && tokens.get(afterNames).text().equals("="))
+					for (String name : loop) values.computeIfAbsent(loop, ignored -> new HashMap<>())
+							.put(name, new StaticValue(ValueType.INTEGER, null));
+				blocks.push(new VariableBlock("loop", true));
+				pendingLoopDo++;
+				continue;
+			}
+			if (text.equals("then")) {
+				scopes.push(new LinkedHashSet<>());
+				blocks.push(new VariableBlock("branch", true));
+				continue;
+			}
+			if (text.equals("else") || text.equals("elseif")) {
+				if (!blocks.isEmpty() && blocks.peek().kind().equals("branch")) popVariableBlock(scopes, blocks);
+				if (text.equals("else")) {
+					scopes.push(new LinkedHashSet<>());
+					blocks.push(new VariableBlock("branch", true));
+				}
+				continue;
+			}
+			if (text.equals("repeat")) {
+				scopes.push(new LinkedHashSet<>());
+				blocks.push(new VariableBlock("repeat", true));
+				continue;
+			}
+			if (text.equals("do")) {
+				if (pendingLoopDo > 0) pendingLoopDo--;
+				else {
+					scopes.push(new LinkedHashSet<>());
+					blocks.push(new VariableBlock("do", true));
+				}
+				continue;
+			}
+			if (text.equals("end")) {
+				popVariableBlock(scopes, blocks);
+				continue;
+			}
+			if (text.equals("until")) {
+				closeRepeatAfterCondition = true;
+				continue;
+			}
+			if (token.type() != TokenType.IDENTIFIER) continue;
+			String previous = index > 0 ? tokens.get(index - 1).text() : "";
+			if (previous.equals(".") || previous.equals(":")) continue;
+			if (tableDepth > 0) continue;
+			if (isAssignmentTarget(tokens, index)) {
+				Set<String> owner = variableScope(scopes, text);
+				if (owner == null) { owner = scopes.getLast(); owner.add(text); }
+				StaticValue value = completionAssignment(tokens, index, source, lookup);
+				// A callback body is not executed by completion. Do not treat an outer write as a known live value.
+				if (owner != scopes.peek() && blocks.stream().anyMatch(block -> block.kind().equals("function")))
+					value = new StaticValue(ValueType.UNKNOWN, null);
+				values.computeIfAbsent(owner, ignored -> new HashMap<>()).put(text, value);
+			}
+		}
+		if (closeRepeatAfterCondition && !tokens.isEmpty()) {
+			String tail = source.substring(tokens.getLast().end(), end);
+			if ((tail.indexOf('\n') >= 0 || tail.indexOf(';') >= 0)
+					&& !blocks.isEmpty() && blocks.peek().kind().equals("repeat"))
+				popVariableBlock(scopes, blocks);
+		}
+		return scopeValues(scopes, values);
+	}
+
+	private static Set<String> variableScope(Deque<Set<String>> scopes, String name) {
+		for (Set<String> scope : scopes) if (scope.contains(name)) return scope;
+		return null;
+	}
+
+	private static Map<String, StaticValue> scopeValues(Deque<Set<String>> scopes,
+			Map<Set<String>, Map<String, StaticValue>> values) {
+		Map<String, StaticValue> result = new LinkedHashMap<>();
+		for (Set<String> scope : scopes) for (String name : scope) result.putIfAbsent(name,
+				values.getOrDefault(scope, Map.of()).getOrDefault(name, new StaticValue(ValueType.UNKNOWN, null)));
+		return result;
+	}
+
+	private static StaticValue completionAssignment(List<Token> tokens, int nameIndex, String source,
+			Map<String, StaticValue> variables) {
+		int equal = nameIndex + 1;
+		int ordinal = 0;
+		for (int previous = nameIndex - 1; previous > 0 && tokens.get(previous).text().equals(",")
+				&& tokens.get(previous - 1).type() == TokenType.IDENTIFIER; previous -= 2) ordinal++;
+		while (equal < tokens.size() && !tokens.get(equal).text().equals("=")) {
+			equal++;
+		}
+		int start = equal + 1;
+		int depth = 0;
+		int expression = 0;
+		int end = start;
+		for (; end < tokens.size(); end++) {
+			Token token = tokens.get(end);
+			String text = token.text();
+			if (depth == 0 && (text.equals(";") || end > start && !sameLine(source, tokens.get(end - 1), token)
+					&& !continuesExpression(tokens.get(end - 1).text()) && !continuesExpression(text))) break;
+			if (depth == 0 && text.equals(",")) {
+				if (expression == ordinal) break;
+				expression++; start = end + 1; continue;
+			}
+			if (text.equals("(") || text.equals("{") || text.equals("[")) depth++;
+			if (text.equals(")") || text.equals("}") || text.equals("]")) {
+				if (depth == 0) break;
+				depth--;
+			}
+		}
+		if (start >= tokens.size() || start >= end || expression != ordinal) return new StaticValue(ValueType.UNKNOWN, null);
+		List<Token> expressionTokens = tokens.subList(start, end);
+		String module = LuaModuleCompletion.requiredModule(expressionTokens);
+		if (module != null) return new StaticValue(ValueType.UNKNOWN, null, module);
+		StaticValue literal = infer(expressionTokens, source, variables);
+		if (literal.type() != ValueType.UNKNOWN) return literal;
+		String expressionText = source.substring(tokens.get(start).start(), tokens.get(end - 1).end()).strip();
+		Matcher call = Pattern.compile("^([\\w.]+)\\s*\\(").matcher(expressionText);
+		if (call.find()) {
+			String symbol = call.group(1);
+			if (expressionText.matches("(?s).*\\.(?:uuid|playerUuid|entityUuid|vehicleUuid|itemId|blockId|entityId|soundId|dimension)$"))
+				return new StaticValue(ValueType.STRING, null);
+			LuaApiDocumentation.Entry entry = LuaApiDocumentation.find(symbol);
+			String returns = entry == null ? "" : entry.rawReturns();
+			if (Set.of("tostring", "type").contains(symbol) || returns.contains("字符串")) return new StaticValue(ValueType.STRING, null);
+			if (symbol.equals("tonumber") || returns.contains("整数") || returns.contains("数量")) return new StaticValue(ValueType.INTEGER, null);
+			if (returns.contains("布尔") || returns.startsWith("是否") || returns.equals("true")) return new StaticValue(ValueType.BOOLEAN, null);
+			if (returns.contains("数组") || returns.contains("信息表") || returns.startsWith("{")) return new StaticValue(ValueType.TABLE, null);
+		}
+		if (expressionText.matches("[\\w.]+\\.(?:uuid|playerUuid|entityUuid|vehicleUuid|itemId|blockId|entityId|effectId|soundId|dimension)"))
+			return new StaticValue(ValueType.STRING, null);
+		if (expressionTokens.stream().anyMatch(token -> token.text().equals(".."))) return new StaticValue(ValueType.STRING, null);
+		if (expressionTokens.stream().anyMatch(token -> Set.of("==", "~=", "<", ">", "<=", ">=", "not").contains(token.text())))
+			return new StaticValue(ValueType.BOOLEAN, null);
+		if (expressionTokens.stream().allMatch(token -> token.type() == TokenType.NUMBER
+				|| token.type() == TokenType.IDENTIFIER && Set.of(ValueType.INTEGER, ValueType.NUMBER)
+						.contains(variables.getOrDefault(token.text(), new StaticValue(ValueType.UNKNOWN, null)).type())
+				|| Set.of("+", "-", "*", "/", "%", "^", "(", ")").contains(token.text())))
+			return new StaticValue(expressionTokens.stream().anyMatch(token -> token.text().equals("/") || token.text().equals("^")
+					|| token.type() == TokenType.NUMBER && numberValue(token.text()).type() == ValueType.NUMBER
+					|| token.type() == TokenType.IDENTIFIER && variables.getOrDefault(token.text(),
+							new StaticValue(ValueType.UNKNOWN, null)).type() == ValueType.NUMBER)
+					? ValueType.NUMBER : ValueType.INTEGER, null);
+		return literal;
+	}
+
+	static ExpectedType parameterType(LuaCursorContext.Parameter parameter) {
+		LuaApiDocumentation.Entry entry = LuaApiDocumentation.find(parameter.symbol());
+		McLuaIdeApi.ValueType declared = entry != null && parameter.index() < entry.parameterTypes().size()
+				? entry.parameterTypes().get(parameter.index()) : null;
+		return expectedType(parameter.symbol(), cleanParameter(parameter.name()), declared);
+	}
+
+	static boolean accepts(ExpectedType expected, StaticValue value) { return matches(expected, value.type()); }
+
+	static Set<String> parameterValues(LuaCursorContext.Parameter parameter) {
+		String name = cleanParameter(parameter.name());
+		if (name.equals("eventName")) return EVENT_NAMES;
+		if (name.equals("language")) return Set.of("zh_cn", "zh_tw", "en_us", "en_gb", "ja_jp", "ko_kr", "de_de", "fr_fr", "es_es", "pt_br", "ru_ru");
+		if (name.equals("kind") && !parameter.symbol().equals("MC.Registry.list")) return Set.of();
+		return ENUM_VALUES.getOrDefault(name, Set.of());
 	}
 
 	private static List<Diagnostic> validateUndefinedVariables(String source) {
 		List<Token> tokens = lex(source);
-		Set<String> defined = new HashSet<>(PREDEFINED_GLOBALS);
-		for (int i=0;i<tokens.size();i++) {
-			Token t=tokens.get(i);
-			if (t.text().equals("local")) {
-				int j=i+1;
-				if (j<tokens.size() && tokens.get(j).text().equals("function")) j++;
-				while(j<tokens.size() && sameLine(source,t,tokens.get(j))) {
-					Token n=tokens.get(j);
-					if(n.text().equals("=") || n.text().equals(";")) break;
-					if(n.type()==TokenType.IDENTIFIER) defined.add(n.text());
-					j++;
+		List<Diagnostic> result = new ArrayList<>();
+		Deque<Set<String>> scopes = new ArrayDeque<>();
+		scopes.push(new HashSet<>(PREDEFINED_GLOBALS));
+		Deque<VariableBlock> blocks = new ArrayDeque<>();
+		Set<Integer> declarations = new HashSet<>();
+		Set<Integer> functionPath = new HashSet<>();
+		int tableDepth = 0;
+		int pendingLoopDo = 0;
+		boolean closeRepeatAfterCondition = false;
+
+		for (int index = 0; index < tokens.size() && result.size() < MAX_DIAGNOSTICS; index++) {
+			Token token = tokens.get(index);
+			if (closeRepeatAfterCondition && index > 0) {
+				Token previousToken = tokens.get(index - 1);
+				if (previousToken.text().equals(";")
+						|| source.substring(previousToken.end(), token.start()).indexOf('\n') >= 0) {
+					if (!blocks.isEmpty() && blocks.peek().kind().equals("repeat")) popVariableBlock(scopes, blocks);
+					closeRepeatAfterCondition = false;
 				}
 			}
-			if (t.text().equals("function")) {
-				int j=i+1;
-				if(j<tokens.size() && tokens.get(j).type()==TokenType.IDENTIFIER) defined.add(tokens.get(j).text());
-				while(j<tokens.size() && !tokens.get(j).text().equals("(")) j++;
-				for(j++;j<tokens.size() && !tokens.get(j).text().equals(")");j++)
-					if(tokens.get(j).type()==TokenType.IDENTIFIER) defined.add(tokens.get(j).text());
-			}
-			if (t.text().equals("for")) {
-				for(int j=i+1;j<tokens.size() && sameLine(source,t,tokens.get(j));j++) {
-					String x=tokens.get(j).text();
-					if(x.equals("=")||x.equals("in")||x.equals("do")) break;
-					if(tokens.get(j).type()==TokenType.IDENTIFIER) defined.add(x);
+			String text = token.text();
+			if (text.equals("{")) tableDepth++;
+			else if (text.equals("}")) tableDepth = Math.max(0, tableDepth - 1);
+
+			if (text.equals("local")) {
+				int cursor = index + 1;
+				if (cursor < tokens.size() && tokens.get(cursor).text().equals("function")) cursor++;
+				while (cursor < tokens.size()) {
+					Token name = tokens.get(cursor);
+					if (name.type() != TokenType.IDENTIFIER) break;
+					declarations.add(cursor);
+					scopes.peek().add(name.text());
+					cursor++;
+					if (cursor >= tokens.size() || !tokens.get(cursor).text().equals(",")) break;
+					cursor++;
 				}
+				continue;
 			}
-			if(t.type()==TokenType.IDENTIFIER && i+1<tokens.size() && tokens.get(i+1).text().equals("=")
-					&& (i==0 || !tokens.get(i-1).text().equals(".") && !tokens.get(i-1).text().equals(":"))) defined.add(t.text());
+
+			if (text.equals("function")) {
+				int cursor = index + 1;
+				boolean method = false;
+				if (cursor < tokens.size() && tokens.get(cursor).type() == TokenType.IDENTIFIER) {
+					if (!declarations.contains(cursor)) {
+						if (cursor + 1 < tokens.size() && (tokens.get(cursor + 1).text().equals(".")
+								|| tokens.get(cursor + 1).text().equals(":"))) {
+							if (!isDefined(scopes, tokens.get(cursor).text())) {
+								result.add(diagnostic(source, "未定义变量：“" + tokens.get(cursor).text() + "”",
+										tokens.get(cursor).start(), tokens.get(cursor).end()));
+							}
+						} else {
+							scopes.getLast().add(tokens.get(cursor).text());
+							declarations.add(cursor);
+						}
+					}
+					functionPath.add(cursor);
+					while (cursor + 2 < tokens.size() && (tokens.get(cursor + 1).text().equals(".")
+							|| tokens.get(cursor + 1).text().equals(":"))
+							&& tokens.get(cursor + 2).type() == TokenType.IDENTIFIER) {
+						method |= tokens.get(cursor + 1).text().equals(":");
+						cursor += 2;
+						functionPath.add(cursor);
+					}
+				}
+				while (cursor < tokens.size() && !tokens.get(cursor).text().equals("(")) cursor++;
+				Set<String> functionScope = new HashSet<>();
+				if (method) functionScope.add("self");
+				for (int parameter = cursor + 1; parameter < tokens.size()
+						&& !tokens.get(parameter).text().equals(")"); parameter++) {
+					if (tokens.get(parameter).type() == TokenType.IDENTIFIER) {
+						declarations.add(parameter);
+						functionScope.add(tokens.get(parameter).text());
+					}
+				}
+				scopes.push(functionScope);
+				blocks.push(new VariableBlock("function", true));
+				continue;
+			}
+
+			if (text.equals("for")) {
+				Set<String> loopScope = new HashSet<>();
+				for (int cursor = index + 1; cursor < tokens.size(); cursor++) {
+					String candidate = tokens.get(cursor).text();
+					if (candidate.equals("=") || candidate.equals("in") || candidate.equals("do")) break;
+					if (tokens.get(cursor).type() == TokenType.IDENTIFIER) {
+						declarations.add(cursor);
+						loopScope.add(candidate);
+					}
+				}
+				scopes.push(loopScope);
+				blocks.push(new VariableBlock("loop", true));
+				pendingLoopDo++;
+				continue;
+			}
+
+			if (text.equals("then")) {
+				scopes.push(new HashSet<>());
+				blocks.push(new VariableBlock("branch", true));
+				continue;
+			}
+			if (text.equals("else") || text.equals("elseif")) {
+				if (!blocks.isEmpty() && blocks.peek().kind().equals("branch")) popVariableBlock(scopes, blocks);
+				if (text.equals("else")) {
+					scopes.push(new HashSet<>());
+					blocks.push(new VariableBlock("branch", true));
+				}
+				continue;
+			}
+			if (text.equals("repeat")) {
+				scopes.push(new HashSet<>());
+				blocks.push(new VariableBlock("repeat", true));
+				continue;
+			}
+			if (text.equals("do")) {
+				if (pendingLoopDo > 0) pendingLoopDo--;
+				else {
+					scopes.push(new HashSet<>());
+					blocks.push(new VariableBlock("do", true));
+				}
+				continue;
+			}
+			if (text.equals("end")) {
+				popVariableBlock(scopes, blocks);
+				continue;
+			}
+			if (text.equals("until")) {
+				// repeat 的局部变量在 until 条件里仍然可见，条件结束后才退出作用域。
+				closeRepeatAfterCondition = true;
+				continue;
+			}
+
+			if (token.type() != TokenType.IDENTIFIER || declarations.contains(index)
+					|| functionPath.contains(index) || LuaApiDocumentation.isApiRoot(text)) continue;
+			String previous = index > 0 ? tokens.get(index - 1).text() : "";
+			String next = index + 1 < tokens.size() ? tokens.get(index + 1).text() : "";
+			if (previous.equals(".") || previous.equals(":") || previous.equals("::")
+					|| next.equals("::") || previous.equals("goto")) continue;
+			if (tableDepth > 0 && next.equals("=") && (previous.equals("{") || previous.equals(","))) continue;
+			if (isAssignmentTarget(tokens, index)) {
+				scopes.getLast().add(text);
+				declarations.add(index);
+				continue;
+			}
+			if (!isDefined(scopes, text)) {
+				result.add(diagnostic(source, "未定义变量：“" + text + "”", token.start(), token.end()));
+			}
 		}
-		List<Diagnostic> result=new ArrayList<>();
-		for(int i=0;i<tokens.size() && result.size()<MAX_DIAGNOSTICS;i++) {
-			Token t=tokens.get(i);
-			if(t.type()!=TokenType.IDENTIFIER || defined.contains(t.text()) || LuaApiDocumentation.isApiRoot(t.text())) continue;
-			String prev=i>0?tokens.get(i-1).text():"";
-			String next=i+1<tokens.size()?tokens.get(i+1).text():"";
-			if(prev.equals(".")||prev.equals(":")||prev.equals("::")||next.equals("::")||next.equals("=")) continue;
-			if(prev.equals("function")||prev.equals("local")||prev.equals("goto")) continue;
-			result.add(diagnostic(source,"未定义变量：“"+t.text()+"”",t.start(),t.end()));
+		return List.copyOf(result);
+	}
+
+	private static boolean isDefined(Deque<Set<String>> scopes, String name) {
+		for (Set<String> scope : scopes) if (scope.contains(name)) return true;
+		return false;
+	}
+
+	private static boolean isAssignmentTarget(List<Token> tokens, int index) {
+		int cursor = index;
+		while (cursor + 1 < tokens.size()) {
+			String separator = tokens.get(cursor + 1).text();
+			if (separator.equals("=")) return true;
+			if (!separator.equals(",") || cursor + 2 >= tokens.size()
+					|| tokens.get(cursor + 2).type() != TokenType.IDENTIFIER) return false;
+			cursor += 2;
 		}
-		return result;
+		return false;
+	}
+
+	private static void popVariableBlock(Deque<Set<String>> scopes, Deque<VariableBlock> blocks) {
+		if (blocks.isEmpty()) return;
+		VariableBlock block = blocks.pop();
+		if (block.scope() && scopes.size() > 1) scopes.pop();
 	}
 
 	private static boolean sameLine(String source, Token a, Token b) {
@@ -362,6 +775,18 @@ final class LuaCodeAnalyzer {
 					extra.start(), extra.end()));
 		}
 		int count = Math.min(call.arguments().size(), parameters.size());
+		if (symbol.equals("MC.Sound.play")) {
+			List<ValueType> types = call.arguments().stream().map(argument -> infer(argument.tokens(), source, variables).type()).toList();
+			// The token fallback cannot know how many values a final unknown call
+			// returns (e.g. play(id, 0, getYZ())). Do not assume those are missing nils.
+			boolean possiblyExpanded = types.size() < 4 && !types.isEmpty() && types.getLast() == ValueType.UNKNOWN;
+			int mixed = possiblyExpanded ? -1 : mixedSoundCoordinate(types);
+			if (mixed >= 0) {
+				Argument argument = mixed < call.arguments().size() ? call.arguments().get(mixed) : null;
+				diagnostics.add(diagnostic(source, "MC.Sound.play 的 x、y、z 必须同时填写数字，或同时传 nil（不分坐标播放）",
+						argument == null ? call.closeStart() : argument.start(), argument == null ? call.closeEnd() : argument.end()));
+			}
+		}
 		for (int index = 0; index < count && diagnostics.size() < MAX_DIAGNOSTICS; index++) {
 			String rawParameter = parameters.get(index);
 			String parameter = cleanParameter(rawParameter);
@@ -387,7 +812,10 @@ final class LuaCodeAnalyzer {
 		}
 	}
 
-	private static ExpectedType expectedType(String symbol, String parameter, McLuaIdeApi.ValueType declaredType) {
+	static ExpectedType expectedType(String symbol, String parameter, McLuaIdeApi.ValueType declaredType) {
+		if (Set.of("rows", "slotId", "expectedContainerId").contains(parameter)) return ExpectedType.INTEGER;
+		if (parameter.equals("readOnly")) return ExpectedType.BOOLEAN;
+		if (symbol.equals("MC.Player.openChest") && parameter.equals("title")) return ExpectedType.TABLE_OR_STRING;
 		if (declaredType != null) {
 			return switch (declaredType) {
 				case ANY -> ExpectedType.ANY;
@@ -396,12 +824,14 @@ final class LuaCodeAnalyzer {
 				case BOOLEAN -> ExpectedType.BOOLEAN;
 				case TABLE -> ExpectedType.TABLE;
 				case FUNCTION -> ExpectedType.FUNCTION;
-				case STRING, BLOCK_ID, ITEM_ID, ENTITY_ID, RESOURCE_ID, PLAYER_UUID, ENTITY_UUID ->
+				case STRING, BLOCK_ID, ITEM_ID, ENTITY_ID, EFFECT_ID, ENCHANTMENT_ID,
+						SOUND_ID, PARTICLE_ID, STRUCTURE_ID, LOOT_TABLE_ID,
+						RESOURCE_ID, PLAYER_UUID, ENTITY_UUID ->
 						ExpectedType.STRING;
 			};
 		}
 		if (parameter.equals("callback")) return ExpectedType.FUNCTION;
-		if (parameter.equals("definition")) return ExpectedType.TABLE;
+		if (TABLE_PARAMETERS.contains(parameter)) return ExpectedType.TABLE;
 		if (parameter.equals("components") || parameter.endsWith("OrJson")) return ExpectedType.TABLE_OR_STRING;
 		if (BOOLEAN_PARAMETERS.contains(parameter)) return ExpectedType.BOOLEAN;
 		if (parameter.equals("slot")) {
@@ -427,7 +857,19 @@ final class LuaCodeAnalyzer {
 		return ExpectedType.STRING;
 	}
 
-	private static boolean matches(ExpectedType expected, ValueType actual) {
+	/** Parameter indices include soundId. Unknown values are not guessed. */
+	static int mixedSoundCoordinate(List<ValueType> types) {
+		int nil = -1;
+		boolean number = false;
+		for (int i = 1; i <= 3; i++) {
+			ValueType type = i < types.size() ? types.get(i) : ValueType.NIL;
+			if (type == ValueType.NIL) nil = i;
+			if (type == ValueType.NUMBER || type == ValueType.INTEGER) number = true;
+		}
+		return number ? nil : -1;
+	}
+
+	static boolean matches(ExpectedType expected, ValueType actual) {
 		if (actual == ValueType.UNKNOWN) return true;
 		return switch (expected) {
 			case ANY -> true;
@@ -442,13 +884,14 @@ final class LuaCodeAnalyzer {
 		};
 	}
 
-	private static String validateLiteral(String symbol, String parameter, StaticValue value,
+	static String validateLiteral(String symbol, String parameter, StaticValue value,
 			McLuaIdeApi.ValueType declaredType) {
 		if (value.literal() == null) return null;
 		String literal = value.literal();
 		boolean declaredUuid = declaredType == McLuaIdeApi.ValueType.PLAYER_UUID
 				|| declaredType == McLuaIdeApi.ValueType.ENTITY_UUID;
-		if ((declaredUuid || parameter.equals("uuid") || parameter.equals("playerUuid")) && !isUuid(literal)) {
+		if ((declaredUuid || parameter.equals("uuid") || parameter.equals("playerUuid")
+				|| parameter.equals("vehicleUuid")) && !isUuid(literal)) {
 			return "需要标准 UUID 字符串，例如 123e4567-e89b-12d3-a456-426614174000";
 		}
 		boolean declaredResource = declaredType == McLuaIdeApi.ValueType.BLOCK_ID
@@ -457,10 +900,11 @@ final class LuaCodeAnalyzer {
 				|| declaredType == McLuaIdeApi.ValueType.RESOURCE_ID;
 		if ((declaredResource || RESOURCE_PARAMETERS.contains(parameter)) && !literal.isBlank()
 				&& !(parameter.equals("id") && symbol.startsWith("MC.Mod."))
-				&& !RESOURCE_ID.matcher(literal).matches()) {
-			return "资源 ID 必须使用 namespace:path 格式，例如 minecraft:stone";
+				&& Identifier.tryParse(literal.contains(":") ? literal : "minecraft:" + literal) == null) {
+			return "资源 ID 格式无效；可填写 stone 或 minecraft:stone";
 		}
-		Set<String> allowed = ENUM_VALUES.get(parameter);
+		Set<String> allowed = parameter.equals("kind") && !symbol.equals("MC.Registry.list")
+				? null : ENUM_VALUES.get(parameter);
 		if (allowed != null) {
 			boolean matches = parameter.equals("method")
 					? allowed.contains(literal.toUpperCase(Locale.ROOT)) : allowed.contains(literal);
@@ -477,11 +921,14 @@ final class LuaCodeAnalyzer {
 
 	private static StaticValue infer(List<Token> tokens, String source, Map<String, StaticValue> variables) {
 		if (tokens.isEmpty()) return new StaticValue(ValueType.UNKNOWN, null);
-		if (tokens.size() >= 2 && (tokens.getFirst().text().equals("-") || tokens.getFirst().text().equals("+"))
+		if (tokens.size() == 2 && (tokens.getFirst().text().equals("-") || tokens.getFirst().text().equals("+"))
 				&& tokens.get(1).type() == TokenType.NUMBER) {
 			return numberValue(tokens.get(1).text());
 		}
 		Token first = tokens.getFirst();
+		if (tokens.size() != 1 && !(first.type() == TokenType.SYMBOL && first.text().equals("{"))
+				&& !(first.type() == TokenType.KEYWORD && first.text().equals("function")))
+			return new StaticValue(ValueType.UNKNOWN, null);
 		return switch (first.type()) {
 			case STRING -> new StaticValue(ValueType.STRING, stringValue(first.text()));
 			case NUMBER -> numberValue(first.text());
@@ -514,18 +961,25 @@ final class LuaCodeAnalyzer {
 		}
 	}
 
-	private static String stringValue(String raw) {
+	static String stringValue(String raw) {
 		if (raw.startsWith("[") && raw.endsWith("]")) {
 			int open = raw.indexOf('[', 1);
 			int level = open - 1;
 			int contentEnd = raw.length() - level - 2;
-			return open >= 1 && contentEnd >= open + 1 ? raw.substring(open + 1, contentEnd) : null;
+			if (open < 1 || contentEnd < open + 1) return null;
+			int contentStart = open + 1;
+			if (contentStart < contentEnd && (raw.charAt(contentStart) == '\n' || raw.charAt(contentStart) == '\r')) {
+				char first = raw.charAt(contentStart++);
+				if (contentStart < contentEnd && (raw.charAt(contentStart) == '\n' || raw.charAt(contentStart) == '\r')
+						&& raw.charAt(contentStart) != first) contentStart++;
+			}
+			return raw.substring(contentStart, contentEnd);
 		}
 		if (raw.length() < 2 || raw.indexOf('\\') >= 0) return null;
 		return raw.substring(1, raw.length() - 1);
 	}
 
-	private static String canonicalSymbol(String symbol) {
+	static String canonicalSymbol(String symbol) {
 		for (String candidate : LuaApiDocumentation.symbols()) {
 			if (candidate.equals(symbol)) return candidate;
 		}
@@ -535,7 +989,7 @@ final class LuaCodeAnalyzer {
 		return null;
 	}
 
-	private static List<Token> lex(String source) {
+	static List<Token> lex(String source) {
 		List<Token> result = new ArrayList<>();
 		int index = 0;
 		while (index < source.length()) {
@@ -644,7 +1098,7 @@ final class LuaCodeAnalyzer {
 		return parameter.endsWith("?") ? parameter.substring(0, parameter.length() - 1) : parameter;
 	}
 
-	private static Diagnostic diagnostic(String source, String message, int rawStart, int rawEnd) {
+	static Diagnostic diagnostic(String source, String message, int rawStart, int rawEnd) {
 		int start = Math.max(0, Math.min(source.length(), rawStart));
 		int end = Math.max(start, Math.min(source.length(), rawEnd));
 		if (!source.isEmpty() && (start == end || isWhitespaceOnly(source, start, end))) {
@@ -728,21 +1182,33 @@ final class LuaCodeAnalyzer {
 		}
 
 		boolean valid() {
-			return diagnostics.isEmpty();
+			return diagnostics.stream().noneMatch(diagnostic -> diagnostic.severity() == Severity.ERROR);
 		}
 
+		long errorCount() { return diagnostics.stream().filter(diagnostic -> diagnostic.severity() == Severity.ERROR).count(); }
+		long warningCount() { return diagnostics.size() - errorCount(); }
+
 		Diagnostic first() {
-			return diagnostics.isEmpty() ? null : diagnostics.getFirst();
+			return diagnostics.stream().filter(diagnostic -> diagnostic.severity() == Severity.ERROR)
+					.findFirst().orElse(diagnostics.isEmpty() ? null : diagnostics.getFirst());
 		}
 	}
 
-	record Diagnostic(String message, int start, int end, int line, int column) {
+	enum Severity { ERROR, WARNING }
+
+	record Diagnostic(String message, int start, int end, int line, int column, Severity severity) {
+		Diagnostic(String message, int start, int end, int line, int column) {
+			this(message, start, end, line, column, Severity.ERROR);
+		}
 		String displayMessage() {
 			return "第 " + line + " 行，第 " + column + " 列：" + message;
 		}
 	}
 
-	private record Token(int start, int end, String text, TokenType type) {
+	record Token(int start, int end, String text, TokenType type) {
+	}
+
+	private record VariableBlock(String kind, boolean scope) {
 	}
 
 	private record Argument(List<Token> tokens, int start, int end) {
@@ -751,12 +1217,13 @@ final class LuaCodeAnalyzer {
 	private record Call(List<Argument> arguments, int closeStart, int closeEnd) {
 	}
 
-	private record StaticValue(ValueType type, String literal) {
+	record StaticValue(ValueType type, String literal, String moduleName) {
+		StaticValue(ValueType type, String literal) { this(type, literal, null); }
 	}
 
-	private enum TokenType { IDENTIFIER, KEYWORD, STRING, NUMBER, BOOLEAN, NIL, SYMBOL }
+	enum TokenType { IDENTIFIER, KEYWORD, STRING, NUMBER, BOOLEAN, NIL, SYMBOL }
 
-	private enum ValueType {
+	enum ValueType {
 		UNKNOWN("无法静态判断的表达式"), STRING("字符串"), NUMBER("小数"), INTEGER("整数"),
 		BOOLEAN("布尔值"), FUNCTION("函数"), TABLE("表"), NIL("nil");
 
@@ -771,7 +1238,7 @@ final class LuaCodeAnalyzer {
 		}
 	}
 
-	private enum ExpectedType {
+	enum ExpectedType {
 		ANY("任意值"), STRING("字符串"), NUMBER("数字"), INTEGER("整数"), BOOLEAN("布尔值"),
 		FUNCTION("函数"), TABLE("表"), TABLE_OR_STRING("Lua 表或 JSON 对象字符串"),
 		NUMBER_OR_STRING("数字或字符串");

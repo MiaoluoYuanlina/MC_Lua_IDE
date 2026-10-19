@@ -8,6 +8,7 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import wiki.ica.xiaomiao.mcluaide.api.McLuaIdeDocsApi;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -16,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -33,6 +35,8 @@ final class LuaApiDocsOverlay {
 	private static final int EDGE_RIGHT = 2;
 	private static final int EDGE_TOP = 4;
 	private static final int EDGE_BOTTOM = 8;
+	private static final String NAVIGATION_PREFIX = "apiDocs.navigation.";
+	private static final int MAX_SAVED_BRANCHES = 1024;
 
 	private static final Map<String, String> GROUP_LABELS = Map.ofEntries(
 			Map.entry("Core", "基础 Core"),
@@ -59,6 +63,7 @@ final class LuaApiDocsOverlay {
 			Map.entry("Attribute", "属性 Attribute"),
 			Map.entry("Advancement", "进度 Advancement"),
 			Map.entry("Recipe", "配方 Recipe"),
+			Map.entry("Pack", "数据与资源包 Pack"),
 			Map.entry("Loot", "战利品 Loot"),
 			Map.entry("Structure", "结构 Structure"),
 			Map.entry("Registry", "注册表 Registry")
@@ -67,14 +72,21 @@ final class LuaApiDocsOverlay {
 	private final Minecraft minecraft;
 	private final Font font;
 	private final Consumer<String> insertion;
-	private final List<LuaApiDocumentation.DocumentEntry> entries = LuaApiDocumentation.allEntries();
-	private final Map<String, List<LuaApiDocumentation.DocumentEntry>> groups = buildGroups();
+	private List<LuaApiDocumentation.DocumentEntry> entries = LuaApiDocumentation.allEntries();
+	private List<LuaApiDocumentation.DocumentPage> pages = LuaApiDocumentation.allPages();
+	private Map<String, List<LuaApiDocumentation.DocumentEntry>> groups = buildGroups();
 	private final Set<String> expandedSections = new LinkedHashSet<>();
 	private final Set<String> expandedGroups = new LinkedHashSet<>();
+	// Search opens matching branches by default, but explicit folds must still take effect.
+	private final Set<String> searchCollapsedSections = new LinkedHashSet<>();
+	private final Set<String> searchCollapsedGroups = new LinkedHashSet<>();
 	private final List<SelectableSpan> textSpans = new ArrayList<>();
 	private final StringBuilder selectableText = new StringBuilder();
 	private LuaApiDocumentation.DocumentEntry selected;
-	private boolean rootExpanded = true;
+	private LuaApiDocumentation.DocumentPage selectedPage;
+	private String pendingSelectedSymbol = "";
+	private String pendingSelectedPageKey = "";
+	private boolean rootExpanded;
 	private boolean open;
 	private float progress;
 	private int screenWidth;
@@ -84,6 +96,8 @@ final class LuaApiDocsOverlay {
 	private int windowWidth = -1;
 	private int windowHeight = -1;
 	private int navigationScroll;
+	private int preferredSidebarWidth = -1;
+	private boolean draggingSidebarDivider;
 	private int contentScroll;
 	private int contentHeight;
 	private boolean dragging;
@@ -105,8 +119,10 @@ final class LuaApiDocsOverlay {
 	private boolean filterFocused;
 	private boolean keyboardFocused;
 	private boolean pinyinSearchEnabled = true;
+	private boolean romajiSearchEnabled = true;
 	private ButtonBounds insertButtonBounds;
 	private ButtonBounds copyButtonBounds;
+	private final List<PageCodeButton> pageCodeButtons = new ArrayList<>();
 	private DockSide dockSide = DockSide.FLOATING;
 	private boolean layoutLocked;
 	private int floatingX = -1;
@@ -114,14 +130,12 @@ final class LuaApiDocsOverlay {
 	private int floatingWidth = -1;
 	private int floatingHeight = -1;
 	private final WindowBoundsAnimation boundsAnimation = new WindowBoundsAnimation();
+	private int documentationRevision = -1;
 
 	LuaApiDocsOverlay(Minecraft minecraft, Font font, Consumer<String> insertion) {
 		this.minecraft = minecraft;
 		this.font = font;
 		this.insertion = insertion;
-		sections(entries).forEach(section -> expandedSections.add(section.key()));
-		selected = entries.isEmpty() ? null : entries.getFirst();
-		expandSelectedPath();
 	}
 
 	void resize(int width, int height) {
@@ -131,14 +145,14 @@ final class LuaApiDocsOverlay {
 	}
 
 	void open() {
+		refreshDocumentation();
 		open = true;
 		keyboardFocused = true;
 		filterFocused = true;
-		if (selected == null && !entries.isEmpty()) selected = entries.getFirst();
-		expandSelectedPath();
 	}
 
 	boolean openAt(String symbol) {
+		refreshDocumentation();
 		if (symbol == null || symbol.isBlank()) return false;
 		LuaApiDocumentation.DocumentEntry target = entries.stream()
 				.filter(entry -> entry.symbol().equals(symbol))
@@ -156,6 +170,8 @@ final class LuaApiDocsOverlay {
 		open = true;
 		rootExpanded = true;
 		selected = target;
+		selectedPage = null;
+		clearPendingSelection();
 		navigationScroll = 0;
 		contentScroll = 0;
 		selectionAnchor = -1;
@@ -172,6 +188,7 @@ final class LuaApiDocsOverlay {
 		selectingText = false;
 		filterFocused = false;
 		resizeEdges = 0;
+		draggingSidebarDivider = false;
 	}
 
 	boolean isOpen() {
@@ -187,7 +204,7 @@ final class LuaApiDocsOverlay {
 	}
 
 	boolean isInteracting() {
-		return dragging || selectingText || resizeEdges != 0;
+		return dragging || selectingText || resizeEdges != 0 || draggingSidebarDivider;
 	}
 
 	boolean isDragging() {
@@ -200,6 +217,96 @@ final class LuaApiDocsOverlay {
 
 	void setLayoutLocked(boolean locked) {
 		layoutLocked = locked;
+	}
+
+
+	WindowGeometry captureGeometry() {
+		if (!dockSide.docked()) return boundsAnimation.destination(windowX, windowY, windowWidth, windowHeight);
+		return new WindowGeometry(dockSide.docked() && floatingWidth > 0 ? floatingX : windowX,
+				dockSide.docked() && floatingHeight > 0 ? floatingY : windowY,
+				dockSide.docked() && floatingWidth > 0 ? floatingWidth : windowWidth,
+				dockSide.docked() && floatingHeight > 0 ? floatingHeight : windowHeight);
+	}
+
+	int preferredSidebarWidth() { return preferredSidebarWidth; }
+	void restoreSidebarWidth(int value) { preferredSidebarWidth = value > 0 ? Math.min(value, 32768) : -1; }
+
+	/** Browsing metadata only; no scripts or documentation bodies are saved. */
+	void captureNavigation(Properties state) {
+		state.setProperty(NAVIGATION_PREFIX + "rootExpanded", Boolean.toString(rootExpanded));
+		writeBranches(state, "sections", expandedSections);
+		writeBranches(state, "groups", expandedGroups);
+		writeBranches(state, "searchCollapsedSections", searchCollapsedSections);
+		writeBranches(state, "searchCollapsedGroups", searchCollapsedGroups);
+		state.setProperty(NAVIGATION_PREFIX + "symbol", selected == null ? pendingSelectedSymbol : selected.symbol());
+		state.setProperty(NAVIGATION_PREFIX + "page", selectedPage == null ? pendingSelectedPageKey : selectedPage.key());
+		state.setProperty(NAVIGATION_PREFIX + "treeScroll", Integer.toString(navigationScroll));
+		state.setProperty(NAVIGATION_PREFIX + "contentScroll", Integer.toString(contentScroll));
+		state.setProperty(NAVIGATION_PREFIX + "filter", filterQuery);
+		state.setProperty(NAVIGATION_PREFIX + "pinyin", Boolean.toString(pinyinSearchEnabled));
+		state.setProperty(NAVIGATION_PREFIX + "romaji", Boolean.toString(romajiSearchEnabled));
+	}
+
+	void restoreNavigation(Properties state) {
+		refreshDocumentation();
+		rootExpanded = Boolean.parseBoolean(state.getProperty(NAVIGATION_PREFIX + "rootExpanded", "false"));
+		readBranches(state, "sections", expandedSections);
+		readBranches(state, "groups", expandedGroups);
+		readBranches(state, "searchCollapsedSections", searchCollapsedSections);
+		readBranches(state, "searchCollapsedGroups", searchCollapsedGroups);
+		resolveSelection(savedText(state, "symbol", 512), savedText(state, "page", 512));
+		navigationScroll = savedInteger(state, "treeScroll");
+		contentScroll = savedInteger(state, "contentScroll");
+		contentHeight = 0; // Recalculate against the current font and window dimensions on render.
+		filterQuery = savedText(state, "filter", 160);
+		filterCursor = filterQuery.length();
+		filterAnchor = filterCursor;
+		pinyinSearchEnabled = Boolean.parseBoolean(state.getProperty(NAVIGATION_PREFIX + "pinyin", "true"));
+		romajiSearchEnabled = Boolean.parseBoolean(state.getProperty(NAVIGATION_PREFIX + "romaji", "true"));
+		selectionAnchor = selectionCaret = -1;
+	}
+
+	private static void writeBranches(Properties state, String name, Set<String> branches) {
+		int oldCount = Math.min(MAX_SAVED_BRANCHES, savedInteger(state, name + ".count"));
+		for (int index = 0; index < oldCount; index++) state.remove(NAVIGATION_PREFIX + name + '.' + index);
+		int count = 0;
+		for (String key : branches) {
+			if (count == MAX_SAVED_BRANCHES) break;
+			state.setProperty(NAVIGATION_PREFIX + name + '.' + count++, key);
+		}
+		state.setProperty(NAVIGATION_PREFIX + name + ".count", Integer.toString(count));
+	}
+
+	private static void readBranches(Properties state, String name, Set<String> branches) {
+		branches.clear();
+		int count = Math.min(MAX_SAVED_BRANCHES, savedInteger(state, name + ".count"));
+		for (int index = 0; index < count; index++) {
+			String key = savedText(state, name + '.' + index, 512);
+			if (!key.isBlank()) branches.add(key);
+		}
+	}
+
+	private static int savedInteger(Properties state, String name) {
+		try { return Math.max(0, Integer.parseInt(state.getProperty(NAVIGATION_PREFIX + name, "0"))); }
+		catch (NumberFormatException ignored) { return 0; }
+	}
+
+	private static String savedText(Properties state, String name, int maximumPoints) {
+		String text = state.getProperty(NAVIGATION_PREFIX + name, "").replaceAll("[\\p{Cntrl}]", " ");
+		int count = text.codePointCount(0, text.length());
+		return count > maximumPoints ? text.substring(0, text.offsetByCodePoints(0, maximumPoints)) : text;
+	}
+
+	void restoreGeometry(WindowGeometry geometry) {
+		if (geometry == null) return;
+		windowX = geometry.x(); windowY = geometry.y();
+		windowWidth = Math.min(geometry.width(), Math.max(1, screenWidth));
+		windowHeight = Math.min(geometry.height(), Math.max(1, screenHeight));
+		ensureGeometry();
+		windowX = Math.clamp(windowX, 0, Math.max(0, screenWidth - windowWidth));
+		windowY = Math.clamp(windowY, 0, Math.max(0, screenHeight - windowHeight));
+		floatingX = windowX; floatingY = windowY; floatingWidth = windowWidth; floatingHeight = windowHeight;
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
 	}
 
 	void setDockSide(DockSide side) {
@@ -224,6 +331,7 @@ final class LuaApiDocsOverlay {
 	}
 
 	void tick() {
+		if (open && documentationRevision != LuaApiDocumentation.revision()) refreshDocumentation();
 		float target = open ? 1.0F : 0.0F;
 		progress += (target - progress) * 0.28F;
 		if (Math.abs(target - progress) < 0.01F) progress = target;
@@ -254,10 +362,11 @@ final class LuaApiDocsOverlay {
 		graphics.fill(x, windowY, right, bottom, 0xFE0E141D);
 		graphics.outline(x, windowY, windowWidth, windowHeight, 0xFFB084F5);
 		graphics.fill(x + 1, windowY + 1, right - 1, breadcrumbTop, 0xFF2B2040);
-		graphics.text(font, "◈  MC Lua IDE · API 文档", x + 10, windowY + 9, 0xFFD6B7FF);
-		int filteredCount = filteredEntries().size();
-		String countLabel = filterQuery.isBlank() ? "当前共 " + entries.size() + " 个 API"
-				: "筛选 " + filteredCount + " / " + entries.size() + " 项";
+		graphics.text(font, LuaUiText.text("◈  MC Lua IDE · API 文档"), x + 10, windowY + 9, 0xFFD6B7FF);
+		int filteredCount = filteredEntries().size() + filteredPages().size();
+		int totalCount = entries.size() + pages.size();
+		String countLabel = filterQuery.isBlank() ? LuaUiText.text("当前共 ") + totalCount + LuaUiText.text(" 项文档")
+				: "筛选 " + filteredCount + " / " + totalCount + " 项";
 		graphics.text(font, countLabel, x + 184, windowY + 9, 0xFFA995C7);
 
 		boolean closeHovered = inside(mouseX, mouseY, right - 26, windowY + 4, right - 6, windowY + 24);
@@ -273,24 +382,35 @@ final class LuaApiDocsOverlay {
 		renderFilter(graphics, mouseX, mouseY, x, filterTop, right);
 
 		graphics.fill(x + 1, mainTop, dividerX, mainBottom, 0xFF111925);
-		graphics.fill(dividerX, mainTop, dividerX + 1, mainBottom, 0xFF3D344D);
+		boolean dividerHovered = mouseY >= mainTop && mouseY < mainBottom
+				&& Math.abs(mouseX - dividerX) <= 5;
 		renderNavigation(graphics, mouseX, mouseY, x, mainTop, dividerX, mainBottom);
 		renderDetails(graphics, mouseX, mouseY, dividerX + 1, mainTop, right, mainBottom);
+		graphics.fill(dividerX - (dividerHovered || draggingSidebarDivider ? 2 : 0), mainTop,
+				dividerX + (dividerHovered || draggingSidebarDivider ? 3 : 1), mainBottom,
+				dividerHovered || draggingSidebarDivider ? 0xFFB084F5 : 0xFF3D344D);
 
 		graphics.fill(x + 1, mainBottom, right - 1, bottom - 1, 0xFF171E2A);
-		graphics.text(font, "黄色为筛选命中 · 右侧拖选复制 · 首拼开关可独立关闭",
+		graphics.text(font, LuaUiText.text("黄色为筛选命中 · 右侧拖选复制 · 首拼开关可独立关闭"),
 				x + 10, mainBottom + 8, 0xFF8391A5);
 		renderResizeEdges(graphics, mouseX, mouseY, x, right, bottom);
 	}
+
+	boolean pinyinToggleVisible() { return LuaUiText.chinese(); }
+	private boolean pinyinSearchActive() { return pinyinToggleVisible() && pinyinSearchEnabled; }
+	boolean romajiToggleVisible() { return LuaUiText.japanese(); }
+	private boolean phoneticToggleVisible() { return pinyinToggleVisible() || romajiToggleVisible(); }
+	private int phoneticToggleWidth() { return romajiToggleVisible() ? 112 : 86; }
+	int filterInputRight(int right) { return right - (phoneticToggleVisible() ? phoneticToggleWidth() + 17 : 10); }
 
 	private void renderFilter(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
 			int left, int top, int right) {
 		graphics.fill(left + 1, top, right - 1, top + FILTER_HEIGHT, 0xFF121923);
 		int inputLeft = left + 10;
 		int inputTop = top + 5;
-		int toggleWidth = 86;
+		int toggleWidth = phoneticToggleWidth();
 		int toggleLeft = right - toggleWidth - 10;
-		int inputRight = toggleLeft - 7;
+		int inputRight = filterInputRight(right);
 		boolean hovered = inside(mouseX, mouseY, inputLeft, inputTop, inputRight, inputTop + 20);
 		graphics.fill(inputLeft, inputTop, inputRight, inputTop + 20, 0xFF080D14);
 		graphics.outline(inputLeft, inputTop, inputRight - inputLeft, 20,
@@ -300,7 +420,7 @@ final class LuaApiDocsOverlay {
 		int textLeft = inputLeft + 22;
 		int textRight = inputRight - 24;
 		if (filterQuery.isEmpty()) {
-			graphics.text(font, "筛选 API、中文说明或拼音首字母，例如 wj、ml…",
+			graphics.text(font, LuaUiText.text("筛选 API、中文说明或拼音首字母，例如 wj、ml…"),
 					textLeft, inputTop + 6, 0xFF667486);
 		} else {
 			int inputWidth = Math.max(20, textRight - textLeft);
@@ -325,15 +445,17 @@ final class LuaApiDocsOverlay {
 			graphics.centeredText(font, "×", inputRight - 10, inputTop + 6,
 					clearHovered ? 0xFFFF7777 : 0xFF9CA8B7);
 		}
+		if (!phoneticToggleVisible()) return;
+		boolean phoneticEnabled = romajiToggleVisible() ? romajiSearchEnabled : pinyinSearchEnabled;
 		boolean toggleHovered = inside(mouseX, mouseY, toggleLeft, inputTop, right - 10, inputTop + 20);
 		graphics.fill(toggleLeft, inputTop, right - 10, inputTop + 20,
-				pinyinSearchEnabled ? (toggleHovered ? 0xFF8B641D : 0xFF664B1A)
+				phoneticEnabled ? (toggleHovered ? 0xFF8B641D : 0xFF664B1A)
 						: (toggleHovered ? 0xFF394657 : 0xFF252E3A));
 		graphics.outline(toggleLeft, inputTop, toggleWidth, 20,
-				pinyinSearchEnabled ? 0xFFFFC857 : 0xFF526174);
-		graphics.centeredText(font, "首拼 " + (pinyinSearchEnabled ? "开" : "关"),
+				phoneticEnabled ? 0xFFFFC857 : 0xFF526174);
+		graphics.centeredText(font, (romajiToggleVisible() ? "ローマ字 " : "首拼 ") + (phoneticEnabled ? LuaUiText.text("开") : LuaUiText.text("关")),
 				toggleLeft + toggleWidth / 2, inputTop + 6,
-				pinyinSearchEnabled ? 0xFFFFE39A : 0xFFABB6C4);
+				phoneticEnabled ? 0xFFFFE39A : 0xFFABB6C4);
 	}
 
 	private void renderNavigation(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
@@ -348,7 +470,8 @@ final class LuaApiDocsOverlay {
 			TreeRow row = rows.get(index);
 			int y = top + 3 + visual * ROW_HEIGHT;
 			boolean hovered = inside(mouseX, mouseY, left + 2, y - 1, right - 2, y + ROW_HEIGHT - 2);
-			boolean active = row.entry() != null && selected != null && row.entry().symbol().equals(selected.symbol());
+			boolean active = row.entry() != null && selected != null && row.entry().symbol().equals(selected.symbol())
+					|| row.page() != null && selectedPage != null && row.page().key().equals(selectedPage.key());
 			if (active || hovered) {
 				graphics.fill(left + 3, y - 1, right - 3, y + ROW_HEIGHT - 2,
 						active ? 0xFF493267 : 0xFF222D3D);
@@ -359,6 +482,7 @@ final class LuaApiDocsOverlay {
 				case SECTION -> row.section().color();
 				case GROUP -> 0xFF8CC8FF;
 				case METHOD -> 0xFFD7DFEA;
+				case PAGE -> 0xFFFFD479;
 			};
 			String visibleLabel = font.plainSubstrByWidth(row.label(), Math.max(20, right - textX - 8));
 			drawFilterHighlights(graphics, visibleLabel, textX, y + 4);
@@ -379,10 +503,18 @@ final class LuaApiDocsOverlay {
 			int left, int top, int right, int bottom) {
 		insertButtonBounds = null;
 		copyButtonBounds = null;
+		pageCodeButtons.clear();
+		if (selectedPage != null) {
+			renderPageDetails(graphics, mouseX, mouseY, left, top, right, bottom);
+			return;
+		}
 		if (selected == null) {
 			textSpans.clear();
 			selectableText.setLength(0);
-			graphics.centeredText(font, "没有匹配的 API，请更换筛选关键词",
+			contentHeight = 0;
+			String hint = filterQuery.isBlank() ? LuaUiText.text("展开左侧目录，选择 API 查看文档")
+					: LuaUiText.text("没有匹配的 API，请更换筛选关键词");
+			graphics.centeredText(font, hint,
 					(left + right) / 2, top + 22, 0xFF8E9AAA);
 			return;
 		}
@@ -397,41 +529,41 @@ final class LuaApiDocsOverlay {
 
 		y = drawDetailText(graphics, selected.symbol(), contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
 		if (!entry.ownerModId().equals("mc_lua_ide")) {
-			y = drawDetailText(graphics, "来源模组：" + entry.ownerModId(), contentLeft, y,
+			y = drawDetailText(graphics, LuaUiText.text("来源模组：") + entry.ownerModId(), contentLeft, y,
 					availableWidth, 0xFFFFB86B, 5);
 		}
 		if (entry.clientRequired()) {
 			y = drawDetailText(graphics,
-					"⚠ 客户端 Mod 专用：服务器必须开启强制客户端模式，目标玩家必须安装兼容版本",
+					LuaUiText.text("⚠ 客户端 Mod 专用：服务器必须开启强制客户端模式，目标玩家必须安装兼容版本"),
 					contentLeft, y, availableWidth, 0xFFFFB85C, 7);
 		}
 		y = drawDetailText(graphics, entry.signature(), contentLeft, y, availableWidth, 0xFF71D8FF, 9);
-		y = drawDetailText(graphics, "作用：" + entry.summary(), contentLeft, y, availableWidth, 0xFFF0F3F7, 5);
-		y = drawDetailText(graphics, "返回：" + entry.returns(), contentLeft, y, availableWidth, 0xFF7CE6A3, 8);
+		y = drawDetailText(graphics, LuaUiText.text("作用：") + entry.summary(), contentLeft, y, availableWidth, 0xFFF0F3F7, 5);
+		y = drawDetailText(graphics, LuaUiText.text("返回：") + entry.returns(), contentLeft, y, availableWidth, 0xFF7CE6A3, 8);
 
 		List<String> parameters = entry.parameters();
 		if (parameters.isEmpty()) {
-			y = drawDetailText(graphics, "参数：无", contentLeft, y, availableWidth, 0xFFB4BECC, 8);
+			y = drawDetailText(graphics, LuaUiText.text("参数：无"), contentLeft, y, availableWidth, 0xFFB4BECC, 8);
 		} else {
 			for (int index = 0; index < parameters.size(); index++) {
-				y = drawDetailText(graphics, "参数" + (index + 1) + "：" + entry.describe(parameters.get(index)),
+				y = drawDetailText(graphics, LuaUiText.text("参数") + (index + 1) + "：" + entry.describe(parameters.get(index)),
 						contentLeft, y, availableWidth, 0xFFFFD479, 3);
 			}
 			y += 5;
 		}
 		if (!entry.details().isEmpty()) {
-			y = drawDetailText(graphics, "说明：" + entry.details(), contentLeft, y,
+			y = drawDetailText(graphics, LuaUiText.text("说明：") + entry.details(), contentLeft, y,
 					availableWidth, 0xFFE7A8FF, 8);
 		}
 
-		y = drawDetailText(graphics, "详细模板", contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
+		y = drawDetailText(graphics, LuaUiText.text("详细模板"), contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
 		String template = LuaApiDocumentation.usageTemplate(selected.symbol()).stripTrailing();
 		List<String> codeLines = List.of(template.split("\\R", -1));
 		int codeHeight = 27 + codeLines.size() * (font.lineHeight + 3) + 7;
 		graphics.fill(contentLeft, y, contentRight, y + codeHeight, 0xFF090D13);
 		graphics.outline(contentLeft, y, availableWidth, codeHeight, 0xFF3E5067);
 		graphics.fill(contentLeft + 1, y + 1, contentRight - 1, y + 24, 0xFF1A2431);
-		graphics.text(font, "Lua · 可直接运行", contentLeft + 8, y + 8, 0xFF73D7FF);
+		graphics.text(font, LuaUiText.text("Lua · 可直接运行"), contentLeft + 8, y + 8, 0xFF73D7FF);
 		int insertLeft = contentRight - 112;
 		int copyLeft = contentRight - 54;
 		insertButtonBounds = new ButtonBounds(insertLeft, y + 4, copyLeft - 4, y + 21);
@@ -439,9 +571,9 @@ final class LuaApiDocsOverlay {
 		boolean insertHovered = inside(mouseX, mouseY, insertLeft, y + 4, copyLeft - 4, y + 21);
 		boolean copyHovered = inside(mouseX, mouseY, copyLeft, y + 4, contentRight - 5, y + 21);
 		graphics.fill(insertLeft, y + 4, copyLeft - 4, y + 21, insertHovered ? 0xFF654594 : 0xFF3C3151);
-		graphics.centeredText(font, "插入", (insertLeft + copyLeft - 4) / 2, y + 8, 0xFFFFFFFF);
+		graphics.centeredText(font, LuaUiText.text("插入"), (insertLeft + copyLeft - 4) / 2, y + 8, 0xFFFFFFFF);
 		graphics.fill(copyLeft, y + 4, contentRight - 5, y + 21, copyHovered ? 0xFF2874A6 : 0xFF29394C);
-		graphics.centeredText(font, "复制", (copyLeft + contentRight - 5) / 2, y + 8, 0xFFFFFFFF);
+		graphics.centeredText(font, LuaUiText.text("复制"), (copyLeft + contentRight - 5) / 2, y + 8, 0xFFFFFFFF);
 		int codeY = y + 30;
 		for (String line : codeLines) {
 			String visible = font.plainSubstrByWidth(line, availableWidth - 18);
@@ -450,13 +582,80 @@ final class LuaApiDocsOverlay {
 			codeY += font.lineHeight + 3;
 		}
 		y += codeHeight + 10;
-		y = drawDetailText(graphics, "使用提示", contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
+		y = drawDetailText(graphics, LuaUiText.text("使用提示"), contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
 		y = drawDetailText(graphics, usageHint(selected), contentLeft, y, availableWidth, 0xFFB7C5D8, 5);
 
 		contentHeight = Math.max(0, y + contentScroll - top + 10);
 		contentScroll = Math.max(0, Math.min(maxContentScroll(top, bottom), contentScroll));
 		graphics.disableScissor();
 		renderDetailScrollbar(graphics, left, top, right, bottom);
+	}
+
+	private void renderPageDetails(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
+			int left, int top, int right, int bottom) {
+		LuaApiDocumentation.DocumentPage page = selectedPage;
+		McLuaIdeDocsApi.Translation translation = page.translation();
+		int contentLeft = left + 14;
+		int contentRight = right - 14;
+		int availableWidth = Math.max(80, contentRight - contentLeft);
+		int y = top + 12 - contentScroll;
+		textSpans.clear();
+		selectableText.setLength(0);
+		graphics.enableScissor(left + 1, top + 1, right - 1, bottom - 1);
+		y = drawDetailText(graphics, translation.pageTitle(), contentLeft, y,
+				availableWidth, 0xFFD6B7FF, 8);
+		y = drawDetailText(graphics, LuaUiText.text("来源模组：") + page.ownerModId(), contentLeft, y,
+				availableWidth, 0xFFFFB86B, 10);
+		for (McLuaIdeDocsApi.Element element : translation.elements()) {
+			switch (element.kind()) {
+				case HEADING -> y = drawDetailText(graphics, element.content(), contentLeft, y,
+						availableWidth, 0xFF71D8FF, 7);
+				case TEXT -> y = drawDetailText(graphics, element.content(), contentLeft, y,
+						availableWidth, 0xFFE0E7F0, 9);
+				case CALLOUT -> {
+					int boxTop = y;
+					y = drawDetailText(graphics, LuaUiText.text("提示：") + element.content(), contentLeft + 9, y + 7,
+							availableWidth - 18, 0xFFFFD479, 7);
+					graphics.outline(contentLeft, boxTop, availableWidth, y - boxTop, 0xFF80623A);
+					y += 9;
+				}
+				case CODE -> y = renderPageCode(graphics, mouseX, mouseY, element.content(),
+						contentLeft, contentRight, y, availableWidth);
+			}
+		}
+		contentHeight = Math.max(0, y + contentScroll - top + 10);
+		contentScroll = Math.max(0, Math.min(maxContentScroll(top, bottom), contentScroll));
+		graphics.disableScissor();
+		renderDetailScrollbar(graphics, left, top, right, bottom);
+	}
+
+	private int renderPageCode(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
+			String code, int left, int right, int y, int availableWidth) {
+		List<String> lines = List.of(code.split("\\R", -1));
+		int codeHeight = 27 + lines.size() * (font.lineHeight + 3) + 7;
+		graphics.fill(left, y, right, y + codeHeight, 0xFF090D13);
+		graphics.outline(left, y, availableWidth, codeHeight, 0xFF3E5067);
+		graphics.fill(left + 1, y + 1, right - 1, y + 24, 0xFF1A2431);
+		graphics.text(font, LuaUiText.text("Lua · 示例代码"), left + 8, y + 8, 0xFF73D7FF);
+		int insertLeft = right - 112;
+		int copyLeft = right - 54;
+		ButtonBounds insert = new ButtonBounds(insertLeft, y + 4, copyLeft - 4, y + 21);
+		ButtonBounds copy = new ButtonBounds(copyLeft, y + 4, right - 5, y + 21);
+		pageCodeButtons.add(new PageCodeButton(insert, copy, code));
+		graphics.fill(insert.left(), insert.top(), insert.right(), insert.bottom(),
+				insert.contains(mouseX, mouseY) ? 0xFF654594 : 0xFF3C3151);
+		graphics.centeredText(font, LuaUiText.text("插入"), (insert.left() + insert.right()) / 2, y + 8, 0xFFFFFFFF);
+		graphics.fill(copy.left(), copy.top(), copy.right(), copy.bottom(),
+				copy.contains(mouseX, mouseY) ? 0xFF2874A6 : 0xFF29394C);
+		graphics.centeredText(font, LuaUiText.text("复制"), (copy.left() + copy.right()) / 2, y + 8, 0xFFFFFFFF);
+		int codeY = y + 30;
+		for (String line : lines) {
+			String visible = font.plainSubstrByWidth(line, availableWidth - 18);
+			Component highlighted = LuaSyntaxHighlighter.highlightSnippet(visible, LuaSyntaxHighlighter.Theme.DARK);
+			drawSelectableText(graphics, visible, highlighted, left + 9, codeY, 0xFFFFFFFF);
+			codeY += font.lineHeight + 3;
+		}
+		return y + codeHeight + 10;
 	}
 
 	private int drawDetailText(GuiGraphicsExtractor graphics, String text, int x, int y,
@@ -510,7 +709,7 @@ final class LuaApiDocsOverlay {
 				index = lower.indexOf(needle, index + Math.max(1, needle.length()))) {
 			ranges.add(new TextRange(index, Math.min(text.length(), index + needle.length())));
 		}
-		if (pinyinSearchEnabled) {
+		if (pinyinSearchActive()) {
 			StringBuilder initials = new StringBuilder();
 			List<Integer> starts = new ArrayList<>();
 			List<Integer> ends = new ArrayList<>();
@@ -533,6 +732,10 @@ final class LuaApiDocsOverlay {
 					ranges.add(new TextRange(starts.get(index), ends.get(last)));
 				}
 			}
+		}
+		if (LuaUiText.japanese()) {
+			for (JapaneseSearchIndex.Range range : JapaneseSearchIndex.ranges(text, needle, romajiSearchEnabled))
+				ranges.add(new TextRange(range.start(), range.end()));
 		}
 		if (ranges.isEmpty()) return List.of();
 		ranges.sort(Comparator.comparingInt(TextRange::start).thenComparingInt(TextRange::end));
@@ -571,6 +774,8 @@ final class LuaApiDocsOverlay {
 					+ "” 注册；执行能力、参数含义和兼容性由该模组提供。";
 		}
 		String namespace = document.namespace();
+		if (Set.of("MC.Item.name", "MC.Block.name", "MC.Entity.name", "MC.Enchantment.name").contains(document.symbol()))
+			return "指定 language 获取目标语言名称，不改变客户端／服务端语言。原版缺失语言从官方资源下载缓存；服务端 Mod assets 和本地 lang/<language>.json 可提供翻译。第二返回值说明实际语言，不依赖客户端安装。";
 		return switch (namespace) {
 			case "Block", "World", "Border", "Structure", "Loot" -> "坐标和世界数据都从服务端读取；dimension 不填时默认使用主世界。资源 ID 可通过“插入”窗口选择。";
 			case "Item", "Player", "Chat" -> "涉及玩家的接口必须传入在线玩家 UUID。可按 Ctrl+I 打开插入器并切换到“玩家”分类。";
@@ -580,7 +785,7 @@ final class LuaApiDocsOverlay {
 			case "Registry" -> "注册表在运行时读取，结果包含 Minecraft 与已加载 Mod 注册的资源 ID。";
 			case "Command" -> "命令以服务端权限上下文提交，command 参数开头的 / 可以省略。runAs 会改用指定在线玩家身份。";
 			case "Event" -> "事件回调在脚本执行线程中按顺序处理。注册后脚本会保持运行，点击停止或 /lua stop 会自动清理回调。";
-			default -> "点击“复制”可复制完整模板；点击“插入”会把模板直接写入当前编辑器光标位置。";
+			default -> LuaUiText.text("点击“复制”可复制完整模板；点击“插入”会把模板直接写入当前编辑器光标位置。");
 		};
 	}
 
@@ -606,6 +811,10 @@ final class LuaApiDocsOverlay {
 
 	boolean keyPressed(KeyEvent event) {
 		if (!open || !keyboardFocused) return false;
+		if (event.key() == InputConstants.KEY_ESCAPE && !filterFocused) {
+			close();
+			return true;
+		}
 		if (filterFocused) {
 			if (event.key() == InputConstants.KEY_ESCAPE) {
 				filterFocused = false;
@@ -677,7 +886,6 @@ final class LuaApiDocsOverlay {
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_ESCAPE) {
-			if (dockSide.docked()) return true;
 			close();
 			return true;
 		}
@@ -750,11 +958,12 @@ final class LuaApiDocsOverlay {
 
 		int filterTop = windowY + TITLE_HEIGHT + BREADCRUMB_HEIGHT;
 		int filterLeft = x + 10;
-		int toggleWidth = 86;
+		int toggleWidth = phoneticToggleWidth();
 		int toggleLeft = right - toggleWidth - 10;
-		int filterRight = toggleLeft - 7;
-		if (inside(event.x(), event.y(), toggleLeft, filterTop + 5, right - 10, filterTop + 25)) {
-			pinyinSearchEnabled = !pinyinSearchEnabled;
+		int filterRight = filterInputRight(right);
+		if (phoneticToggleVisible() && inside(event.x(), event.y(), toggleLeft, filterTop + 5, right - 10, filterTop + 25)) {
+			if (romajiToggleVisible()) romajiSearchEnabled = !romajiSearchEnabled;
+			else pinyinSearchEnabled = !pinyinSearchEnabled;
 			onFilterChanged();
 			filterFocused = true;
 			return true;
@@ -774,6 +983,11 @@ final class LuaApiDocsOverlay {
 		int mainTop = mainTop();
 		int mainBottom = bottom - FOOTER_HEIGHT;
 		int dividerX = x + sidebarWidth();
+		if (event.button() == 0 && event.y() >= mainTop && event.y() < mainBottom
+				&& Math.abs(event.x() - dividerX) <= 5) {
+			draggingSidebarDivider = true;
+			return true;
+		}
 		if (event.y() >= mainTop && event.y() <= mainBottom && event.x() <= dividerX) {
 			int visual = Math.max(0, (int) (event.y() - mainTop - 3) / ROW_HEIGHT);
 			List<TreeRow> rows = treeRows();
@@ -781,7 +995,20 @@ final class LuaApiDocsOverlay {
 			if (index < rows.size()) activate(rows.get(index));
 			return true;
 		}
-		if (selected != null && event.x() > dividerX && event.y() >= mainTop && event.y() <= mainBottom) {
+		if ((selected != null || selectedPage != null) && event.x() > dividerX
+				&& event.y() >= mainTop && event.y() <= mainBottom) {
+			if (selectedPage != null) {
+				for (PageCodeButton button : pageCodeButtons) {
+					if (button.copy().contains(event.x(), event.y())) {
+						minecraft.keyboardHandler.setClipboard(button.code());
+						return true;
+					}
+					if (button.insert().contains(event.x(), event.y())) {
+						insertion.accept(button.code());
+						return true;
+					}
+				}
+			}
 			if (copyButtonBounds != null && copyButtonBounds.contains(event.x(), event.y())) {
 				minecraft.keyboardHandler.setClipboard(LuaApiDocumentation.usageTemplate(selected.symbol()));
 				return true;
@@ -804,6 +1031,11 @@ final class LuaApiDocsOverlay {
 	}
 
 	boolean mouseDragged(MouseButtonEvent event) {
+		if (draggingSidebarDivider) {
+			preferredSidebarWidth = (int) Math.round(event.x() - panelX());
+			preferredSidebarWidth = sidebarWidth();
+			return true;
+		}
 		if (resizeEdges != 0) {
 			resize(event.x(), event.y());
 			return true;
@@ -833,6 +1065,7 @@ final class LuaApiDocsOverlay {
 		dragging = false;
 		selectingText = false;
 		resizeEdges = 0;
+		draggingSidebarDivider = false;
 		return true;
 	}
 
@@ -910,14 +1143,20 @@ final class LuaApiDocsOverlay {
 	}
 
 	private void onFilterChanged() {
+		searchCollapsedSections.clear(); searchCollapsedGroups.clear();
+		clearPendingSelection();
 		List<LuaApiDocumentation.DocumentEntry> filtered = filteredEntries();
-		rootExpanded = true;
+		List<LuaApiDocumentation.DocumentPage> filteredDocumentationPages = filteredPages();
+		if (!filterQuery.isBlank()) rootExpanded = true;
 		navigationScroll = 0;
 		contentScroll = 0;
 		selectionAnchor = -1;
 		selectionCaret = -1;
-		if (!filtered.contains(selected)) selected = filtered.isEmpty() ? null : filtered.getFirst();
-		expandSelectedPath();
+		if (selectedPage != null && !filteredDocumentationPages.contains(selectedPage)) selectedPage = null;
+		if (selectedPage == null && !filtered.contains(selected)) {
+			selected = filtered.isEmpty() ? null : filtered.getFirst();
+			if (selected == null && !filteredDocumentationPages.isEmpty()) selectedPage = filteredDocumentationPages.getFirst();
+		}
 	}
 
 	private boolean hasTextSelection() {
@@ -974,14 +1213,26 @@ final class LuaApiDocsOverlay {
 		switch (row.type()) {
 			case ROOT -> rootExpanded = !rootExpanded;
 			case SECTION -> {
-				if (!expandedSections.add(row.section().key())) expandedSections.remove(row.section().key());
+				Set<String> branches = filterQuery.isBlank() ? expandedSections : searchCollapsedSections;
+				if (!branches.add(row.section().key())) branches.remove(row.section().key());
 			}
 			case GROUP -> {
 				String key = groupKey(row.section(), row.group());
-				if (!expandedGroups.add(key)) expandedGroups.remove(key);
+				Set<String> branches = filterQuery.isBlank() ? expandedGroups : searchCollapsedGroups;
+				if (!branches.add(key)) branches.remove(key);
 			}
 			case METHOD -> {
 				selected = row.entry();
+				selectedPage = null;
+				clearPendingSelection();
+				contentScroll = 0;
+				selectionAnchor = -1;
+				selectionCaret = -1;
+			}
+			case PAGE -> {
+				selectedPage = row.page();
+				selected = null;
+				clearPendingSelection();
 				contentScroll = 0;
 				selectionAnchor = -1;
 				selectionCaret = -1;
@@ -990,11 +1241,23 @@ final class LuaApiDocsOverlay {
 	}
 
 	private void selectRelative(int direction) {
-		List<LuaApiDocumentation.DocumentEntry> visible = filteredEntries();
+		List<TreeRow> visible = treeRows().stream()
+				.filter(row -> row.type() == RowType.METHOD || row.type() == RowType.PAGE).toList();
 		if (visible.isEmpty()) return;
-		int current = selected == null ? -1 : visible.indexOf(selected);
+		int current = -1;
+		for (int index = 0; index < visible.size(); index++) {
+			TreeRow row = visible.get(index);
+			if (row.entry() != null && row.entry().equals(selected)
+					|| row.page() != null && row.page().equals(selectedPage)) {
+				current = index;
+				break;
+			}
+		}
 		if (current < 0) current = direction > 0 ? -1 : 0;
-		selected = visible.get(Math.floorMod(current + direction, visible.size()));
+		TreeRow target = visible.get(Math.floorMod(current + direction, visible.size()));
+		selected = target.entry();
+		selectedPage = target.page();
+		clearPendingSelection();
 		rootExpanded = true;
 		expandSelectedPath();
 		contentScroll = 0;
@@ -1007,7 +1270,8 @@ final class LuaApiDocsOverlay {
 		List<TreeRow> rows = treeRows();
 		int rowIndex = 0;
 		for (int index = 0; index < rows.size(); index++) {
-			if (rows.get(index).entry() != null && rows.get(index).entry().equals(selected)) {
+			if (rows.get(index).entry() != null && rows.get(index).entry().equals(selected)
+					|| rows.get(index).page() != null && rows.get(index).page().equals(selectedPage)) {
 				rowIndex = index;
 				break;
 			}
@@ -1020,20 +1284,33 @@ final class LuaApiDocsOverlay {
 
 	private List<TreeRow> treeRows() {
 		List<LuaApiDocumentation.DocumentEntry> filtered = filteredEntries();
+		List<LuaApiDocumentation.DocumentPage> filteredDocumentationPages = filteredPages();
 		List<TreeRow> rows = new ArrayList<>();
-		String total = filterQuery.isBlank() ? Integer.toString(entries.size()) : filtered.size() + " / " + entries.size();
+		String total = filterQuery.isBlank() ? Integer.toString(entries.size() + pages.size())
+				: (filtered.size() + filteredDocumentationPages.size()) + " / " + (entries.size() + pages.size());
 		rows.add(new TreeRow(RowType.ROOT, 0, (rootExpanded ? "▾ " : "▸ ") + "Lua API (" + total + ")",
 				null, null, null));
 		if (!rootExpanded) return rows;
-		for (ApiSection section : sections(filtered)) {
+		for (ApiSection section : sections(filtered, filteredDocumentationPages)) {
 			List<LuaApiDocumentation.DocumentEntry> sectionEntries = filtered.stream()
 					.filter(section::contains).toList();
-			if (sectionEntries.isEmpty()) continue;
-			boolean sectionExpanded = !filterQuery.isBlank() || expandedSections.contains(section.key());
+			List<LuaApiDocumentation.DocumentPage> sectionPages = filteredDocumentationPages.stream()
+					.filter(section::contains).toList();
+			if (sectionEntries.isEmpty() && sectionPages.isEmpty()) continue;
+			boolean sectionExpanded = filterQuery.isBlank() ? expandedSections.contains(section.key())
+					: !searchCollapsedSections.contains(section.key());
 			rows.add(new TreeRow(RowType.SECTION, 1,
-					(sectionExpanded ? "▾ " : "▸ ") + section.label() + " (" + sectionEntries.size() + ")",
+					(sectionExpanded ? "▾ " : "▸ ") + section.label() + " ("
+							+ (sectionEntries.size() + sectionPages.size()) + ")",
 					section, null, null));
 			if (!sectionExpanded) continue;
+			if (!sectionPages.isEmpty()) {
+				for (LuaApiDocumentation.DocumentPage page : sectionPages) {
+					rows.add(new TreeRow(RowType.PAGE, 2, page.translation().pageTitle(),
+							section, null, null, page));
+				}
+				continue;
+			}
 			if (!section.grouped()) {
 				for (LuaApiDocumentation.DocumentEntry entry : sectionEntries) {
 					rows.add(new TreeRow(RowType.METHOD, 2,
@@ -1046,8 +1323,8 @@ final class LuaApiDocsOverlay {
 				List<LuaApiDocumentation.DocumentEntry> groupEntries = group.getValue().stream()
 						.filter(filtered::contains).filter(section::contains).toList();
 				if (groupEntries.isEmpty()) continue;
-				boolean expanded = !filterQuery.isBlank()
-						|| expandedGroups.contains(groupKey(section, group.getKey()));
+				boolean expanded = filterQuery.isBlank() ? expandedGroups.contains(groupKey(section, group.getKey()))
+						: !searchCollapsedGroups.contains(groupKey(section, group.getKey()));
 				rows.add(new TreeRow(RowType.GROUP, 2,
 						(expanded ? "▾ " : "▸ ") + groupLabel(group.getKey()) + " (" + groupEntries.size() + ")",
 						section, group.getKey(), null));
@@ -1086,7 +1363,8 @@ final class LuaApiDocsOverlay {
 		}
 		String text = searchable.toString().toLowerCase(Locale.ROOT);
 		return text.contains(needle)
-				|| pinyinSearchEnabled && ChineseSearchIndex.initials(text).contains(needle);
+				|| pinyinSearchActive() && ChineseSearchIndex.initials(text).contains(needle)
+				|| LuaUiText.japanese() && JapaneseSearchIndex.matches(text, needle, romajiSearchEnabled);
 	}
 
 	private Map<String, List<LuaApiDocumentation.DocumentEntry>> buildGroups() {
@@ -1098,10 +1376,15 @@ final class LuaApiDocsOverlay {
 	}
 
 	private void expandSelectedPath() {
-		if (selected == null) return;
-		ApiSection section = sectionFor(selected);
-		expandedSections.add(section.key());
-		if (section.grouped()) expandedGroups.add(groupKey(section, selected.namespace()));
+		if (selected == null && selectedPage == null) return;
+		ApiSection section = selectedPage != null ? sectionFor(selectedPage) : sectionFor(selected);
+		if (filterQuery.isBlank()) {
+			expandedSections.add(section.key());
+			if (section.grouped() && selected != null) expandedGroups.add(groupKey(section, selected.namespace()));
+		} else {
+			searchCollapsedSections.remove(section.key());
+			if (section.grouped() && selected != null) searchCollapsedGroups.remove(groupKey(section, selected.namespace()));
+		}
 	}
 
 	private static String groupKey(ApiSection section, String namespace) {
@@ -1109,16 +1392,25 @@ final class LuaApiDocsOverlay {
 	}
 
 	private String breadcrumb() {
-		if (selected == null) return "API 文档  >  Lua API";
+		if (selectedPage != null) return LuaUiText.text("API 文档  >  ", "API Reference  >  ") + sectionFor(selectedPage).label()
+				+ "  >  " + selectedPage.translation().pageTitle();
+		if (selected == null) return LuaUiText.text("API 文档  >  Lua API");
 		ApiSection section = sectionFor(selected);
-		StringBuilder result = new StringBuilder("API 文档  >  ").append(section.label());
+		StringBuilder result = new StringBuilder(LuaUiText.text("API 文档  >  ", "API Reference  >  ")).append(section.label());
 		if (section.grouped()) result.append("  >  ").append(groupLabel(selected.namespace()));
 		return result.append("  >  ").append(selected.methodName()).toString();
 	}
 
-	private List<ApiSection> sections(List<LuaApiDocumentation.DocumentEntry> source) {
+	private List<ApiSection> sections(List<LuaApiDocumentation.DocumentEntry> source,
+			List<LuaApiDocumentation.DocumentPage> pageSource) {
 		List<ApiSection> result = new ArrayList<>();
 		if (source.stream().anyMatch(CLIENT_SECTION::contains)) result.add(CLIENT_SECTION);
+		Map<String, ApiSection> pageSections = new LinkedHashMap<>();
+		for (LuaApiDocumentation.DocumentPage page : pageSource) {
+			ApiSection section = sectionFor(page);
+			pageSections.putIfAbsent(section.key(), section);
+		}
+		result.addAll(pageSections.values());
 		Map<String, String> customRoots = new LinkedHashMap<>();
 		for (LuaApiDocumentation.DocumentEntry entry : source) {
 			if (!entry.documentation().clientRequired() && !entry.apiRoot().equals("MC")) {
@@ -1149,7 +1441,7 @@ final class LuaApiDocsOverlay {
 
 	private String groupLabel(String namespace) {
 		String builtIn = GROUP_LABELS.get(namespace);
-		if (builtIn != null) return builtIn;
+		if (builtIn != null) return LuaUiText.text(builtIn);
 		for (LuaApiDocumentation.DocumentEntry entry : entries) {
 			if (!entry.namespace().equals(namespace)) continue;
 			String label = entry.namespaceLabel();
@@ -1159,7 +1451,57 @@ final class LuaApiDocsOverlay {
 	}
 
 	private int sidebarWidth() {
-		return Math.min(280, Math.max(190, windowWidth / 3));
+		int minimum = Math.min(160, Math.max(80, windowWidth / 3));
+		int maximum = Math.max(minimum, windowWidth - Math.min(220, Math.max(110, windowWidth / 2)));
+		int desired = preferredSidebarWidth < 0 ? Math.min(280, Math.max(190, windowWidth / 3))
+				: preferredSidebarWidth;
+		return Math.clamp(desired, minimum, maximum);
+	}
+
+	private ApiSection sectionFor(LuaApiDocumentation.DocumentPage page) {
+		return new ApiSection("docs:" + page.ownerModId() + ':' + page.categoryId(),
+				"◆ " + page.translation().categoryTitle(), 0xFFFFD479, "", false, false);
+	}
+
+	private List<LuaApiDocumentation.DocumentPage> filteredPages() {
+		String needle = normalizedFilter();
+		if (needle.isEmpty()) return pages;
+		return pages.stream().filter(page -> {
+			StringBuilder searchable = new StringBuilder(page.ownerModId()).append(' ')
+					.append(page.categoryId()).append(' ').append(page.pageId()).append(' ')
+					.append(page.translation().categoryTitle()).append(' ')
+					.append(page.translation().pageTitle());
+			for (McLuaIdeDocsApi.Element element : page.translation().elements()) {
+				searchable.append(' ').append(element.content());
+			}
+			String text = searchable.toString().toLowerCase(Locale.ROOT);
+			return text.contains(needle) || pinyinSearchActive() && ChineseSearchIndex.initials(text).contains(needle)
+					|| LuaUiText.japanese() && JapaneseSearchIndex.matches(text, needle, romajiSearchEnabled);
+		}).toList();
+	}
+
+	private void refreshDocumentation() {
+		if (documentationRevision == LuaApiDocumentation.revision()) return;
+		String selectedSymbol = selected == null ? pendingSelectedSymbol : selected.symbol();
+		String selectedPageKey = selectedPage == null ? pendingSelectedPageKey : selectedPage.key();
+		entries = LuaApiDocumentation.allEntries();
+		pages = LuaApiDocumentation.allPages();
+		groups = buildGroups();
+		resolveSelection(selectedSymbol, selectedPageKey);
+		documentationRevision = LuaApiDocumentation.revision();
+	}
+
+	private void resolveSelection(String selectedSymbol, String selectedPageKey) {
+		selected = selectedSymbol.isEmpty() ? null : entries.stream()
+				.filter(entry -> entry.symbol().equals(selectedSymbol)).findFirst().orElse(null);
+		selectedPage = selectedPageKey.isEmpty() ? null : pages.stream()
+				.filter(page -> page.key().equals(selectedPageKey)).findFirst().orElse(null);
+		pendingSelectedSymbol = selected == null ? selectedSymbol : "";
+		pendingSelectedPageKey = selectedPage == null ? selectedPageKey : "";
+	}
+
+	private void clearPendingSelection() {
+		pendingSelectedSymbol = pendingSelectedPageKey = "";
 	}
 
 	private int maxContentScroll(int top, int bottom) {
@@ -1270,16 +1612,25 @@ final class LuaApiDocsOverlay {
 
 	private record ApiSection(String key, String label, int color, String apiRoot,
 			boolean clientOnly, boolean grouped) {
+		public String label() { return LuaUiText.text(label); }
 		boolean contains(LuaApiDocumentation.DocumentEntry entry) {
 			if (clientOnly) return entry.documentation().clientRequired();
 			return !entry.documentation().clientRequired() && entry.apiRoot().equals(apiRoot);
 		}
+
+		boolean contains(LuaApiDocumentation.DocumentPage page) {
+			return key.equals("docs:" + page.ownerModId() + ':' + page.categoryId());
+		}
 	}
 
-	private enum RowType { ROOT, SECTION, GROUP, METHOD }
+	private enum RowType { ROOT, SECTION, GROUP, METHOD, PAGE }
 
 	private record TreeRow(RowType type, int depth, String label, ApiSection section, String group,
-			LuaApiDocumentation.DocumentEntry entry) {
+			LuaApiDocumentation.DocumentEntry entry, LuaApiDocumentation.DocumentPage page) {
+		TreeRow(RowType type, int depth, String label, ApiSection section, String group,
+				LuaApiDocumentation.DocumentEntry entry) {
+			this(type, depth, label, section, group, entry, null);
+		}
 	}
 
 	private record SelectableSpan(int x, int y, String text, int start, int end) {
@@ -1293,4 +1644,6 @@ final class LuaApiDocsOverlay {
 			return x >= left && x <= right && y >= top && y <= bottom;
 		}
 	}
+
+	private record PageCodeButton(ButtonBounds insert, ButtonBounds copy, String code) { }
 }

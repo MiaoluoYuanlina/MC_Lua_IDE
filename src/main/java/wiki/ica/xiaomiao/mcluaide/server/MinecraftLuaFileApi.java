@@ -130,8 +130,9 @@ final class MinecraftLuaFileApi {
 	private static void ensureRoot(Path root) throws IOException {
 		Files.createDirectories(DATA_DIRECTORY);
 		if (Files.isSymbolicLink(DATA_DIRECTORY)) throw new LuaError("Lua 数据根目录不能是符号链接");
+		ensureNoSymlinks(DATA_DIRECTORY, root);
 		Files.createDirectories(root);
-		if (Files.isSymbolicLink(root)) throw new LuaError("脚本数据目录不能是符号链接");
+		ensureNoSymlinks(DATA_DIRECTORY, root);
 	}
 
 	private static void ensureNoSymlinks(Path root, Path target) throws IOException {

@@ -1,19 +1,25 @@
 package wiki.ica.xiaomiao.mcluaide.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.client.particle.ParticleDescription;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.item.ItemStack;
@@ -29,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -45,18 +52,33 @@ final class LuaInsertOverlay {
 	private static final int EDGE_TOP = 4;
 	private static final int EDGE_BOTTOM = 8;
 	private static final int ROW_HEIGHT = 20;
+	private static final int LIST_TOP = 108;
 
 	private final Minecraft minecraft;
 	private final Font font;
 	private final Consumer<LuaInsertCatalog.Entry> insertion;
+	private final LuaInsertSoundPreview soundPreview;
 	private final Map<LuaInsertCatalog.Kind, List<LuaInsertCatalog.Entry>> catalogs =
 			new EnumMap<>(LuaInsertCatalog.Kind.class);
+	private final Set<LuaInsertCatalog.Kind> loadedKinds = new HashSet<>();
+	private final Set<LuaInsertCatalog.Kind> loadingKinds = new HashSet<>();
+	private final Map<LuaInsertCatalog.Kind, String> catalogErrors = new EnumMap<>(LuaInsertCatalog.Kind.class);
+	private int catalogEpoch;
+	private int observedCatalogRevision = -1;
 	private final Map<String, EntityRenderState> entityIcons = new HashMap<>();
 	private final Set<String> unavailableEntityIcons = new HashSet<>();
-	private List<LuaInsertCatalog.Entry> filtered = List.of();
+	private final Map<String, Optional<Identifier>> particleTextures = new HashMap<>();
+	private ResourceManager particleTextureResources;
+	private long particleTextureCacheTime;
+	private List<LuaInsertCatalog.TypedEntry> allEntries = List.of();
+	private List<LuaInsertCatalog.TypedEntry> filtered = List.of();
+	private boolean catalogDirty;
 	private List<String> namespaces = List.of();
 	private List<NamespaceOption> namespaceOptions = List.of();
 	private LuaInsertCatalog.Kind kind = LuaInsertCatalog.Kind.ITEM;
+	private final java.nio.file.Path preferencesFile;
+	private int categoryPageStart;
+	private int observedCategorySlots = -1;
 	private String query = "";
 	private int namespaceIndex;
 	private boolean namespacePickerOpen;
@@ -96,6 +118,10 @@ final class LuaInsertOverlay {
 		this.minecraft = minecraft;
 		this.font = font;
 		this.insertion = insertion;
+		this.soundPreview = new LuaInsertSoundPreview(minecraft);
+		preferencesFile = minecraft == null ? null : FabricLoader.getInstance().getConfigDir()
+				.resolve("mc_lua_ide").resolve("insert-picker.properties");
+		kind = LuaInsertPickerPreferences.load(preferencesFile);
 	}
 
 	void resize(int width, int height) {
@@ -109,10 +135,17 @@ final class LuaInsertOverlay {
 	}
 
 	void open(LuaInsertCatalog.Kind preferredKind, String initialQuery) {
+		stopSoundPreview();
 		open = true;
 		keyboardFocused = true;
 		catalogs.clear();
+		loadedKinds.clear();
+		loadingKinds.clear();
+		catalogErrors.clear();
+		catalogEpoch++;
 		if (preferredKind != null) kind = preferredKind;
+		showSelectedCategory();
+		rememberKind();
 		query = initialQuery == null ? "" : initialQuery;
 		namespaceIndex = 0;
 		namespacePickerOpen = false;
@@ -121,6 +154,7 @@ final class LuaInsertOverlay {
 	}
 
 	void close() {
+		stopSoundPreview();
 		open = false;
 		keyboardFocused = false;
 		namespacePickerOpen = false;
@@ -130,6 +164,68 @@ final class LuaInsertOverlay {
 
 	boolean isOpen() {
 		return open;
+	}
+
+	LuaInsertCatalog.Kind kind() { return kind; }
+
+	private int categorySlots() { return Math.max(1, (windowWidth - 68) / 66); }
+	private int categoryWidth() { return Math.max(1, (windowWidth - 68) / categorySlots()); }
+	private void showSelectedCategory() {
+		observedCategorySlots = categorySlots();
+		categoryPageStart = kind.ordinal() / categorySlots() * categorySlots();
+	}
+	private void rememberKind() {
+		if (preferencesFile == null) return;
+		try { LuaInsertPickerPreferences.save(preferencesFile, kind); }
+		catch (java.io.IOException error) { wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.LOGGER.warn("Could not save insertion category", error); }
+	}
+	private void selectKind(LuaInsertCatalog.Kind selected) {
+		if (selected == kind) return;
+		stopSoundPreview();
+		kind = selected;
+		query = "";
+		namespaceIndex = 0; namespacePickerOpen = false; namespaceQuery = "";
+		showSelectedCategory(); rememberKind();
+		rebuildCatalog(true);
+	}
+	private void renderCategories(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		int x = panelX(), y = windowY + 63, right = x + windowWidth;
+		var kinds = LuaInsertCatalog.Kind.values();
+		int slots = categorySlots(), cell = categoryWidth();
+		if (slots != observedCategorySlots) showSelectedCategory();
+		categoryPageStart = Math.clamp(categoryPageStart, 0, (kinds.length - 1) / slots * slots);
+		for (int i = 0; i < slots && categoryPageStart + i < kinds.length; i++) {
+			var candidate = kinds[categoryPageStart + i];
+			int left = x + 34 + i * cell;
+			graphics.fill(left, y, left + cell - 3, y + 21, candidate == kind ? 0xFF26745F
+					: inside(mouseX, mouseY, left, y, left + cell - 3, y + 21) ? 0xFF285A50 : 0xFF203C36);
+			graphics.centeredText(font, font.plainSubstrByWidth(candidate.tabLabel(), cell - 9),
+					left + (cell - 3) / 2, y + 6, candidate == kind ? 0xFFFFFFFF : 0xFFA9C7BC);
+		}
+		for (int delta : new int[]{-1, 1}) {
+			int left = delta < 0 ? x + 10 : right - 30;
+			boolean enabled = delta < 0 ? categoryPageStart > 0 : categoryPageStart + slots < kinds.length;
+			graphics.fill(left, y, left + 20, y + 21, enabled ? 0xFF29453F : 0xFF182623);
+			graphics.centeredText(font, delta < 0 ? "‹" : "›", left + 10, y + 6, enabled ? 0xFFFFFFFF : 0xFF546E63);
+		}
+	}
+	private boolean categoryClicked(double mouseX, double mouseY) {
+		int x = panelX(), y = windowY + 63, right = x + windowWidth;
+		if (mouseY < y || mouseY >= y + 21) return false;
+		int slots = categorySlots();
+		if (inside(mouseX, mouseY, x + 10, y, x + 30, y + 21)) {
+			categoryPageStart = Math.max(0, categoryPageStart - slots); return true;
+		}
+		if (inside(mouseX, mouseY, right - 30, y, right - 10, y + 21)) {
+			int last = (LuaInsertCatalog.Kind.values().length - 1) / slots * slots;
+			categoryPageStart = Math.min(last, categoryPageStart + slots); return true;
+		}
+		int index = (int) ((mouseX - x - 34) / categoryWidth());
+		if (mouseX >= x + 34 && mouseX < right - 34 && index >= 0 && index < slots
+				&& categoryPageStart + index < LuaInsertCatalog.Kind.values().length) {
+			selectKind(LuaInsertCatalog.Kind.values()[categoryPageStart + index]); return true;
+		}
+		return false;
 	}
 
 	boolean isVisible() {
@@ -156,6 +252,27 @@ final class LuaInsertOverlay {
 		layoutLocked = locked;
 	}
 
+
+	WindowGeometry captureGeometry() {
+		if (!dockSide.docked()) return boundsAnimation.destination(windowX, windowY, windowWidth, windowHeight);
+		return new WindowGeometry(dockSide.docked() && floatingWidth > 0 ? floatingX : windowX,
+				dockSide.docked() && floatingHeight > 0 ? floatingY : windowY,
+				dockSide.docked() && floatingWidth > 0 ? floatingWidth : windowWidth,
+				dockSide.docked() && floatingHeight > 0 ? floatingHeight : windowHeight);
+	}
+
+	void restoreGeometry(WindowGeometry geometry) {
+		if (geometry == null) return;
+		windowX = geometry.x(); windowY = geometry.y();
+		windowWidth = Math.min(geometry.width(), Math.max(1, screenWidth));
+		windowHeight = Math.min(geometry.height(), Math.max(1, screenHeight));
+		ensureGeometry();
+		windowX = Math.clamp(windowX, 0, Math.max(0, screenWidth - windowWidth));
+		windowY = Math.clamp(windowY, 0, Math.max(0, screenHeight - windowHeight));
+		floatingX = windowX; floatingY = windowY; floatingWidth = windowWidth; floatingHeight = windowHeight;
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+	}
+
 	void setDockSide(DockSide side) {
 		if (side == null || side == dockSide) return;
 		DockSide previous = dockSide;
@@ -173,6 +290,7 @@ final class LuaInsertOverlay {
 
 	void releaseKeyboardFocus() {
 		keyboardFocused = false;
+		soundPreview.suspend();
 	}
 
 	void requestKeyboardFocus() {
@@ -180,6 +298,15 @@ final class LuaInsertOverlay {
 	}
 
 	void tick() {
+		int revision = ScriptManager.catalogRevision();
+		if (observedCatalogRevision != revision) {
+			stopSoundPreview();
+			observedCatalogRevision = revision;
+			catalogs.clear(); loadedKinds.clear(); loadingKinds.clear(); catalogErrors.clear(); catalogEpoch++;
+			entityIcons.clear(); unavailableEntityIcons.clear();
+			if (open) refreshCatalog();
+		}
+		if (open && catalogDirty) rebuildCatalog(false);
 		float target = open ? 1.0F : 0.0F;
 		progress += (target - progress) * 0.28F;
 		if (Math.abs(target - progress) < 0.01F) progress = target;
@@ -204,7 +331,8 @@ final class LuaInsertOverlay {
 		graphics.fill(x, windowY, right, bottom, 0xFD10151E);
 		graphics.outline(x, windowY, windowWidth, windowHeight, 0xFF55C9A5);
 		graphics.fill(x + 1, windowY + 1, right - 1, windowY + TITLE_HEIGHT, 0xFF18332F);
-		graphics.text(font, "＋  插入运行时 ID", x + 10, windowY + 9, 0xFF75E6C1);
+		graphics.text(font, font.plainSubstrByWidth(LuaUiText.text("＋  插入 · ") + kind.label(), windowWidth - 80),
+				x + 10, windowY + 9, 0xFF75E6C1);
 
 		int refreshLeft = right - 51;
 		boolean refreshHovered = inside(mouseX, mouseY, refreshLeft, windowY + 4, refreshLeft + 20, windowY + 24);
@@ -221,37 +349,28 @@ final class LuaInsertOverlay {
 		int namespaceLeft = right - namespaceWidth - 10;
 		graphics.fill(x + 10, searchTop, namespaceLeft - 6, searchTop + 20, 0xFF090D12);
 		graphics.outline(x + 10, searchTop, namespaceLeft - x - 16, 20, 0xFF4B665F);
-		String searchText = query.isEmpty() ? "搜索 ID、中文名称或首拼…" : query + "_";
+		String searchText = query.isEmpty() ? LuaUiText.text("搜索 ID、中文名称或首拼…") : query + "_";
 		graphics.text(font, font.plainSubstrByWidth(searchText, namespaceLeft - x - 30),
 				x + 16, searchTop + 6, query.isEmpty() ? 0xFF71817D : 0xFFFFFFFF);
 		boolean namespaceHovered = inside(mouseX, mouseY, namespaceLeft, searchTop, right - 10, searchTop + 20);
 		graphics.fill(namespaceLeft, searchTop, right - 10, searchTop + 20,
 				namespacePickerOpen ? 0xFF26745F : namespaceHovered ? 0xFF285A50 : 0xFF203C36);
-		String namespace = namespaceIndex == 0 ? "全部命名空间" : namespaces.get(namespaceIndex - 1);
+		String namespace = namespaceIndex == 0 ? LuaUiText.text("全部命名空间") : namespaces.get(namespaceIndex - 1);
 		String namespaceLabel = namespace + "  ▾";
 		graphics.text(font, font.plainSubstrByWidth(namespaceLabel, namespaceWidth - 16),
 				namespaceLeft + 6, searchTop + 6, 0xFFE0FFF5);
 
-		int tabsTop = windowY + 63;
-		LuaInsertCatalog.Kind[] kinds = LuaInsertCatalog.Kind.values();
-		int tabWidth = Math.max(1, (windowWidth - 20) / kinds.length);
-		for (int index = 0; index < kinds.length; index++) {
-			int left = x + 10 + index * tabWidth;
-			int tabRight = index == kinds.length - 1 ? right - 10 : left + tabWidth - 2;
-			boolean active = kinds[index] == kind;
-			boolean hovered = inside(mouseX, mouseY, left, tabsTop, tabRight, tabsTop + 20);
-			graphics.fill(left, tabsTop, tabRight, tabsTop + 20,
-					active ? 0xFF26745F : hovered ? 0xFF283C38 : 0xFF1B2926);
-			graphics.centeredText(font, kinds[index].label(), (left + tabRight) / 2,
-					tabsTop + 6, active ? 0xFFFFFFFF : 0xFFB8CCC6);
-		}
-
-		int infoY = windowY + 89;
-		graphics.text(font, kind.label() + " · " + filtered.size() + " 项", x + 12, infoY, 0xFF8DA9A1);
-		String namespaceHint = namespaces.size() + " 个命名空间 · Ctrl+N 快速选择";
+		renderCategories(graphics, mouseX, mouseY);
+		int infoY = windowY + 91;
+		String countLabel = filtered.size() + " 项" + (loadingKinds.contains(kind) ? " · 同步中" : "")
+				+ (catalogErrors.containsKey(kind) ? " · 服务端 ID 未同步" : "");
+		graphics.text(font, font.plainSubstrByWidth(kind.tabLabel() + " · " + countLabel,
+				Math.max(20, windowWidth / 2 - 20)), x + 12, infoY, 0xFF8DA9A1);
+		String namespaceHint = font.plainSubstrByWidth(namespaces.size() + " 个命名空间 · Ctrl+N 快速选择",
+				Math.max(30, windowWidth / 2 - 20));
 		graphics.text(font, namespaceHint, right - 12 - font.width(namespaceHint), infoY, 0xFF657A74);
 
-		int listTop = windowY + 104;
+		int listTop = windowY + LIST_TOP;
 		int listBottom = bottom - 28;
 		graphics.fill(x + 10, listTop, right - 10, listBottom, 0xFF080C10);
 		graphics.outline(x + 10, listTop, windowWidth - 20, listBottom - listTop, 0xFF344D47);
@@ -266,14 +385,17 @@ final class LuaInsertOverlay {
 				graphics.fill(x + 12, y - 1, right - 12, y + 18,
 						absolute == hoveredRow ? 0xFF245B50 : 0xFF183C35);
 			}
-			LuaInsertCatalog.Entry entry = filtered.get(absolute);
-			renderEntryIcon(graphics, entry, x + 14, y);
-			graphics.text(font, font.plainSubstrByWidth(entry.label(), windowWidth - 54),
+			LuaInsertCatalog.TypedEntry entry = filtered.get(absolute);
+			renderEntryIcon(graphics, entry.kind(), entry.entry(), x + 14, y);
+			graphics.text(font, font.plainSubstrByWidth(entry.entry().label(), windowWidth - 54),
 					x + 35, y + 4, 0xFFE8FFF7);
 		}
 		graphics.disableScissor();
 
-		String footer = "←→ 分类 · ↑↓ 选择 · Enter 插入并关闭 · Ctrl+I / Esc 关闭";
+		String footer = soundPreview.message().isEmpty()
+				? kind == LuaInsertCatalog.Kind.SOUND ? LuaUiText.text("↑↓选择并试听 · ←→分类 · Enter 插入 · Esc 关闭")
+				: LuaUiText.text("↑↓选择 · ←→分类 · Enter 插入 · Esc 关闭")
+				: soundPreview.message();
 		graphics.text(font, font.plainSubstrByWidth(footer, windowWidth - 30),
 				x + 12, bottom - 18, 0xFF78928B);
 		graphics.fill(right - 9, bottom - 3, right - 3, bottom - 2, 0xFF55C9A5);
@@ -281,6 +403,8 @@ final class LuaInsertOverlay {
 		graphics.fill(right - 3, bottom - 9, right - 2, bottom - 3, 0xFF55C9A5);
 		if (namespacePickerOpen) renderNamespacePicker(graphics, mouseX, mouseY,
 				namespaceLeft, searchTop + 22, right - 10);
+		ResizeBorderHint.render(graphics, x, windowY, right, bottom,
+				resizeEdges != 0 ? resizeEdges : resizeEdgesAt(mouseX, mouseY), 0xFF75E6C1);
 	}
 
 	boolean keyPressed(KeyEvent event) {
@@ -290,7 +414,6 @@ final class LuaInsertOverlay {
 				closeNamespacePicker();
 				return true;
 			}
-			if (dockSide.docked()) return true;
 			close();
 			return true;
 		}
@@ -336,32 +459,35 @@ final class LuaInsertOverlay {
 			return true;
 		}
 		if (namespacePickerOpen) return namespaceKeyPressed(event);
+		if (event.key() == InputConstants.KEY_LEFT || event.key() == InputConstants.KEY_RIGHT
+				|| event.key() == InputConstants.KEY_TAB) {
+			int delta = event.key() == InputConstants.KEY_LEFT || event.key() == InputConstants.KEY_TAB && event.hasShiftDown() ? -1 : 1;
+			var kinds = LuaInsertCatalog.Kind.values();
+			selectKind(kinds[Math.floorMod(kind.ordinal() + delta, kinds.length)]);
+			return true;
+		}
 		if (event.key() == InputConstants.KEY_UP) {
 			selectedRow = Math.max(0, selectedRow - 1);
 			ensureSelectedVisible();
+			previewSelectedSound();
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_DOWN) {
 			selectedRow = Math.min(Math.max(0, filtered.size() - 1), selectedRow + 1);
 			ensureSelectedVisible();
-			return true;
-		}
-		if (event.key() == InputConstants.KEY_LEFT) {
-			switchKind(-1);
-			return true;
-		}
-		if (event.key() == InputConstants.KEY_RIGHT) {
-			switchKind(1);
+			previewSelectedSound();
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_PAGEUP) {
 			selectedRow = Math.max(0, selectedRow - visibleRows());
 			ensureSelectedVisible();
+			previewSelectedSound();
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_PAGEDOWN) {
 			selectedRow = Math.min(Math.max(0, filtered.size() - 1), selectedRow + visibleRows());
 			ensureSelectedVisible();
+			previewSelectedSound();
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_RETURN) {
@@ -389,6 +515,7 @@ final class LuaInsertOverlay {
 
 	boolean mouseScrolled(double mouseX, double mouseY, double amount) {
 		if (!open || !pointInside(mouseX, mouseY)) return false;
+		soundPreview.mouseNavigation();
 		keyboardFocused = true;
 		if (namespacePickerOpen && insideNamespacePicker(mouseX, mouseY)) {
 			namespaceScrollRow = Math.max(0, Math.min(maxNamespaceScroll(),
@@ -409,11 +536,15 @@ final class LuaInsertOverlay {
 			return true;
 		}
 		if (inside(event.x(), event.y(), right - 51, windowY + 4, right - 31, windowY + 24)) {
-			catalogs.remove(kind);
-			if (kind == LuaInsertCatalog.Kind.ENTITY) {
-				entityIcons.clear();
-				unavailableEntityIcons.clear();
-			}
+			catalogs.clear();
+			loadedKinds.clear();
+			loadingKinds.clear();
+			catalogErrors.clear();
+			catalogEpoch++;
+			ScriptManager.invalidateAllRegistryCatalogs();
+			observedCatalogRevision = ScriptManager.catalogRevision();
+			entityIcons.clear();
+			unavailableEntityIcons.clear();
 			refreshCatalog();
 			return true;
 		}
@@ -449,16 +580,7 @@ final class LuaInsertOverlay {
 			if (handleNamespacePickerClick(event.x(), event.y())) return true;
 			closeNamespacePicker();
 		}
-		int tabsTop = windowY + 63;
-		LuaInsertCatalog.Kind[] kinds = LuaInsertCatalog.Kind.values();
-		int tabWidth = Math.max(1, (windowWidth - 20) / kinds.length);
-		if (event.y() >= tabsTop && event.y() <= tabsTop + 20 && event.x() >= x + 10 && event.x() <= right - 10) {
-			int index = Math.min(kinds.length - 1, (int) (event.x() - x - 10) / tabWidth);
-			if (kind != kinds[index]) {
-				switchKind(index - kind.ordinal());
-			}
-			return true;
-		}
+		if (categoryClicked(event.x(), event.y())) return true;
 		int row = rowAt(event.x(), event.y());
 		if (row >= 0 && row < filtered.size()) {
 			selectedRow = row;
@@ -495,22 +617,47 @@ final class LuaInsertOverlay {
 	}
 
 	private void refreshCatalog() {
-		catalogs.computeIfAbsent(kind, key -> LuaInsertCatalog.load(key, minecraft));
+		for (LuaInsertCatalog.Kind requested : LuaInsertCatalog.Kind.values()) {
+			catalogs.computeIfAbsent(requested, key -> LuaInsertCatalog.load(key, minecraft));
+			if (requested.registryId().isEmpty()) { loadedKinds.add(requested); continue; }
+			if (loadedKinds.contains(requested) || !loadingKinds.add(requested)) continue;
+			int epoch = catalogEpoch;
+			ScriptManager.registryCatalog(requested.registryId()).whenComplete((entries, failure) ->
+					minecraft.execute(() -> {
+						if (epoch != catalogEpoch || !open) return;
+						loadingKinds.remove(requested);
+						loadedKinds.add(requested);
+						if (failure == null) {
+							catalogs.put(requested, entries.stream().filter(entry -> !entry.value().startsWith("#")).toList());
+							catalogErrors.remove(requested);
+						} else {
+							catalogErrors.put(requested, LuaUiText.text("请检查连接与管理员权限"));
+						}
+						catalogDirty = true;
+					}));
+		}
+		rebuildCatalog(true);
+	}
+
+	private void rebuildCatalog(boolean resetSelection) {
+		catalogDirty = false;
+		String namespace = selectedNamespace();
+		allEntries = LuaInsertCatalog.allEntries(Map.of(kind, catalogs.getOrDefault(kind, List.of())));
 		Map<String, Integer> counts = new LinkedHashMap<>();
 		TreeSet<String> values = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-		for (LuaInsertCatalog.Entry entry : catalogs.get(kind)) {
+		for (LuaInsertCatalog.TypedEntry entry : allEntries) {
 			values.add(entry.namespace());
 			counts.merge(entry.namespace(), 1, Integer::sum);
 		}
 		namespaces = List.copyOf(values);
 		List<NamespaceOption> options = new ArrayList<>();
-		options.add(new NamespaceOption(null, "全部命名空间", catalogs.get(kind).size()));
+		options.add(new NamespaceOption(null, LuaUiText.text("全部命名空间"), allEntries.size()));
 		for (String value : namespaces) {
 			options.add(new NamespaceOption(value, namespaceDisplayName(value), counts.getOrDefault(value, 0)));
 		}
 		namespaceOptions = List.copyOf(options);
-		namespaceIndex = Math.min(namespaceIndex, namespaces.size());
-		invalidateFilter();
+		namespaceIndex = namespace == null ? 0 : Math.max(0, namespaces.indexOf(namespace) + 1);
+		filterEntries(resetSelection);
 	}
 
 	private void renderNamespacePicker(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
@@ -520,7 +667,7 @@ final class LuaInsertOverlay {
 		graphics.fill(left, top, right, bottom, 0xFF0C1418);
 		graphics.outline(left, top, right - left, bottom - top, 0xFF55C9A5);
 		graphics.fill(left + 1, top + 1, right - 1, top + 23, 0xFF111E22);
-		String search = namespaceQuery.isEmpty() ? "搜索 Mod / 命名空间 / 首拼…" : namespaceQuery + "_";
+		String search = namespaceQuery.isEmpty() ? LuaUiText.text("搜索 Mod / 命名空间 / 首拼…") : namespaceQuery + "_";
 		graphics.text(font, font.plainSubstrByWidth(search, right - left - 12), left + 6, top + 8,
 				namespaceQuery.isEmpty() ? 0xFF71817D : 0xFFFFFFFF);
 
@@ -547,7 +694,7 @@ final class LuaInsertOverlay {
 		}
 		graphics.disableScissor();
 		if (matches.isEmpty()) {
-			graphics.centeredText(font, "没有匹配的命名空间", (left + right) / 2, rowsTop + 9, 0xFF9AA9A5);
+			graphics.centeredText(font, LuaUiText.text("没有匹配的命名空间"), (left + right) / 2, rowsTop + 9, 0xFF9AA9A5);
 		}
 		if (matches.size() > visibleRows) {
 			int trackTop = rowsTop + 2;
@@ -606,6 +753,7 @@ final class LuaInsertOverlay {
 			return;
 		}
 		namespacePickerOpen = true;
+		stopSoundPreview();
 		namespaceQuery = "";
 		namespaceSelectedRow = Math.max(0, Math.min(namespaceIndex, namespaceOptions.size() - 1));
 		namespaceScrollRow = 0;
@@ -698,7 +846,7 @@ final class LuaInsertOverlay {
 	}
 
 	private String namespaceDisplayName(String namespace) {
-		if (namespace.equals("online")) return "在线玩家";
+		if (namespace.equals("online")) return LuaUiText.text("在线玩家");
 		try {
 			return FabricLoader.getInstance().getModContainer(namespace)
 					.map(container -> container.getMetadata().getName())
@@ -710,33 +858,59 @@ final class LuaInsertOverlay {
 	}
 
 	private void invalidateFilter() {
+		filterEntries(true);
+	}
+
+	private void filterEntries(boolean resetSelection) {
+		if (resetSelection) stopSoundPreview();
+		LuaInsertCatalog.TypedEntry previous = !resetSelection && selectedRow >= 0 && selectedRow < filtered.size()
+				? filtered.get(selectedRow) : null;
 		String needle = query.strip().toLowerCase(Locale.ROOT);
-		String namespace = namespaceIndex == 0 ? null : namespaces.get(namespaceIndex - 1);
-		filtered = catalogs.getOrDefault(kind, List.of()).stream()
+		String namespace = selectedNamespace();
+		filtered = allEntries.stream()
 				.filter(entry -> namespace == null || entry.namespace().equals(namespace))
 				.filter(entry -> entry.matches(needle))
 				.toList();
-		scrollRow = 0;
+		if (resetSelection) scrollRow = 0;
 		selectedRow = 0;
+		boolean found = false;
+		if (previous != null) for (int index = 0; index < filtered.size(); index++) {
+			var entry = filtered.get(index);
+			if (entry.kind() == previous.kind() && entry.value().equals(previous.value())) {
+				selectedRow = index; found = true; break;
+			}
+		}
+		if (!found) for (int index = 0; index < filtered.size(); index++) {
+			if (filtered.get(index).kind() == kind) { selectedRow = index; break; }
+		}
+		if (!resetSelection && previous != null && !found) stopSoundPreview();
+		if (resetSelection || !found) ensureSelectedVisible();
+		else scrollRow = Math.clamp(scrollRow, 0, maxScroll());
 	}
 
 	private boolean insertSelected() {
 		if (selectedRow < 0 || selectedRow >= filtered.size()) return false;
-		insertion.accept(filtered.get(selectedRow));
+		soundPreview.suspend();
+		insertion.accept(filtered.get(selectedRow).entry());
 		return true;
 	}
 
-	private void switchKind(int direction) {
-		LuaInsertCatalog.Kind[] kinds = LuaInsertCatalog.Kind.values();
-		kind = kinds[Math.floorMod(kind.ordinal() + direction, kinds.length)];
-		query = "";
-		namespaceIndex = 0;
-		namespacePickerOpen = false;
-		namespaceQuery = "";
-		refreshCatalog();
+	void stopSoundPreview() { soundPreview.clear(); }
+	private void previewSelectedSound() {
+		if (kind != LuaInsertCatalog.Kind.SOUND) { stopSoundPreview(); return; }
+		if (selectedRow >= 0 && selectedRow < filtered.size())
+			soundPreview.keyboard(filtered.get(selectedRow).soundId());
+		else stopSoundPreview();
+	}
+	/** The host supplies visibility/hit-test information after all overlapping window layers. */
+	void updateSoundPreview(double mouseX, double mouseY, boolean enabled, boolean hoverAllowed) {
+		if (kind != LuaInsertCatalog.Kind.SOUND || !enabled || !open || progress < .5F
+				|| namespacePickerOpen || dragging || resizeEdges != 0) { stopSoundPreview(); return; }
+		int row = hoverAllowed ? rowAt(mouseX, mouseY) : -1;
+		soundPreview.pointer(mouseX, mouseY, row >= 0 && row < filtered.size() ? filtered.get(row).soundId() : null);
 	}
 
-	private void renderEntryIcon(GuiGraphicsExtractor graphics, LuaInsertCatalog.Entry entry, int x, int y) {
+	private void renderEntryIcon(GuiGraphicsExtractor graphics, LuaInsertCatalog.Kind kind, LuaInsertCatalog.Entry entry, int x, int y) {
 		try {
 			switch (kind) {
 				case ITEM -> {
@@ -751,10 +925,72 @@ final class LuaInsertOverlay {
 				}
 				case ENTITY -> renderEntityIcon(graphics, entry.value(), x, y);
 				case PLAYER -> renderPlayerIcon(graphics, entry.value(), x, y);
+				case EFFECT -> renderEffectIcon(graphics, entry.value(), x, y);
+				case ENCHANTMENT -> drawFallbackIcon(graphics, x, y, "附", 0xFFA58CE0);
+				case SOUND -> drawFallbackIcon(graphics, x, y, "♪", 0xFF71B9D4);
+				case PARTICLE -> renderParticleIcon(graphics, entry.value(), x, y);
+				case STRUCTURE -> drawFallbackIcon(graphics, x, y, "构", 0xFFB8A77C);
+				case LOOT_TABLE -> drawFallbackIcon(graphics, x, y, "箱", 0xFFD6A971);
+				case DIMENSION -> drawFallbackIcon(graphics, x, y, "维", 0xFF75CEC4);
+				case GAME_RULE -> drawFallbackIcon(graphics, x, y, "规", 0xFF75CEC4);
+				case SOUND_FILE -> drawFallbackIcon(graphics, x, y, "♪", 0xFF71B9D4);
+				case MODEL, ITEM_MODEL, EQUIPMENT -> drawFallbackIcon(graphics, x, y, "模", 0xFFB8A77C);
+				case FONT -> drawFallbackIcon(graphics, x, y, "字", 0xFFD6A971);
+				case TEXTURE, TOOLTIP_STYLE, ATLAS, BLOCKSTATE -> drawFallbackIcon(graphics, x, y, "图", 0xFF75CEC4);
+				case PARTICLE_ASSET -> renderParticleIcon(graphics, entry.value(), x, y);
 			}
 		} catch (RuntimeException | LinkageError ignored) {
 			drawFallbackIcon(graphics, x, y, kind == LuaInsertCatalog.Kind.PLAYER ? "P" : "?", 0xFF546E7A);
 		}
+	}
+
+	private void renderEffectIcon(GuiGraphicsExtractor graphics, String id, int x, int y) {
+		var effect = BuiltInRegistries.MOB_EFFECT.get(Identifier.parse(id));
+		if (effect.isEmpty()) {
+			drawFallbackIcon(graphics, x, y, "效", 0xFF72BA8C);
+			return;
+		}
+		// Use the same sprite selector as the vanilla HUD and inventory effect display.
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, Gui.getMobEffectSprite(effect.get()), x, y, 16, 16);
+	}
+
+	private void renderParticleIcon(GuiGraphicsExtractor graphics, String id, int x, int y) {
+		Optional<Identifier> texture = particleTexture(id);
+		if (texture.isPresent()
+				&& minecraft.getTextureManager().getTexture(TextureAtlas.LOCATION_PARTICLES) instanceof TextureAtlas atlas) {
+			var sprite = atlas.getSprite(texture.get());
+			if (sprite != null && sprite != atlas.missingSprite()) {
+				graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, x, y, 16, 16);
+				return;
+			}
+		}
+		// Block/item particles depend on runtime parameters and do not have one fixed texture.
+		drawFallbackIcon(graphics, x, y, "✦", 0xFFE4B76D);
+	}
+
+	private Optional<Identifier> particleTexture(String id) {
+		ResourceManager resources = minecraft.getResourceManager();
+		long now = System.nanoTime();
+		if (particleTextureResources != resources || now - particleTextureCacheTime > 2_000_000_000L) {
+			particleTextures.clear();
+			particleTextureResources = resources;
+			particleTextureCacheTime = now;
+		}
+		return particleTextures.computeIfAbsent(id, ignored -> {
+			try {
+				Identifier particle = Identifier.parse(id);
+				Identifier definition = Identifier.fromNamespaceAndPath(particle.getNamespace(),
+						"particles/" + particle.getPath() + ".json");
+				var resource = resources.getResource(definition);
+				if (resource.isEmpty()) return Optional.empty();
+				try (var reader = resource.get().openAsReader()) {
+					var textures = ParticleDescription.fromJson(JsonParser.parseReader(reader).getAsJsonObject()).getTextures();
+					return textures.isEmpty() ? Optional.empty() : Optional.of(textures.getFirst());
+				}
+			} catch (Exception error) {
+				return Optional.empty();
+			}
+		});
 	}
 
 	private void renderPlayerIcon(GuiGraphicsExtractor graphics, String uuidText, int x, int y) {
@@ -827,14 +1063,14 @@ final class LuaInsertOverlay {
 
 	private int rowAt(double mouseX, double mouseY) {
 		int x = panelX();
-		int listTop = windowY + 104;
+		int listTop = windowY + LIST_TOP;
 		int listBottom = windowY + windowHeight - 28;
 		if (!inside(mouseX, mouseY, x + 10, listTop, x + windowWidth - 10, listBottom)) return -1;
 		return scrollRow + Math.max(0, (int) (mouseY - listTop - 2) / ROW_HEIGHT);
 	}
 
 	private int visibleRows() {
-		return Math.max(1, (windowHeight - 28 - (104) - 4) / ROW_HEIGHT);
+		return Math.max(1, (windowHeight - 28 - LIST_TOP - 4) / ROW_HEIGHT);
 	}
 
 	private int maxScroll() {
@@ -945,7 +1181,8 @@ final class LuaInsertOverlay {
 		}
 
 		boolean matches(String needle) {
-			return searchText.contains(needle) || initials.contains(needle);
+			return searchText.contains(needle) || LuaUiText.chinese() && initials.contains(needle)
+					|| LuaUiText.japanese() && JapaneseSearchIndex.matches(searchText, needle);
 		}
 
 		boolean matchesNamespace(String selected) {

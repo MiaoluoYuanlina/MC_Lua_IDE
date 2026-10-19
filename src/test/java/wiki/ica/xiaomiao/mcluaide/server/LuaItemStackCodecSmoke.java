@@ -16,6 +16,14 @@ public final class LuaItemStackCodecSmoke {
 		SharedConstants.tryDetectVersion();
 		Bootstrap.bootStrap();
 		RegistryAccess.Frozen registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
+		ComponentIdContextSmoke.run();
+		ComponentTreeSchemaSmoke.run(registries);
+		LuaItemStackCodec.normalizeComponents(registries, LuaValue.valueOf("""
+				{"minecraft:use_remainder":"minecraft:glass_bottle",
+				 "minecraft:bundle_contents":["minecraft:apple",{"id":"minecraft:stone","count":2}],
+				 "minecraft:charged_projectiles":["minecraft:arrow"],
+				 "minecraft:container":[{"slot":0,"item":"minecraft:apple"}]}
+				"""));
 
 		LuaTable customName = new LuaTable();
 		customName.set("text", "组件测试剑");

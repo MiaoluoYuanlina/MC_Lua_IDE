@@ -66,8 +66,10 @@ final class LuaComponentEditorOverlay {
 	private boolean showAll = true;
 	private boolean loading;
 	private boolean exporting;
+	private boolean closeAfterInsert;
+	private int openRevision;
 	private int requestRevision;
-	private String status = "选择物品、方块或实体后编辑组件";
+	private String status = LuaUiText.text("选择物品、方块或实体后编辑组件");
 	private boolean open;
 	private boolean keyboardFocused;
 	private float progress;
@@ -113,8 +115,30 @@ final class LuaComponentEditorOverlay {
 		ensureGeometry();
 	}
 
+	static LuaComponentEditorOverlay previewTreeForTesting(Minecraft client, LuaComponentEditorData data, String patch) {
+		LuaComponentEditorOverlay overlay = new LuaComponentEditorOverlay(client, client.font, ignored -> {}, ignored -> {});
+		overlay.data = data; overlay.open = true; overlay.progress = 1; overlay.keyboardFocused = true;
+		overlay.targetPaneExpanded = false;
+		overlay.selectedTarget = new LuaInsertCatalog.Entry(data.requestedId(), data.name(), "minecraft");
+		overlay.componentQuery = "potion";
+		JsonObject parsed = JsonParser.parseString(patch).getAsJsonObject();
+		parsed.entrySet().forEach(entry -> overlay.enabledValues.put(entry.getKey(), entry.getValue()));
+		overlay.treeEditor.setComponentCatalog(data, parsed);
+		overlay.filterComponents(); overlay.treeEditor.expandPotionPreview();
+		overlay.status = LuaUiText.text("展开字段预览；单击字段编辑；灰色字段可添加");
+		return overlay;
+	}
+
+	void verifyTreeWindowForTesting() {
+		treeEditor.verifyRoutedForestClick(event -> mouseClicked(event, false), this::keyPressed);
+		if (enabledValues.get("minecraft:potion_contents").getAsJsonObject().getAsJsonArray("custom_effects")
+				.get(0).getAsJsonObject().get("amplifier").getAsInt() != 4) throw new IllegalStateException("编辑结果未传回主窗口");
+	}
+
 	void open() {
 		open = true;
+		openRevision++;
+		closeAfterInsert = false;
 		keyboardFocused = true;
 		targetPaneExpanded = data == null;
 		if (targets.isEmpty()) refreshTargets(true);
@@ -124,9 +148,12 @@ final class LuaComponentEditorOverlay {
 		Category preferredCategory = Category.from(preferredKind);
 		if (preferredCategory == null) {
 			open();
+			closeAfterInsert = true;
 			return;
 		}
 		open = true;
+		openRevision++;
+		closeAfterInsert = true;
 		keyboardFocused = true;
 		category = preferredCategory;
 		targetQuery = "";
@@ -188,6 +215,27 @@ final class LuaComponentEditorOverlay {
 		layoutLocked = locked;
 	}
 
+
+	WindowGeometry captureGeometry() {
+		if (!dockSide.docked()) return boundsAnimation.destination(windowX, windowY, windowWidth, windowHeight);
+		return new WindowGeometry(dockSide.docked() && floatingWidth > 0 ? floatingX : windowX,
+				dockSide.docked() && floatingHeight > 0 ? floatingY : windowY,
+				dockSide.docked() && floatingWidth > 0 ? floatingWidth : windowWidth,
+				dockSide.docked() && floatingHeight > 0 ? floatingHeight : windowHeight);
+	}
+
+	void restoreGeometry(WindowGeometry geometry) {
+		if (geometry == null) return;
+		windowX = geometry.x(); windowY = geometry.y();
+		windowWidth = Math.min(geometry.width(), Math.max(1, screenWidth));
+		windowHeight = Math.min(geometry.height(), Math.max(1, screenHeight));
+		ensureGeometry();
+		windowX = Math.clamp(windowX, 0, Math.max(0, screenWidth - windowWidth));
+		windowY = Math.clamp(windowY, 0, Math.max(0, screenHeight - windowHeight));
+		floatingX = windowX; floatingY = windowY; floatingWidth = windowWidth; floatingHeight = windowHeight;
+		boundsAnimation.snapTo(windowX, windowY, windowWidth, windowHeight);
+	}
+
 	void setDockSide(DockSide side) {
 		if (side == null || side == dockSide) return;
 		DockSide previous = dockSide;
@@ -233,7 +281,7 @@ final class LuaComponentEditorOverlay {
 		graphics.fill(x, windowY, right, bottom, 0xFD10151E);
 		graphics.outline(x, windowY, windowWidth, windowHeight, 0xFFB388FF);
 		graphics.fill(x + 1, windowY + 1, right - 1, windowY + TITLE_HEIGHT, 0xFF302148);
-		graphics.text(font, "◈  数据组件编辑器", x + 10, windowY + 9, 0xFFD7B8FF);
+		graphics.text(font, LuaUiText.text("◈  物品 / 方块 / 实体数据编辑器"), x + 10, windowY + 9, 0xFFD7B8FF);
 		drawButton(graphics, mouseX, mouseY, right - 26, windowY + 4, 20, 20, "×", 0xFF4B3562, 0xFFB83A46);
 
 		int tabsTop = windowY + 34;
@@ -255,7 +303,7 @@ final class LuaComponentEditorOverlay {
 		int splitX = x + leftWidth;
 		if (targetPaneExpanded) {
 			renderSearch(graphics, x + 10, contentTop, leftWidth - 16, targetQuery,
-					"搜索" + category.label + " ID / 中文 / 首拼…", focus == Focus.TARGET_SEARCH);
+					LuaUiText.chinese() ? LuaUiText.text("搜索") + category.label + " ID / 中文 / 首拼…" : "Search IDs or names…", focus == Focus.TARGET_SEARCH);
 			int targetListTop = contentTop + 25;
 			graphics.fill(x + 10, targetListTop, splitX - 6, contentBottom, 0xFF090C12);
 			graphics.outline(x + 10, targetListTop, leftWidth - 16, contentBottom - targetListTop, 0xFF493A5C);
@@ -279,51 +327,39 @@ final class LuaComponentEditorOverlay {
 		int rx = splitX + 3;
 		int rw = right - rx - 10;
 		int toggleWidth = 64;
-		renderSearch(graphics, rx, contentTop, Math.max(50, rw - toggleWidth - 4), componentQuery,
-				"筛选组件 ID / 中文 / 首拼…", focus == Focus.COMPONENT_SEARCH);
-		drawButton(graphics, mouseX, mouseY, rx + rw - toggleWidth, contentTop, toggleWidth, 20,
-				showAll ? "全部组件" : "建议组件", showAll ? 0xFF594078 : 0xFF2E5D50, 0xFF7556A0);
+		boolean itemCategory = category == Category.ITEM;
+		renderSearch(graphics, rx, contentTop, Math.max(50, rw - (itemCategory ? toggleWidth + 4 : 0)), componentQuery,
+				LuaUiText.chinese() ? (itemCategory ? "筛选组件 ID / 中文 / 首拼…" : "筛选状态 / 字段 / 中文…")
+						: "Search component IDs, states or fields…", focus == Focus.COMPONENT_SEARCH);
+		if (itemCategory) drawButton(graphics, mouseX, mouseY, rx + rw - toggleWidth, contentTop, toggleWidth, 20,
+				showAll ? LuaUiText.text("全部组件") : LuaUiText.text("建议组件"), showAll ? 0xFF594078 : 0xFF2E5D50, 0xFF7556A0);
 
 		int componentListTop = contentTop + 25;
-		int editorTop = componentListTop + Math.max(60, (contentBottom - componentListTop) * 34 / 100);
-		graphics.fill(rx, componentListTop, rx + rw, editorTop - 5, 0xFF090C12);
-		graphics.outline(rx, componentListTop, rw, editorTop - componentListTop - 5, 0xFF493A5C);
-		graphics.enableScissor(rx + 1, componentListTop + 1, rx + rw - 1, editorTop - 6);
-		int componentVisible = componentVisibleRows();
-		for (int row = 0; row < componentVisible; row++) {
-			int absolute = componentScroll + row;
-			if (absolute >= components.size()) break;
-			int y = componentListTop + 2 + row * ROW_HEIGHT;
-			LuaComponentEditorData.ComponentInfo component = components.get(absolute);
-			if (absolute == componentRow) graphics.fill(rx + 2, y - 1, rx + rw - 2, y + 18, 0xFF352648);
-			boolean enabled = enabledValues.containsKey(component.id());
-			graphics.fill(rx + 5, y + 2, rx + 17, y + 14, enabled ? 0xFF7E57C2 : 0xFF202934);
-			graphics.outline(rx + 5, y + 2, 12, 12, enabled ? 0xFFD7B8FF : 0xFF56616D);
-			if (enabled) graphics.centeredText(font, "✓", rx + 11, y + 4, 0xFFFFFFFF);
-			String badge = component.relevance() == 2 ? "默认" : component.relevance() == 1 ? "适用" : "高级";
-			int badgeColor = component.relevance() == 2 ? 0xFF72E69A
-					: component.relevance() == 1 ? 0xFF79C9FF : 0xFF9B91A4;
-			graphics.text(font, font.plainSubstrByWidth(component.label() + " · " + component.id(), rw - 91),
-					rx + 22, y + 4, absolute == componentRow ? 0xFFFFFFFF : 0xFFD8CCE4);
-			graphics.text(font, badge, rx + rw - 35, y + 4, badgeColor);
+		if (loading || data == null) {
+			graphics.text(font, font.plainSubstrByWidth(status, rw - 10), rx + 5, componentListTop + 12, 0xFFD7B8FF);
+		} else {
+			treeEditor.render(graphics, mouseX, mouseY, rx, componentListTop, rw, contentBottom - 15);
+			graphics.text(font, font.plainSubstrByWidth(enabledValues.size() +
+					(itemCategory ? " 个组件覆盖 · " : " 个字段覆盖 · ") + status, rw - 10),
+					rx + 5, contentBottom - 12, status.startsWith(LuaUiText.text("错误")) ? 0xFFFF7777 : 0xFF9F8EB2);
 		}
-		graphics.disableScissor();
-
-		renderEditor(graphics, mouseX, mouseY, rx, editorTop, rw, contentBottom);
 		int buttonY = bottom - 29;
 		int available = windowWidth - 20;
 		int buttonWidth = Math.max(72, (available - 8) / 3);
 		drawButton(graphics, mouseX, mouseY, x + 10, buttonY, buttonWidth, 21,
-				exporting ? "校验中…" : "插入组件", 0xFF5F3E8D, 0xFF7A55AE);
+				exporting ? LuaUiText.text("校验中…") : LuaUiText.text("插入配置"), 0xFF5F3E8D, 0xFF7A55AE);
 		drawButton(graphics, mouseX, mouseY, x + 14 + buttonWidth, buttonY, buttonWidth, 21,
-				data != null && data.kind().equals("entity") ? "复制实体配置" : "复制物品堆",
+				data != null && data.kind().equals("entity") ? LuaUiText.text("复制实体配置")
+						: data != null && data.kind().equals("block") ? LuaUiText.text("复制方块配置") : LuaUiText.text("复制物品堆"),
 				0xFF2C4D65, 0xFF376783);
 		drawButton(graphics, mouseX, mouseY, x + 18 + buttonWidth * 2, buttonY,
-				available - buttonWidth * 2 - 8, 21, "复制 JSON", 0xFF2C4D65, 0xFF376783);
+				available - buttonWidth * 2 - 8, 21, LuaUiText.text("复制 JSON"), 0xFF2C4D65, 0xFF376783);
 
 		// Tree add/edit and registry-selection dialogs are modal. Draw them in the
 		// window's final pass so no footer control can appear above the dialog.
 		treeEditor.renderPopupOverlay(graphics, mouseX, mouseY);
+		ResizeBorderHint.render(graphics, x, windowY, right, bottom,
+				resizeEdges != 0 ? resizeEdges : resizeEdgesAt(mouseX, mouseY), 0xFFD7B8FF);
 	}
 
 	private void renderEditor(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
@@ -331,7 +367,7 @@ final class LuaComponentEditorOverlay {
 		graphics.fill(x, top, x + width, bottom, 0xFF121722);
 		graphics.outline(x, top, width, bottom - top, 0xFF493A5C);
 		if (loading) {
-			graphics.centeredText(font, "正在从服务器读取组件…", x + width / 2, top + 18, 0xFFD7B8FF);
+			graphics.centeredText(font, LuaUiText.text("正在从服务器读取组件…"), x + width / 2, top + 18, 0xFFD7B8FF);
 			return;
 		}
 		if (data == null) {
@@ -351,11 +387,11 @@ final class LuaComponentEditorOverlay {
 		String type = selectedComponent.editor();
 		if (type.equals("unit")) {
 			drawButton(graphics, mouseX, mouseY, x + 7, inputTop, Math.min(150, width - 14), 20,
-					enabled ? "✓ 已启用（无参数）" : "＋ 启用此组件", enabled ? 0xFF624196 : 0xFF31404C, 0xFF7654A7);
+					enabled ? LuaUiText.text("✓ 已启用（无参数）") : LuaUiText.text("＋ 启用此组件"), enabled ? 0xFF624196 : 0xFF31404C, 0xFF7654A7);
 		} else if (type.equals("boolean")) {
 			boolean value = enabled && enabledValues.get(selectedComponent.id()).getAsBoolean();
 			drawButton(graphics, mouseX, mouseY, x + 7, inputTop, Math.min(170, width - 14), 20,
-					enabled ? "值：" + value + "（点击切换）" : "＋ 启用并设为 true",
+					enabled ? LuaUiText.text("值：") + value + LuaUiText.text("（点击切换）") : LuaUiText.text("＋ 启用并设为 true"),
 					enabled ? 0xFF624196 : 0xFF31404C, 0xFF7654A7);
 		} else if (usesTreeEditor(selectedComponent)) {
 			treeEditor.render(graphics, mouseX, mouseY, x + 7, inputTop, width - 14, bottom - 16);
@@ -364,24 +400,30 @@ final class LuaComponentEditorOverlay {
 			graphics.outline(x + 7, inputTop, width - 14, 20,
 					focus == Focus.VALUE ? 0xFFD0A7FF : 0xFF554666);
 			String shown = visibleValue(width - 26);
-			graphics.text(font, shown.isEmpty() ? "输入值…" : shown,
+			graphics.text(font, shown.isEmpty() ? LuaUiText.text("输入值…") : shown,
 					x + 12, inputTop + 6, shown.isEmpty() ? 0xFF6F6878 : 0xFFF1E9FA);
 		}
 		if (!treeEditor.hasPopup()) {
-			String summary = enabledValues.size() + " 个组件已启用 · " + status;
+			String summary = enabledValues.size() + (category == Category.ITEM ? " 个组件已启用 · " : " 个字段已启用 · ") + status;
 			graphics.text(font, font.plainSubstrByWidth(summary, width - 16), x + 7, bottom - 13,
-					status.startsWith("错误") ? 0xFFFF7777 : 0xFF8F7EA2);
+					status.startsWith(LuaUiText.text("错误")) ? 0xFFFF7777 : 0xFF8F7EA2);
 		}
 	}
 
 	boolean keyPressed(KeyEvent event) {
-		if (!open || !keyboardFocused) return false;
-		if (focus == Focus.TREE && treeEditor.keyPressed(event)) return true;
+		if (!open) return false;
+		if (!keyboardFocused) return false;
+		if (event.hasControlDown() && event.key() == InputConstants.KEY_RETURN) {
+			if (treeEditor.commitPendingEdit()) export(Export.INSERT);
+			return true;
+		}
+		if (treeEditor.hasPopup() && treeEditor.keyPressed(event)) return true;
 		if (event.key() == InputConstants.KEY_ESCAPE) {
-			if (dockSide.docked()) return true;
 			close();
 			return true;
 		}
+		if (!keyboardFocused) return false;
+		if (focus == Focus.TREE && treeEditor.keyPressed(event)) return true;
 		if (event.hasControlDown() && event.key() == InputConstants.KEY_V) {
 			if (focus != Focus.TREE) insertTyped(minecraft.keyboardHandler.getClipboard().replaceAll("\\R", " "));
 			return true;
@@ -404,15 +446,15 @@ final class LuaComponentEditorOverlay {
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_UP) {
-			if (focus == Focus.COMPONENT_SEARCH) moveComponent(-1); else moveTarget(-1);
+			if (focus == Focus.COMPONENT_SEARCH) { focus = Focus.TREE; treeEditor.keyPressed(event); } else moveTarget(-1);
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_DOWN) {
-			if (focus == Focus.COMPONENT_SEARCH) moveComponent(1); else moveTarget(1);
+			if (focus == Focus.COMPONENT_SEARCH) { focus = Focus.TREE; treeEditor.keyPressed(event); } else moveTarget(1);
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_RETURN) {
-			if (focus == Focus.TARGET_SEARCH) loadSelectedTarget(true); else selectComponent(componentRow);
+			if (focus == Focus.TARGET_SEARCH) loadSelectedTarget(true); else focus = Focus.TREE;
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_TAB) {
@@ -438,12 +480,10 @@ final class LuaComponentEditorOverlay {
 	}
 
 	boolean mouseScrolled(double mouseX, double mouseY, double amount) {
-		if (!open || !pointInside(mouseX, mouseY)) return false;
+		if (!open) return false;
+		if (treeEditor.hasPopup()) return treeEditor.mouseScrolled(mouseX, mouseY, amount);
+		if (!pointInside(mouseX, mouseY)) return false;
 		keyboardFocused = true;
-		if (treeEditor.hasPopup()) {
-			// Never scroll the target/component panes through a modal tree dialog.
-			return true;
-		}
 		if (treeEditor.mouseScrolled(mouseX, mouseY, amount)) {
 			focus = Focus.TREE;
 			return true;
@@ -536,42 +576,20 @@ final class LuaComponentEditorOverlay {
 		int rx = splitX + 3;
 		int rw = right - rx - 10;
 		int toggleWidth = 64;
-		if (inside(event.x(), event.y(), rx, contentTop, rx + rw - toggleWidth - 4, contentTop + 20)) {
+		if (inside(event.x(), event.y(), rx, contentTop,
+				rx + rw - (category == Category.ITEM ? toggleWidth + 4 : 0), contentTop + 20)) {
 			focus = Focus.COMPONENT_SEARCH;
 			return true;
 		}
-		if (inside(event.x(), event.y(), rx + rw - toggleWidth, contentTop, rx + rw, contentTop + 20)) {
+		if (category == Category.ITEM && inside(event.x(), event.y(), rx + rw - toggleWidth,
+				contentTop, rx + rw, contentTop + 20)) {
 			showAll = !showAll;
 			filterComponents();
 			return true;
 		}
-		int componentListTop = contentTop + 25;
-		int editorTop = componentListTop + Math.max(60, (contentBottom - componentListTop) * 34 / 100);
-		int selected = componentScroll + Math.max(0, (int) (event.y() - componentListTop - 2) / ROW_HEIGHT);
-		if (inside(event.x(), event.y(), rx, componentListTop, rx + rw, editorTop - 5)
-				&& selected < components.size()) {
-			componentRow = selected;
-			selectComponent(selected);
-			if (event.x() <= rx + 21) toggleSelectedComponent();
+		if (data != null && !loading && treeEditor.mouseClicked(event, doubleClick)) {
+			focus = Focus.TREE;
 			return true;
-		}
-		if (selectedComponent != null) {
-			int inputTop = editorTop + 59;
-			if (usesTreeEditor(selectedComponent)
-					&& treeEditor.mouseClicked(event, doubleClick)) {
-				focus = Focus.TREE;
-				return true;
-			}
-			if (inside(event.x(), event.y(), rx + 7, inputTop, rx + rw - 7, inputTop + 20)) {
-				String type = selectedComponent.editor();
-				if (type.equals("unit")) toggleSelectedComponent();
-				else if (type.equals("boolean")) toggleBoolean();
-				else {
-					focus = Focus.VALUE;
-					valueCursor = valueText.length();
-				}
-				return true;
-			}
 		}
 		int buttonY = bottom - 29;
 		int available = windowWidth - 20;
@@ -637,18 +655,21 @@ final class LuaComponentEditorOverlay {
 		enabledValues.clear();
 		valueDrafts.clear();
 		invalidValues.clear();
-		status = "正在读取 " + target.value() + "…";
+		status = LuaUiText.text("正在读取 ") + target.value() + "…";
 		ScriptManager.componentEditorData(category.id, target.value()).whenComplete((result, failure) ->
 				minecraft.execute(() -> {
 					if (revision != requestRevision) return;
 					loading = false;
 					if (failure != null) {
-						status = "错误：" + ScriptManager.message(failure);
+						status = LuaUiText.text("错误：") + ScriptManager.message(failure);
 						feedback.accept(status);
 						return;
 					}
 					data = result;
-					status = "已读取服务器注册的 " + result.components().size() + " 个组件";
+					selectedComponent = null;
+					treeEditor.setComponentCatalog(result, new JsonObject());
+					status = "已读取 " + result.components().size() + LuaUiText.text(" 个") +
+							(result.kind().equals("item") ? LuaUiText.text("物品组件") : LuaUiText.text("可编辑字段"));
 					filterComponents();
 				}));
 	}
@@ -687,11 +708,11 @@ final class LuaComponentEditorOverlay {
 		String needle = componentQuery.strip().toLowerCase(Locale.ROOT);
 		components = data.components().stream()
 				.filter(component -> showAll || component.relevance() > 0)
-				.filter(component -> needle.isEmpty() || component.searchable().contains(needle))
+				.filter(component -> LuaUiText.matchesSearch(component.searchable(), needle))
 				.toList();
 		componentRow = clamp(componentRow, 0, Math.max(0, components.size() - 1));
 		componentScroll = 0;
-		selectComponent(componentRow);
+		treeEditor.filterComponents(components);
 	}
 
 	private void selectComponent(int index) {
@@ -707,19 +728,16 @@ final class LuaComponentEditorOverlay {
 		valueText = valueDrafts.getOrDefault(selectedComponent.id(), displayValue(selectedComponent, value));
 		valueCursor = valueText.length();
 		if (usesTreeEditor(selectedComponent)) {
-			treeEditor.setValue(selectedComponent.id(), value, selectedComponent.idHints());
+			treeEditor.setValue(selectedComponent.id(), value, selectedComponent.idHints(), data.componentIdHints());
 		}
 		ensureComponentVisible();
 	}
 
 	private void applyTreeValue(JsonElement value) {
-		if (selectedComponent == null || !usesTreeEditor(selectedComponent)) return;
-		JsonElement copy = value == null ? new JsonObject() : value.deepCopy();
-		enabledValues.put(selectedComponent.id(), copy);
-		valueText = copy.toString();
-		valueCursor = valueText.length();
-		valueDrafts.put(selectedComponent.id(), valueText);
-		invalidValues.remove(selectedComponent.id());
+		if (data == null || value == null || !value.isJsonObject()) return;
+		enabledValues.clear();
+		value.getAsJsonObject().entrySet().forEach(entry -> enabledValues.put(entry.getKey(), entry.getValue().deepCopy()));
+		valueDrafts.clear(); invalidValues.clear();
 	}
 
 	private void toggleSelectedComponent() {
@@ -744,7 +762,7 @@ final class LuaComponentEditorOverlay {
 		valueText = Boolean.toString(next);
 		valueDrafts.put(selectedComponent.id(), valueText);
 		invalidValues.remove(selectedComponent.id());
-		status = "已设置 " + selectedComponent.label() + " = " + next;
+		status = LuaUiText.text("已设置 ") + selectedComponent.label() + " = " + next;
 	}
 
 	private void commitValue() {
@@ -754,11 +772,11 @@ final class LuaComponentEditorOverlay {
 			enabledValues.put(selectedComponent.id(), parseValue(selectedComponent, valueText));
 			valueDrafts.put(selectedComponent.id(), valueText);
 			invalidValues.remove(selectedComponent.id());
-			if (status.startsWith("错误：")) status = "值格式正确，导出时会由服务器再次校验";
+			if (status.startsWith(LuaUiText.text("错误："))) status = LuaUiText.text("值格式正确，导出时会由服务器再次校验");
 		} catch (RuntimeException error) {
 			valueDrafts.put(selectedComponent.id(), valueText);
 			invalidValues.add(selectedComponent.id());
-			status = "错误：" + (error.getMessage() == null ? "值格式无效" : error.getMessage());
+			status = LuaUiText.text("错误：") + (error.getMessage() == null ? LuaUiText.text("值格式无效") : error.getMessage());
 		}
 	}
 
@@ -767,13 +785,13 @@ final class LuaComponentEditorOverlay {
 		return switch (component.editor()) {
 			case "unit" -> new JsonObject();
 			case "boolean" -> {
-				if (!value.equals("true") && !value.equals("false")) throw new IllegalArgumentException("请输入 true 或 false");
+				if (!value.equals("true") && !value.equals("false")) throw new IllegalArgumentException(LuaUiText.text("请输入 true 或 false"));
 				yield new JsonPrimitive(Boolean.parseBoolean(value));
 			}
 			case "integer" -> new JsonPrimitive(Integer.parseInt(value));
 			case "number" -> {
 				double number = Double.parseDouble(value);
-				if (!Double.isFinite(number)) throw new IllegalArgumentException("请输入有限数字");
+				if (!Double.isFinite(number)) throw new IllegalArgumentException(LuaUiText.text("请输入有限数字"));
 				yield new JsonPrimitive(number);
 			}
 			case "text_component" -> {
@@ -806,32 +824,38 @@ final class LuaComponentEditorOverlay {
 			return;
 		}
 		JsonObject patch = LuaComponentEditorData.patch(enabledValues);
+		int insertionRevision = openRevision;
 		exporting = true;
-		status = "正在由服务器校验组件…";
+		status = LuaUiText.text("正在由服务器校验配置…");
 		ScriptManager.validateComponents(data.kind(), data.requestedId(), patch.toString()).whenComplete((canonical, failure) ->
 				minecraft.execute(() -> {
 					exporting = false;
 					if (failure != null) {
-						status = "错误：" + ScriptManager.message(failure);
+						status = LuaUiText.text("错误：") + ScriptManager.message(failure);
 						feedback.accept(status);
 						return;
 					}
 					JsonObject checked = JsonParser.parseString(canonical).getAsJsonObject();
 					if (action == Export.INSERT) {
 						insertion.accept(LuaComponentEditorData.luaComponents(checked));
-						status = "组件表已插入代码编辑器";
+						status = LuaUiText.text("配置表已插入代码编辑器");
+						if (open && closeAfterInsert && openRevision == insertionRevision) close();
 					} else if (action == Export.COPY_STACK) {
 						if (data.kind().equals("entity")) {
 							minecraft.keyboardHandler.setClipboard(
 									LuaComponentEditorData.luaEntity(data.requestedId(), checked));
 							status = "已复制 Lua 实体组件配置";
+						} else if (data.kind().equals("block")) {
+							minecraft.keyboardHandler.setClipboard(
+									LuaComponentEditorData.luaBlock(data.requestedId(), checked));
+							status = "已复制 Lua 方块配置";
 						} else {
 							minecraft.keyboardHandler.setClipboard(LuaComponentEditorData.luaStack(data.itemId(), checked));
 							status = "已复制 Lua 物品堆表";
 						}
 					} else {
 						minecraft.keyboardHandler.setClipboard(checked.toString());
-						status = "已复制组件 JSON";
+						status = LuaUiText.text("已复制组件 JSON");
 					}
 					feedback.accept(status);
 				}));
@@ -945,9 +969,9 @@ final class LuaComponentEditorOverlay {
 		if (selectedTarget != null) renderTargetIcon(graphics, selectedTarget, x + 5, y + 5);
 		else drawFallbackIcon(graphics, x + 5, y + 5, "?");
 		if (hovered) {
-			String target = selectedTarget == null ? "尚未选择目标" : selectedTarget.label();
+			String target = selectedTarget == null ? LuaUiText.text("尚未选择目标") : selectedTarget.label();
 			graphics.setComponentTooltipForNextFrame(font, List.of(
-					Component.literal(target), Component.literal("点击重新选择")), mouseX, mouseY);
+					Component.literal(target), Component.literal(LuaUiText.text("点击重新选择"))), mouseX, mouseY);
 		}
 	}
 
@@ -1099,9 +1123,9 @@ final class LuaComponentEditorOverlay {
 	}
 
 	private enum Category {
-		ITEM("item", "物品", LuaInsertCatalog.Kind.ITEM),
-		BLOCK("block", "方块", LuaInsertCatalog.Kind.BLOCK),
-		ENTITY("entity", "实体", LuaInsertCatalog.Kind.ENTITY);
+		ITEM("item", LuaUiText.text("物品"), LuaInsertCatalog.Kind.ITEM),
+		BLOCK("block", LuaUiText.text("方块"), LuaInsertCatalog.Kind.BLOCK),
+		ENTITY("entity", LuaUiText.text("实体"), LuaInsertCatalog.Kind.ENTITY);
 
 		private final String id;
 		private final String label;
@@ -1119,7 +1143,7 @@ final class LuaComponentEditorOverlay {
 				case ITEM -> ITEM;
 				case BLOCK -> BLOCK;
 				case ENTITY -> ENTITY;
-				case PLAYER -> null;
+				default -> null;
 			};
 		}
 	}

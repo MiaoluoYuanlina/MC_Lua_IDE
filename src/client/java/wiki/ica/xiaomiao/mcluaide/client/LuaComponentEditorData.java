@@ -3,14 +3,15 @@ package wiki.ica.xiaomiao.mcluaide.client;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import wiki.ica.xiaomiao.mcluaide.editor.ComponentTreeSchema;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Decoded server snapshot used by the item-stack component editor. */
+/** Decoded server snapshot for item, placed-block and entity configuration editors. */
 record LuaComponentEditorData(String kind, String requestedId, String itemId, String name,
-		String sourceHint, List<ComponentInfo> components) {
+		String sourceHint, List<ComponentInfo> components, Map<String, List<IdHint>> componentIdHints) {
 	static LuaComponentEditorData decode(String encoded) {
 		JsonObject root = JsonParser.parseString(encoded).getAsJsonObject();
 		List<ComponentInfo> components = new ArrayList<>();
@@ -28,12 +29,28 @@ record LuaComponentEditorData(String kind, String requestedId, String itemId, St
 			components.add(new ComponentInfo(
 					value.get("id").getAsString(), value.get("label").getAsString(),
 					value.get("description").getAsString(), value.get("editor").getAsString(),
-					value.get("relevance").getAsInt(), value.get("default").deepCopy(), List.copyOf(idHints)));
+					value.get("relevance").getAsInt(), value.get("default").deepCopy(), List.copyOf(idHints),
+					value.has("schema") ? ComponentTreeSchema.Node.decode(value.getAsJsonObject("schema"))
+							: ComponentTreeSchema.component(value.get("id").getAsString(), value.get("default"))));
+		}
+		Map<String, List<IdHint>> catalog = new java.util.HashMap<>();
+		for (ComponentInfo info : components) catalog.put(info.id(), info.idHints());
+		if (root.has("componentIdHints")) {
+			root.getAsJsonObject("componentIdHints").entrySet().forEach(entry -> {
+				List<IdHint> hints = new ArrayList<>();
+				for (JsonElement raw : entry.getValue().getAsJsonArray()) {
+					JsonObject hint = raw.getAsJsonObject();
+					hints.add(new IdHint(hint.get("path").getAsString(), hint.get("target").getAsString(),
+							hint.get("registry").getAsString(), hint.get("label").getAsString(),
+							hint.get("description").getAsString()));
+				}
+				catalog.put(entry.getKey(), List.copyOf(hints));
+			});
 		}
 		return new LuaComponentEditorData(root.get("kind").getAsString(),
 				root.get("requestedId").getAsString(), root.get("itemId").getAsString(),
 				root.get("name").getAsString(), root.get("sourceHint").getAsString(),
-				List.copyOf(components));
+				List.copyOf(components), Map.copyOf(catalog));
 	}
 
 	static JsonObject patch(Map<String, JsonElement> values) {
@@ -52,8 +69,13 @@ record LuaComponentEditorData(String kind, String requestedId, String itemId, St
 	}
 
 	static String luaEntity(String entityType, JsonObject patch) {
-		return "{\n    type = " + quote(entityType) + ",\n    components = "
+		return "{\n    type = " + quote(entityType) + ",\n    config = "
 				+ indentFollowing(luaComponents(patch), "    ") + "\n}";
+	}
+
+	static String luaBlock(String blockId, JsonObject config) {
+		return "{\n    id = " + quote(blockId) + ",\n    config = "
+				+ indentFollowing(luaComponents(config), "    ") + "\n}";
 	}
 
 	private static String luaValue(JsonElement value, int depth) {
@@ -92,10 +114,16 @@ record LuaComponentEditorData(String kind, String requestedId, String itemId, St
 	}
 
 	record ComponentInfo(String id, String label, String description, String editor,
-			int relevance, JsonElement defaultValue, List<IdHint> idHints) {
+			int relevance, JsonElement defaultValue, List<IdHint> idHints, ComponentTreeSchema.Node schema) {
 		String searchable() {
-			return (id + " " + label + " " + description + " "
-					+ ChineseSearchIndex.initials(label + description)).toLowerCase(java.util.Locale.ROOT);
+			StringBuilder details = new StringBuilder(label).append(' ').append(description);
+			schema.fields().forEach((key, node) -> {
+				details.append(' ').append(key).append(' ').append(node.label());
+				node.fields().forEach((childKey, child) -> details.append(' ').append(childKey)
+						.append(' ').append(child.label()));
+			});
+			return (id + " " + details + " " + LuaUiText.searchInitials(details.toString()))
+					.toLowerCase(java.util.Locale.ROOT);
 		}
 	}
 

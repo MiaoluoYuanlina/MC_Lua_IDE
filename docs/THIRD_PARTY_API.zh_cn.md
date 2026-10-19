@@ -11,6 +11,8 @@
 
 第三方文档由服务端自动发送给拥有管理权限的 IDE 客户端。因此，普通的服务端扩展模组可以只安装在服务端，管理员客户端不需要额外安装该扩展模组。只有确实会向目标玩家客户端发送专用数据的函数，才应声明为“客户端 Mod 专用 API”。
 
+此外，客户端扩展可以使用 `McLuaIdeWindowApi` 创建可拖动、缩放和吸附的独立 IDE 窗口。此能力需要管理员客户端安装扩展 Mod，与自动同步的文档页面不同，详见下文“自定义独立 IDE 窗口（客户端 API）”。
+
 ## 依赖设置
 
 开发时把 MC Lua IDE 的 JAR 加入模组工程依赖：
@@ -144,6 +146,217 @@ print("当前在线玩家：", count)
 ```
 
 同一个模组可以使用相同的 `rootName` 多次注册方法，例如 `TestMod.giveReward(...)`、`TestMod.openMenu(...)`。API 文档会自动创建独立的“TestMod API”大类，并把这些方法放在该大类下。其他模组不能向已经属于 `test_mod` 的 `TestMod` 大类添加方法。
+
+## 自定义 API 文档标题与页面 UI
+
+除了函数条目，其他 Mod 还可以向管理员的“API 文档”窗口注册独立的分类标题和页面。页面 UI 由标题、正文、提示框和 Lua 代码块组成；代码块会显示“插入”和“复制”按钮。分类与页面可被中文、拼音首字母或 Mod ID 搜索。它不会把文档页面误当成 Lua 函数补全。
+
+入口为 `wiki.ica.xiaomiao.mcluaide.api.McLuaIdeDocsApi`。在公共 `ModInitializer#onInitialize` 中注册：
+
+```java
+McLuaIdeDocsApi.page("test_mod", "guide", "first_script")
+    .translation("zh_cn", McLuaIdeDocsApi.translation("TestMod 使用指南", "第一个脚本")
+        .heading("准备")
+        .text("这个页面由 test_mod 在服务端注册。管理员客户端会自动收到文档。")
+        .callout("先安装 test_mod，再运行以下 Lua 示例。")
+        .code("print(TestMod.playerCount())")
+        .build())
+    .translation("en_us", McLuaIdeDocsApi.translation("TestMod guide", "First script")
+        .text("Run the Lua example below.")
+        .code("print(TestMod.playerCount())")
+        .build())
+    .register();
+```
+
+`categoryId`（这里是 `guide`）决定页面归属的一级标题；同一 Mod 可在这个标题下注册多个不同 `pageId` 的页面，也可使用另一个 `categoryId` 创建第二个一级标题。`categoryTitle` 和 `pageTitle` 分别控制用户看到的分类名与页面名。每种语言至少需要一个页面元素，最多 32 个；`code` 是可复制/插入的 Lua 文本，不会作为客户端代码执行。重复的 `ownerModId + categoryId + pageId` 会报错。
+
+页面是声明式 UI，不允许服务端模组发送任意客户端 Java、HTML 或脚本代码。这样不安装扩展 Mod 的管理员客户端仍可显示它。若需要给玩家打开 Minecraft 游戏内的交互界面，应使用运行时 `MC.UI` API；这与 API 文档页面是两种不同能力。
+
+## 自定义独立 IDE 窗口（客户端 API）
+
+从本版本起，其他 Mod 可以注册真正的独立 IDE 工具窗口，不再局限于 API 文档中的页面。入口：
+
+```java
+import wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeWindowApi;
+```
+
+`McLuaIdeWindowApi.EXTENSION_API_VERSION = 1`。它只存在于客户端源码集；请在扩展 Mod 的 **ClientModInitializer#onInitializeClient** 中注册，在第一次打开 IDE 之前完成。不要从公共初始化器、服务端类或 Lua 脚本直接引用此类。
+
+### 安装条件与能力边界
+
+- **管理员客户端必须同时安装 MC Lua IDE 和提供窗口的扩展 Mod**。服务端不必安装仅提供此界面的扩展 Mod，普通玩家也不必安装它。
+- 原有函数/文档注册 API 仍支持“扩展只装服务端，管理员自动收到文档”。独立窗口运行的是可信的客户端 Java 代码，不通过服务器下发或执行任意 Java/HTML。
+- 本接口只扩展已经打开的 IDE，不授予管理员权限。打开 IDE、读取服务端文件和执行脚本仍受原来的服务端权限校验控制。
+- 内容需要访问服务端数据时，由扩展 Mod 自行设计网络协议，并在服务端验证权限。不能把客户端菜单是否可见当作权限验证。
+- 这不是玩家游戏内界面的 `MC.UI` API，也不是单独替换 Minecraft 的 `Screen`。
+
+### 用户操作与布局
+
+窗口自动列在 **UI与窗口 → Mod 窗口** 的子菜单，显示窗口标题及来源 Mod。点击打开，再次点击关闭；若它吸附后被其他标签遮住，点击会先切换到该窗口。窗口很多时有上一页/下一页。
+
+IDE 负责统一的标题栏、关闭按钮、边框、右侧出现/退出动画、拖动移动、边缘缩放提示、左/右/下吸附，以及吸附后的代码区域缩小。同侧多个内置/第三方窗口共享标签组，可切换，不会相互挤掉。
+
+位置、悬浮尺寸、吸附侧、开关状态，以及当前激活的吸附标签会自动保存。第三方窗口布局保存在管理员客户端的 `config/mc_lua_ide/extension-window-layout.properties`，暂时卸载某个 Mod 后不会删除其布局。固定布局时吸附窗口不能移动；“个性化 → 窗口布局 → 固定布局时可调边框”继续适用。获得焦点的悬浮窗口按 Esc 关闭；布局固定的吸附窗口按 Esc 关闭整个 IDE、保留窗口布局。
+
+### 完整示例：输入框、插入按钮、复制按钮
+
+源码另见仓库的 `examples/third_party_windows/TestModClient.java`。以下类放在扩展 Mod 的客户端源码集中；本仓库构建时会编译验证这个示例：
+
+```java
+package com.example.testmod;
+
+import net.fabricmc.api.ClientModInitializer;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeWindowApi;
+
+public final class TestModClient implements ClientModInitializer {
+    @Override
+    public void onInitializeClient() {
+        McLuaIdeWindowApi.window("test_mod", "script_tools")
+            .title(Component.literal("TestMod 脚本工具"))
+            .size(360, 220)
+            .minimumSize(180, 120)
+            .content(ToolContent::new)
+            .register();
+    }
+
+    private static final class ToolContent implements McLuaIdeWindowApi.Content {
+        private final McLuaIdeWindowApi.Context context;
+        private final EditBox input;
+        private final Button insert;
+        private final Button copy;
+        private int width = 200;
+
+        ToolContent(McLuaIdeWindowApi.Context context) {
+            this.context = context;
+            input = new EditBox(context.font(), 8, 28, 200, 20, Component.literal("代码"));
+            input.setMaxLength(5000);
+            input.setValue("print(\"Hello TestMod!\")");
+            insert = Button.builder(Component.literal("插入代码"), button ->
+                context.insertText(input.getValue() + "\n")).bounds(8, 56, 100, 20).build();
+            copy = Button.builder(Component.literal("复制"), button ->
+                context.copyText(input.getValue())).bounds(112, 56, 64, 20).build();
+        }
+
+        @Override
+        public void resize(int width, int height) {
+            this.width = width;
+            input.setWidth(Math.max(1, width - 16));
+            insert.setWidth(Math.min(100, Math.max(40, (width - 20) / 2)));
+            copy.setX(insert.getRight() + 4);
+            copy.setWidth(Math.max(1, Math.min(64, width - copy.getX() - 8)));
+        }
+
+        @Override
+        public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+            graphics.text(context.font(), "输入代码后插入当前编辑文件", 8, 8, 0xFFC8D9EA);
+            input.extractRenderState(graphics, mouseX, mouseY, 0);
+            insert.extractRenderState(graphics, mouseX, mouseY, 0);
+            copy.extractRenderState(graphics, mouseX, mouseY, 0);
+            graphics.text(context.font(),
+                context.font().plainSubstrByWidth("当前：" + context.documentName(), Math.max(1, width - 16)),
+                8, 90, 0xFF9CB1C8);
+        }
+
+        @Override
+        public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+            boolean selected = input.mouseClicked(event, doubleClick);
+            input.setFocused(selected);
+            return selected || insert.mouseClicked(event, doubleClick) || copy.mouseClicked(event, doubleClick);
+        }
+
+        @Override
+        public boolean keyPressed(KeyEvent event) {
+            return input.isFocused() && input.keyPressed(event);
+        }
+
+        @Override
+        public boolean charTyped(CharacterEvent event) {
+            return input.isFocused() && input.charTyped(event);
+        }
+
+        @Override
+        public void focusChanged(boolean focused) {
+            if (!focused) input.setFocused(false);
+        }
+    }
+}
+```
+
+扩展 Mod 的 `fabric.mod.json` 添加客户端入口，依赖设置沿用上文：
+
+```json
+{
+  "entrypoints": {
+    "client": ["com.example.testmod.TestModClient"]
+  }
+}
+```
+
+需要本地化标题时，用 `.title(Component.translatable("window.test_mod.script_tools"))`，并在扩展 Mod 自己的 `assets/test_mod/lang/zh_cn.json`、`en_us.json` 中添加翻译。标题不是 Lua 函数，不会混入 Tab 补全或 API 文档函数列表。
+
+### 注册与主动开关
+
+```java
+McLuaIdeWindowApi.window(ownerModId, windowId)
+    .title(Component.literal("窗口标题"))
+    .size(360, 240)
+    .minimumSize(160, 100)
+    .content(context -> new MyWindowContent(context))
+    .register();
+
+// 已打开 IDE 时，在客户端主线程调用：
+boolean opened = McLuaIdeWindowApi.open("test_mod:script_tools");
+boolean closed = McLuaIdeWindowApi.close("test_mod:script_tools");
+
+// 若从工作线程请求，先调度回客户端线程：
+Minecraft.getInstance().execute(() -> McLuaIdeWindowApi.open("test_mod:script_tools"));
+```
+
+完整 ID 为 `ownerModId:windowId`。同一 Mod 可注册多个不同 ID，不同 Mod 可使用相同 `windowId`；完整 ID 重复时抛出 `IllegalArgumentException`，不会覆盖别人的窗口。窗口 ID 使用小写字母、数字、`_`、`-`、`.`，可用 `/` 分段。不要在游戏循环中反复注册。
+
+`size`/`minimumSize` 指包含标题栏和边框的窗口尺寸，以 IDE 逻辑像素计；默认尺寸 360×240，默认最小尺寸 160×100。最小宽度至少 100、最小高度至少 70，默认尺寸不得小于最小尺寸或超过 4096。实际尺寸会受屏幕可用空间限制，并服从用户保存的布局。
+
+`open/close` 不会自行打开 IDE。当没有活动的 IDE 或该窗口未注册到当前 IDE 会话时返回 `false`；成功找到并操作窗口返回 `true`。它们必须在客户端主线程调用，否则抛出 `IllegalStateException`。注册定义可通过 `.build()` 再交给 `McLuaIdeWindowApi.register(definition)`；`definitions()` 返回当前注册定义的只读快照。
+
+### Content 内容接口
+
+只需实现 `render`；其余回调都有默认空实现。工厂应每次返回一个新实例，不能把同一个可变内容对象共享给不同窗口或 IDE 会话。
+
+- `render(graphics, mouseX, mouseY)`：绘制内容。原点为**窗口内部内容区左上角**，不包含外框与标题栏；鼠标坐标也已经转换为这个原点。IDE 自动裁剪越界绘制，并统一缩放。鼠标在内容区外时坐标可以为负或超出内容尺寸。
+- `resize(width, height)`：内容区域尺寸变化时、绘制前调用；按传入尺寸布局自己的控件，不要再减一遍标题栏高度。
+- `tick()`：窗口开启时每游戏 tick 调用，包括被同侧另一个标签遮住的窗口；关闭时不调用。
+- `opened()/closed()`：窗口开启/关闭通知。首次打开才创建内容；同一 IDE 会话中关闭再打开会复用内容。
+- `focusChanged(focused)`：鼠标/标签/主动打开带来的焦点变化；失去焦点时应取消自有输入框焦点。
+- `mouseClicked(event, doubleClick)`、`mouseDragged(event, dragX, dragY)`、`mouseReleased(event)`：内容区鼠标交互。坐标是内容局部坐标，拖动开始后即使鼠标移出窗口也会继续转发，直到释放。标题拖动和边框缩放不传给内容。
+- `mouseScrolled(x, y, horizontal, vertical)`：窗口内滚轮事件。
+- `keyPressed(event)`、`keyReleased(event)`、`charTyped(event)`：只转发给当前激活且获得焦点的窗口。内容没有处理的键也不会误输入代码编辑器。Esc 和顶部菜单由 IDE 管理。
+- `disposed()`：IDE 会话结束时释放动态纹理、缓冲区等资源；已经关闭的内容也会收到。不要在 `closed()` 中销毁还需在下一次打开时使用的资源。
+
+所有内容回调在客户端主线程调用。不要在绘制或 tick 回调中同步等待网络、读大文件或执行耗时任务；后台任务的结果应通过 `Minecraft.execute` 回到客户端线程更新。内容可使用原版 `EditBox`、`Button` 或自己的绘制，但需要自行转发事件；不要把内部控件注册到父 IDE 的根控件列表。保持绘制矩阵与裁剪栈平衡，不要绘制/接管其他窗口的外框。
+
+内容抛出普通异常或链接错误时，IDE 会停用这个窗口的内容回调，显示红色错误提示，并在 `latest.log` 中记录完整窗口 ID 与错误；其他窗口保持工作。退出 IDE 仍会尝试执行资源释放回调。
+
+### Context 与代码编辑器交互
+
+| 方法 | 作用 |
+| --- | --- |
+| `minecraft()` | 当前客户端；访问游戏状态仍要在客户端线程 |
+| `font()` | IDE 普通界面字体 |
+| `documentName()` | 当前文件名；没有打开文件时为空字符串 |
+| `source()` | 当前主代码框文本 |
+| `selectedText()` | 当前主代码框选中文本，没有选中时为空 |
+| `insertText(text)` | 在主代码框光标处插入原始文本、替换选区，参与正常撤销/高亮流程；没有已加载的可编辑文件时返回 false。不自动保存或运行 |
+| `copyText(text)` | 复制到系统剪贴板 |
+| `close()` | 关闭自己的窗口 |
+
+`Context` 与控件都属于当前 IDE 会话，请勿在 `disposed()` 之后继续使用。尺寸、焦点与外框由 IDE 控制，扩展代码不应依赖内部 `LuaIdeScreen` 或 `DockSide` 等实现类。
 
 ## 注册器说明
 
@@ -286,6 +499,12 @@ McLuaIdeRegistryApi.componentHint(
 ```
 
 组件编辑器打开字段时会自动切换到声明的注册表，并提供上下键、Tab/Enter 和鼠标选择。识别不到的字段也可以点击“ID类型”，在服务器全部注册表类型中手动筛选。注释由服务端发送给管理员客户端，所以扩展模组仍然只需安装在服务端。
+
+提示路径始终相对于所属组件的根节点。即使 `example_mod:spell_focus` 出现在收纳袋 → 容器 → 物品 → `components` 内，原来的 `/spell` 声明也会自动生效，无需重复注册外层路径。字段名中含 `/` 或 `~` 时，分别使用 JSON Pointer 转义 `~1` 或 `~0`。同一个数据结构支持简写字符串与完整对象时，应分别为根路径 `""` 和对象字段路径（例如 `/id`）注册提示。
+
+统一组件树也会使用这些提示补充默认值中没有出现的可选 ID 字段。例如上面的 `/spell` 会成为可以直接点击添加的字符串字段，并关联 `example_mod:spell` 的搜索。已存在的对象/列表结构不会被字符串提示覆盖。其他非 ID 字段可从物品默认组件值中推导类型；没有默认值或提示的任意 Codec 不能保证完整推导，此时保留自定义字段编辑入口。
+
+实际 ID 来自服务端，而不是注释表；注册注释不会凭空创建游戏 ID。目录同时枚举静态、动态、可重载注册表，并单独读取配方、进度和已加载维度。搜索输入以 `#` 开头时会列出当前注册表标签；是否允许标签仍由字段所属 Codec 决定。未声明字段会尝试按键名和附近结构推断，语义不明确的自定义字段应使用 `componentHint`，不要依赖猜测。
 
 所有注册建议在 `ModInitializer#onInitialize` 中完成。为避免模组互相篡改说明：普通模组只能注释自己命名空间的注册表、条目或组件；同一个目标不能重复注册。`McLuaIdeRegistryApi.EXTENSION_API_VERSION` 可用于兼容性检查。
 

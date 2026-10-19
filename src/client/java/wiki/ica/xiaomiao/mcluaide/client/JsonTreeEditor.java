@@ -13,6 +13,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
+import wiki.ica.xiaomiao.mcluaide.editor.ComponentIdContext;
+import wiki.ica.xiaomiao.mcluaide.editor.ComponentTreeSchema;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -34,9 +37,20 @@ final class JsonTreeEditor {
 	private final Font font;
 	private final Consumer<JsonElement> changeListener;
 	private final Consumer<String> feedback;
+	private NodeTranslation translation;
 	private JsonElement root = new JsonObject();
 	private String componentId = "";
 	private List<LuaComponentEditorData.IdHint> componentIdHints = List.of();
+	private Map<String, List<LuaComponentEditorData.IdHint>> componentHintCatalog = Map.of();
+	private boolean componentForest;
+	private Map<String, LuaComponentEditorData.ComponentInfo> componentCatalog = Map.of();
+	private ComponentTreeSchema.Node forestSchema;
+	private ComponentTreeSchema.Node observedSchema;
+	private ComponentTreeSchema.Node nestedItemSchema;
+	private final Set<Path> discovered = new HashSet<>();
+	private Set<String> visibleComponents = Set.of();
+	private boolean fieldPicker;
+	private Map<String, ComponentTreeSchema.Node> fieldOptions = Map.of();
 	private final Set<Path> collapsed = new HashSet<>();
 	private List<Row> rows = List.of();
 	private Path selected = Path.root();
@@ -72,8 +86,10 @@ final class JsonTreeEditor {
 	private List<LuaInsertCatalog.Entry> suggestions = List.of();
 	private int suggestionRow;
 	private int suggestionRevision;
+	private int observedCatalogRevision = -1;
 	private boolean suggestionLoading;
 	private IdHint manualIdHint;
+	private InputFocus manualHintFocus;
 	private boolean registryPickerOpen;
 	private boolean registryTypesLoading;
 	private int registryTypesRevision;
@@ -95,7 +111,26 @@ final class JsonTreeEditor {
 		this.feedback = feedback;
 	}
 
+	void setTranslation(NodeTranslation translation) {
+		this.translation = translation;
+	}
+
+	interface NodeTranslation {
+		default String rootLabel() { return LuaUiText.text("数据包 JSON"); }
+		String label(List<String> path, String key, JsonElement value);
+		String description(List<String> path, String key, JsonElement value);
+		String valueLabel(List<String> path, JsonElement value);
+	}
+
 	void setValue(String componentId, JsonElement value, List<LuaComponentEditorData.IdHint> idHints) {
+		setValue(componentId, value, idHints, Map.of());
+	}
+
+	void setValue(String componentId, JsonElement value, List<LuaComponentEditorData.IdHint> idHints,
+			Map<String, List<LuaComponentEditorData.IdHint>> catalog) {
+		componentForest = false;
+		observedSchema = null;
+		componentHintCatalog = catalog;
 		this.componentId = componentId == null ? "" : componentId;
 		this.componentIdHints = idHints == null ? List.of() : List.copyOf(idHints);
 		root = value == null ? JsonNull.INSTANCE : value.deepCopy();
@@ -109,6 +144,67 @@ final class JsonTreeEditor {
 		rebuildRows();
 	}
 
+	void setComponentCatalog(LuaComponentEditorData data, JsonObject patch) {
+		setValue("mc_lua_ide:component_forest", patch, List.of(), data.componentIdHints());
+		componentForest = true;
+		Map<String, LuaComponentEditorData.ComponentInfo> values = new java.util.LinkedHashMap<>();
+		data.components().forEach(info -> values.put(info.id(), info));
+		componentCatalog = values;
+		Map<String, ComponentTreeSchema.Node> schemas = new java.util.LinkedHashMap<>();
+		values.forEach((id, info) -> schemas.put(id, info.schema()));
+		forestSchema = new ComponentTreeSchema.Node(data.kind().equals("item") ? "全部物品组件"
+				: data.kind().equals("block") ? "方块状态与数据" : "实体状态与组件",
+				"object", new JsonObject(), schemas, null, List.of(), "", false);
+		nestedItemSchema = data.kind().equals("item") ? forestSchema : ComponentTreeSchema.itemComponents();
+		visibleComponents = Set.copyOf(values.keySet());
+		discovered.clear(); collapsed.clear();
+		rebuildRows();
+	}
+
+	void setObservedSchema(ComponentTreeSchema.Node schema) {
+		observedSchema = schema;
+		discovered.clear();
+		collapsed.clear();
+		rebuildRows();
+	}
+
+	private boolean guidedTree() { return componentForest || observedSchema != null; }
+
+	void filterComponents(List<LuaComponentEditorData.ComponentInfo> components) {
+		visibleComponents = components.stream().map(LuaComponentEditorData.ComponentInfo::id).collect(java.util.stream.Collectors.toSet());
+		scroll = 0;
+		rebuildRows();
+	}
+
+	private ComponentTreeSchema.Node schema(Path path) {
+		if (!guidedTree()) return null;
+		ComponentTreeSchema.Node node = componentForest ? componentMap() : observedSchema;
+		Path walked = Path.root();
+		for (Step step : path.steps()) {
+			if (node == null) return null;
+			node = ComponentTreeSchema.variant(node, resolveActual(walked));
+			if (componentForest && node.kind().equals("components")) node = nestedItemSchema;
+			node = step.objectKey() ? node.fields().getOrDefault(step.key(), node.element()) : node.element();
+			walked = step.objectKey() ? walked.childKey(step.key()) : walked.childIndex(step.index());
+		}
+		node = ComponentTreeSchema.variant(node, resolveActual(path));
+		return componentForest && node != null && node.kind().equals("components") ? nestedItemSchema : node;
+	}
+
+	private ComponentTreeSchema.Node componentMap() {
+		return forestSchema;
+	}
+
+	private boolean guidedField() {
+		return guidedTree() && popupMode == PopupMode.EDIT && schema(popupPath) != null && !editableKey(popupPath);
+	}
+
+	private boolean editableKey(Path path) {
+		if (path.steps().isEmpty() || !path.last().objectKey()) return false;
+		ComponentTreeSchema.Node parent = schema(path.parent());
+		return parent == null || parent.custom() && parent.element() != null || !parent.fields().containsKey(path.last().key());
+	}
+
 	boolean hasPopup() {
 		return popupMode != PopupMode.NONE;
 	}
@@ -119,6 +215,7 @@ final class JsonTreeEditor {
 
 	void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
 			int x, int top, int width, int bottom) {
+		refreshCatalogRevision();
 		this.x = x;
 		this.top = top;
 		this.width = width;
@@ -145,11 +242,11 @@ final class JsonTreeEditor {
 		drawButton(graphics, mouseX, mouseY, addButton, addLabel,
 				container ? 0xFF355C4E : 0xFF242A31, container ? 0xFF447565 : 0xFF242A31);
 		boolean searchableId = selectedValue != null && selectedValue.isJsonPrimitive()
-				&& componentIdHints.stream().anyMatch(hint -> !hint.keyTarget() && pathMatches(hint.path(), selected));
+				&& selectedValue.getAsJsonPrimitive().isString();
 		drawButton(graphics, mouseX, mouseY, editButton,
-				searchableId ? (compactButtons ? "搜" : "搜 ID") : (compactButtons ? "改" : "修改"),
+				searchableId ? (compactButtons ? "搜/改" : "搜 ID/改") : (compactButtons ? "改" : "修改"),
 				0xFF4B3865, 0xFF674B87);
-		drawButton(graphics, mouseX, mouseY, deleteButton, compactButtons ? "删" : "删除",
+		drawButton(graphics, mouseX, mouseY, deleteButton, compactButtons ? "删" : LuaUiText.text("删除"),
 				selected.steps().isEmpty() ? 0xFF242A31 : 0xFF61363C,
 				selected.steps().isEmpty() ? 0xFF242A31 : 0xFF85454E);
 		drawButton(graphics, mouseX, mouseY, rawButton, compactButtons ? "{}" : "源码", 0xFF304B64, 0xFF3E6485);
@@ -172,10 +269,34 @@ final class JsonTreeEditor {
 				graphics.text(font, "·", textX + 2, rowY + 5, 0xFF71677C);
 			}
 			textX += 12;
-			String shown = row.label() + "  " + preview(row.value());
+			boolean present = resolveActual(row.path()) != null;
+			if (guidedTree()) {
+				for (int level = 1; level <= Math.min(row.depth(), 18); level++) {
+					int branchX = x + 6 + level * 12 - 6;
+					graphics.fill(branchX, rowY, branchX + 1, rowY + ROW_HEIGHT, 0xFF302A3B);
+				}
+			}
+			String shown = translatedRowLabel(row) + (row.addAction() || guidedTree() && row.path().steps().isEmpty()
+					? "" : "  " + translatedPreview(row));
 			graphics.text(font, font.plainSubstrByWidth(shown, Math.max(8, x + width - textX - 50)),
-					textX, rowY + 5, row.path().equals(selected) ? 0xFFFFFFFF : 0xFFD8CCE4);
-			String type = typeLabel(row.value());
+					textX, rowY + 5, row.path().equals(selected) ? 0xFFFFFFFF : present ? 0xFFD8CCE4 : 0xFF8E859C);
+			if (translation != null && popupMode == PopupMode.NONE && !row.addAction()
+					&& inside(mouseX, mouseY, x + 2, rowY, x + width - 2, rowY + ROW_HEIGHT)) {
+				List<String> nodePath = pathSegments(row.path());
+				String description = translation.description(nodePath, rawKey(row.path()), row.value());
+				if (description != null && !description.isBlank()) graphics.setComponentTooltipForNextFrame(font,
+						List.of(Component.literal(translatedRowLabel(row)), Component.literal(description),
+								Component.literal("JSON 路径：" + (nodePath.isEmpty() ? "/" : "/" + String.join("/", nodePath)))),
+						mouseX, mouseY);
+			}
+			String type = guidedTree() && !row.path().steps().isEmpty()
+					? row.value().isJsonArray() ? "＋条目" : !present ? "＋添加" : row.container() ? "＋字段" : "编辑"
+					: typeLabel(row.value());
+			if (componentForest && row.path().steps().size() == 1 && componentCatalog.containsKey(row.path().last().key())) {
+				var info = componentCatalog.get(row.path().last().key());
+				type = present ? "✓ 撤销" : info.relevance() == 2 ? "默认 ＋" : info.relevance() == 1 ? "可用 ＋" : "高级 ＋";
+			}
+			if (row.addAction()) type = "添加";
 			graphics.text(font, type, x + width - font.width(type) - 6, rowY + 5, typeColor(row.value()));
 		}
 		graphics.disableScissor();
@@ -188,6 +309,7 @@ final class JsonTreeEditor {
 	 * sibling controls from being painted over the popup.
 	 */
 	void renderPopupOverlay(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		refreshCatalogRevision();
 		if (popupMode != PopupMode.NONE) renderPopup(graphics, mouseX, mouseY);
 	}
 
@@ -220,6 +342,18 @@ final class JsonTreeEditor {
 		if (index < 0 || index >= rows.size()) return true;
 		Row row = rows.get(index);
 		selected = row.path();
+		if (guidedTree()) {
+			if (row.addAction()) { selected = selected.parent(); beginAdd(); return true; }
+			if (event.x() >= x + width - 58 && !selected.steps().isEmpty()) {
+				if (componentForest && selected.steps().size() == 1 && resolveActual(selected) != null) {
+					deleteSelected();
+				} else if (resolveActual(selected) == null) {
+					materialize(selected); discovered.add(selected); collapsed.remove(selected); changed();
+					if (!row.container() && !row.value().getAsJsonPrimitive().isBoolean()) beginEdit();
+				} else if (row.container()) beginAdd(); else beginEdit();
+			} else if (row.container()) toggleCollapsed(selected); else beginEdit();
+			return true;
+		}
 		int disclosureRight = x + 20 + Math.min(row.depth(), 18) * 12;
 		if (row.container() && (event.x() <= disclosureRight || doubleClick)) {
 			toggleCollapsed(row.path());
@@ -230,7 +364,15 @@ final class JsonTreeEditor {
 	}
 
 	boolean mouseScrolled(double mouseX, double mouseY, double amount) {
-		if (!contains(mouseX, mouseY) || popupMode != PopupMode.NONE) return false;
+		if (popupMode != PopupMode.NONE) {
+			if (registryPickerOpen && registryListArea != null && registryListArea.contains(mouseX, mouseY)) {
+				registryTypeRow = clamp(registryTypeRow - (int) Math.round(amount * 3), 0, Math.max(0, registryTypes.size() - 1));
+			} else if (suggestionArea != null && suggestionArea.contains(mouseX, mouseY)) {
+				suggestionRow = clamp(suggestionRow - (int) Math.round(amount * 3), 0, Math.max(0, suggestions.size() - 1));
+			}
+			return true;
+		}
+		if (!contains(mouseX, mouseY)) return false;
 		scroll = clamp(scroll - (int) Math.round(amount * 3), 0,
 				Math.max(0, rows.size() - visibleRows()));
 		return true;
@@ -257,6 +399,7 @@ final class JsonTreeEditor {
 			return true;
 		}
 		if (event.key() == InputConstants.KEY_RETURN) {
+			if (rows.stream().anyMatch(row -> row.path().equals(selected) && row.addAction())) { selected = selected.parent(); beginAdd(); return true; }
 			JsonElement value = resolve(selected);
 			if (value != null && isContainer(value)) toggleCollapsed(selected); else beginEdit();
 			return true;
@@ -270,6 +413,16 @@ final class JsonTreeEditor {
 			return true;
 		}
 		return false;
+	}
+
+	boolean commitPendingEdit() {
+		if (popupMode == PopupMode.NONE) return true;
+		if (registryPickerOpen) {
+			feedback.accept("请先确认或取消 ID 选择");
+			return false;
+		}
+		confirmPopup();
+		return popupMode == PopupMode.NONE;
 	}
 
 	boolean charTyped(CharacterEvent event) {
@@ -290,21 +443,26 @@ final class JsonTreeEditor {
 	}
 
 	private void renderPopup(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-		refreshIdSuggestions(false);
+		if (!fieldPicker) refreshIdSuggestions(false);
 		graphics.fill(x + 1, top + 1, x + width - 1, bottom - 1, 0xA8000000);
 		int screenWidth = minecraft.getWindow().getGuiScaledWidth();
 		int screenHeight = minecraft.getWindow().getGuiScaledHeight();
-		int popupWidth = Math.max(1, Math.min(Math.min(390, width - 4), screenWidth - 12));
+		// A modal ID browser must not inherit the width of a narrow docked tree pane.
+		int popupWidth = Math.max(1, Math.min(440, screenWidth - 12));
 		boolean narrowPopup = popupWidth < 190;
-		int desiredHeight = popupMode == PopupMode.RAW ? 104 : needsKeyField() ? 254 : 230;
+		int desiredHeight = popupMode == PopupMode.RAW ? 104 : needsKeyField() ? 292 : 268;
 		int popupHeight = Math.max(1, Math.min(desiredHeight, screenHeight - 12));
 		int px = clamp(x + (width - popupWidth) / 2, 6, Math.max(6, screenWidth - popupWidth - 6));
 		int py = clamp((top + bottom - popupHeight) / 2, 6, Math.max(6, screenHeight - popupHeight - 6));
 		popupBounds = new Rect(px, py, popupWidth, popupHeight);
+		if (fieldPicker) { renderRegistryPicker(graphics, mouseX, mouseY, px, py, popupWidth, popupHeight); return; }
 		graphics.fill(px, py, px + popupWidth, py + popupHeight, 0xFF171D29);
 		graphics.outline(px, py, popupWidth, popupHeight, 0xFFC28DFF);
-		String title = popupMode == PopupMode.ADD ? "新增树节点"
-				: popupMode == PopupMode.EDIT ? "修改树节点" : "编辑完整 JSON 源码";
+		String title = popupMode == PopupMode.ADD ? translation == null ? "新增自定义字段" : "新增维度字段"
+				: popupMode == PopupMode.EDIT ? guidedField() ? "编辑：" + schema(popupPath).label()
+					: translation == null ? "修改树节点" : "修改维度字段"
+					: translation == null ? "高级：编辑完整 JSON" : "高级：编辑完整维度 JSON";
+		title = font.plainSubstrByWidth(title, popupWidth - 16);
 		graphics.text(font, title, px + 8, py + 8, 0xFFE4CDFF);
 		if (!suggestionLabel.isEmpty()) {
 			String hint = "ID 搜索 · " + suggestionLabel;
@@ -320,7 +478,8 @@ final class JsonTreeEditor {
 		if (popupMode == PopupMode.RAW) {
 			valueField = new Rect(px + 8, rowY, popupWidth - 16, 20);
 			drawField(graphics, valueField, valueText, "粘贴或输入 JSON…", inputFocus == InputFocus.VALUE);
-			graphics.text(font, "会替换当前组件的整棵树；确认后仍会经过服务端 Codec 校验",
+			graphics.text(font, translation == null ? "会替换当前组件的整棵树；确认后仍会经过服务端 Codec 校验"
+					: "会替换当前维度的整棵树；插入前会由服务端校验",
 					px + 8, rowY + 25, 0xFF9A8AAA);
 			rowY += 47;
 		} else {
@@ -334,13 +493,16 @@ final class JsonTreeEditor {
 						inputFocus == InputFocus.KEY);
 				rowY += 24;
 			}
-			graphics.text(font, "类型", px + 8, rowY + 6, 0xFFBBA7CF);
+			if (!guidedField()) {
+			graphics.text(font, LuaUiText.text("类型"), px + 8, rowY + 6, 0xFFBBA7CF);
 			if (narrowPopup) rowY += 13;
 			typeButton = narrowPopup ? new Rect(px + 8, rowY, popupWidth - 16, 20)
 					: new Rect(px + 62, rowY, Math.min(105, popupWidth - 70), 20);
 			drawButton(graphics, mouseX, mouseY, typeButton, draftType.label, 0xFF3C3150, 0xFF58436F);
 			if (!narrowPopup) graphics.text(font, "点击切换", typeButton.right() + 6, rowY + 6, 0xFF796D84);
 			rowY += 24;
+			}
+			if ((draftType == ValueType.STRING || inputFocus == InputFocus.KEY) && !suggestionRegistry.equals("@choices")) {
 			graphics.text(font, "ID类型", px + 8, rowY + 6, 0xFFBBA7CF);
 			if (narrowPopup) rowY += 13;
 			IdHint activeHint = currentIdHint();
@@ -350,6 +512,7 @@ final class JsonTreeEditor {
 					activeHint == null ? "自动识别 / 选择…" : activeHint.label() + "  ▾",
 					0xFF263E51, 0xFF345B76);
 			rowY += 24;
+			}
 			if (draftType.hasTextValue()) {
 				graphics.text(font, componentId.equals("minecraft:enchantments") ? "等级" : "值", px + 8, rowY + 6, 0xFFBBA7CF);
 				if (narrowPopup) rowY += 13;
@@ -358,7 +521,7 @@ final class JsonTreeEditor {
 				drawField(graphics, valueField, valueText, draftType.hint, inputFocus == InputFocus.VALUE);
 				rowY += 24;
 			}
-			if (componentId.equals("minecraft:enchantments")) {
+			if (componentId.equals("minecraft:enchantments") && py + popupHeight - rowY > 92) {
 				graphics.text(font, "键可填写任意原版或 Mod 附魔 ID，整数值为附魔等级", px + 8, rowY + 3, 0xFF9A8AAA);
 				rowY += 17;
 			}
@@ -367,7 +530,7 @@ final class JsonTreeEditor {
 		suggestionArea = null;
 		int suggestionTop = rowY + 2;
 		int availableSuggestionHeight = buttonY - suggestionTop - 3;
-		if ((!suggestions.isEmpty() || suggestionLoading) && availableSuggestionHeight >= ROW_HEIGHT) {
+		if (!suggestionRegistry.isEmpty() && availableSuggestionHeight >= ROW_HEIGHT) {
 			int visibleSuggestions = Math.max(1, Math.min(5, availableSuggestionHeight / ROW_HEIGHT));
 			suggestionArea = new Rect(px + 8, suggestionTop, popupWidth - 16,
 					visibleSuggestions * ROW_HEIGHT);
@@ -375,6 +538,9 @@ final class JsonTreeEditor {
 			graphics.outline(suggestionArea.x(), suggestionArea.y(), suggestionArea.width(), suggestionArea.height(), 0xFF476A83);
 			if (suggestionLoading) {
 				graphics.text(font, "正在读取服务器注册表…", suggestionArea.x() + 5, suggestionArea.y() + 5, 0xFF91AFC3);
+			} else if (suggestions.isEmpty()) {
+				graphics.text(font, "无匹配 ID；可清空搜索或切换 ID 类型", suggestionArea.x() + 5,
+						suggestionArea.y() + 5, 0xFFB5A7BD);
 			} else {
 				int first = suggestionWindowStart(visibleSuggestions);
 				for (int visual = 0; visual < visibleSuggestions; visual++) {
@@ -384,7 +550,13 @@ final class JsonTreeEditor {
 					if (index == suggestionRow) graphics.fill(suggestionArea.x() + 1, sy + 1,
 							suggestionArea.right() - 1, sy + ROW_HEIGHT, 0xFF304C63);
 					LuaInsertCatalog.Entry entry = suggestions.get(index);
-					graphics.text(font, font.plainSubstrByWidth(entry.label(), suggestionArea.width() - 10),
+					String entryLabel = entry.label();
+					if (translation != null) {
+						String localized = translation.valueLabel(pathSegments(popupTargetPath()),
+								new JsonPrimitive(entry.value()));
+						if (localized != null && !localized.isBlank()) entryLabel = localized + " · " + entry.value();
+					}
+					graphics.text(font, font.plainSubstrByWidth(entryLabel, suggestionArea.width() - 10),
 							suggestionArea.x() + 5, sy + 5, index == suggestionRow ? 0xFFFFFFFF : 0xFFC8D7E2);
 				}
 			}
@@ -392,8 +564,8 @@ final class JsonTreeEditor {
 		int actionWidth = Math.max(34, Math.min(56, (popupWidth - 22) / 2));
 		confirmButton = new Rect(px + popupWidth - actionWidth * 2 - 14, buttonY, actionWidth, 20);
 		cancelButton = new Rect(px + popupWidth - actionWidth - 8, buttonY, actionWidth, 20);
-		drawButton(graphics, mouseX, mouseY, confirmButton, "确认", 0xFF4F6E58, 0xFF668E70);
-		drawButton(graphics, mouseX, mouseY, cancelButton, "取消", 0xFF553C4C, 0xFF754F65);
+		drawButton(graphics, mouseX, mouseY, confirmButton, LuaUiText.text("确认"), 0xFF4F6E58, 0xFF668E70);
+		drawButton(graphics, mouseX, mouseY, cancelButton, LuaUiText.text("取消"), 0xFF553C4C, 0xFF754F65);
 		if (registryPickerOpen) renderRegistryPicker(graphics, mouseX, mouseY, px, py, popupWidth, popupHeight);
 	}
 
@@ -401,10 +573,10 @@ final class JsonTreeEditor {
 			int px, int py, int popupWidth, int popupHeight) {
 		graphics.fill(px + 1, py + 1, px + popupWidth - 1, py + popupHeight - 1, 0xFF131A25);
 		graphics.outline(px, py, popupWidth, popupHeight, 0xFF65B8E8);
-		graphics.text(font, "选择服务器注册表类型", px + 8, py + 8, 0xFFD7EFFF);
+		graphics.text(font, fieldPicker ? "添加字段 · 自动匹配类型" : "选择服务器注册表类型", px + 8, py + 8, 0xFFD7EFFF);
 		registrySearchField = new Rect(px + 8, py + 24, popupWidth - 16, 20);
 		drawFieldAtCursor(graphics, registrySearchField, registryQuery,
-				"搜索类型 / 命名空间 / 中文首拼…", registryQueryCursor, true);
+				LuaUiText.text("搜索类型 / 命名空间 / 中文首拼…", "Search types or namespaces…"), registryQueryCursor, true);
 		int listTop = py + 49;
 		int buttonY = py + popupHeight - 26;
 		int visible = Math.max(1, (buttonY - listTop - 4) / ROW_HEIGHT);
@@ -413,11 +585,11 @@ final class JsonTreeEditor {
 				registryListArea.bottom(), 0xFF080D14);
 		graphics.outline(registryListArea.x(), registryListArea.y(), registryListArea.width(),
 				registryListArea.height(), 0xFF365F78);
-		if (registryTypesLoading) {
+		if (registryTypesLoading && !fieldPicker) {
 			graphics.text(font, "正在读取服务器全部注册表类型…", registryListArea.x() + 5,
 					registryListArea.y() + 5, 0xFF91AFC3);
 		} else if (registryTypes.isEmpty()) {
-			graphics.text(font, "没有匹配的注册表类型", registryListArea.x() + 5,
+			graphics.text(font, fieldPicker ? "没有可添加的字段（已有字段可直接展开编辑）" : "没有匹配的注册表类型", registryListArea.x() + 5,
 					registryListArea.y() + 5, 0xFF9A8AAA);
 		} else {
 			int first = registryTypeWindowStart(visible);
@@ -427,7 +599,7 @@ final class JsonTreeEditor {
 				int rowY = registryListArea.y() + visual * ROW_HEIGHT;
 				if (index == registryTypeRow) graphics.fill(registryListArea.x() + 1, rowY + 1,
 						registryListArea.right() - 1, rowY + ROW_HEIGHT, 0xFF2E5067);
-				String display = registryTypes.get(index).display();
+				String display = fieldPicker ? registryTypes.get(index).label() + " · " + registryTypes.get(index).id() : registryTypes.get(index).display();
 				graphics.text(font, font.plainSubstrByWidth(display, registryListArea.width() - 10),
 						registryListArea.x() + 5, rowY + 5,
 						index == registryTypeRow ? 0xFFFFFFFF : 0xFFC8DCE8);
@@ -435,8 +607,8 @@ final class JsonTreeEditor {
 		}
 		registryAutoButton = new Rect(px + 8, buttonY, Math.min(82, popupWidth / 3), 20);
 		registryCloseButton = new Rect(px + popupWidth - 58, buttonY, 50, 20);
-		drawButton(graphics, mouseX, mouseY, registryAutoButton, "恢复自动", 0xFF3A4650, 0xFF526674);
-		drawButton(graphics, mouseX, mouseY, registryCloseButton, "返回", 0xFF553C4C, 0xFF754F65);
+		drawButton(graphics, mouseX, mouseY, registryAutoButton, fieldPicker ? "展开字段" : "恢复自动", 0xFF3A4650, 0xFF526674);
+		drawButton(graphics, mouseX, mouseY, registryCloseButton, LuaUiText.text("返回"), 0xFF553C4C, 0xFF754F65);
 	}
 
 	private boolean clickPopup(double mouseX, double mouseY) {
@@ -491,7 +663,7 @@ final class JsonTreeEditor {
 					registrySearchField.width() - 10);
 			return true;
 		}
-		if (registryListArea != null && registryListArea.contains(mouseX, mouseY) && !registryTypesLoading) {
+		if (registryListArea != null && registryListArea.contains(mouseX, mouseY) && (!registryTypesLoading || fieldPicker)) {
 			int visible = Math.max(1, registryListArea.height() / ROW_HEIGHT);
 			int index = registryTypeWindowStart(visible)
 					+ (int) (mouseY - registryListArea.y()) / ROW_HEIGHT;
@@ -502,6 +674,10 @@ final class JsonTreeEditor {
 			return true;
 		}
 		if (registryAutoButton != null && registryAutoButton.contains(mouseX, mouseY)) {
+			if (fieldPicker) {
+				fieldPicker = false; registryPickerOpen = false; popupMode = PopupMode.NONE;
+				discovered.add(selected); collapsed.remove(selected); rebuildRows(); return true;
+			}
 			manualIdHint = null;
 			registryPickerOpen = false;
 			refreshIdSuggestions(true);
@@ -509,6 +685,7 @@ final class JsonTreeEditor {
 			return true;
 		}
 		if (registryCloseButton != null && registryCloseButton.contains(mouseX, mouseY)) {
+			if (fieldPicker) { fieldPicker = false; popupMode = PopupMode.NONE; }
 			registryPickerOpen = false;
 			return true;
 		}
@@ -586,6 +763,7 @@ final class JsonTreeEditor {
 
 	private boolean keyPressedRegistryPicker(KeyEvent event) {
 		if (event.key() == InputConstants.KEY_ESCAPE) {
+			if (fieldPicker) { fieldPicker = false; popupMode = PopupMode.NONE; }
 			registryPickerOpen = false;
 			return true;
 		}
@@ -594,7 +772,7 @@ final class JsonTreeEditor {
 			return true;
 		}
 		if ((event.key() == InputConstants.KEY_UP || event.key() == InputConstants.KEY_DOWN)
-				&& !registryTypes.isEmpty() && !registryTypesLoading) {
+				&& !registryTypes.isEmpty() && (!registryTypesLoading || fieldPicker)) {
 			registryTypeRow = Math.floorMod(registryTypeRow
 					+ (event.key() == InputConstants.KEY_UP ? -1 : 1), registryTypes.size());
 			return true;
@@ -626,6 +804,35 @@ final class JsonTreeEditor {
 	}
 
 	private void beginAdd() {
+		if (guidedTree()) {
+			ComponentTreeSchema.Node node = schema(selected);
+			JsonElement current = resolve(selected);
+			if (current != null && current.isJsonArray() && node != null && node.element() != null) {
+				JsonArray array = materialize(selected).getAsJsonArray();
+				Path added = selected.childIndex(array.size());
+				JsonElement next = node.element().value();
+				if (next.isJsonObject() && next.getAsJsonObject().has("slot")) {
+					Set<Integer> occupied = new HashSet<>();
+					for (JsonElement entry : array) if (entry.isJsonObject() && entry.getAsJsonObject().has("slot")) occupied.add(entry.getAsJsonObject().get("slot").getAsInt());
+					int slot = 0; while (occupied.contains(slot)) slot++;
+					next.getAsJsonObject().addProperty("slot", slot);
+				}
+				array.add(next); discovered.add(selected); collapsed.remove(selected);
+				selected = added; discovered.add(added); collapsed.remove(added); changed(); ensureSelectedVisible();
+				if (!isContainer(resolve(added))) beginEdit();
+				return;
+			}
+			if (current != null && current.isJsonObject() && node != null && !node.fields().isEmpty()) {
+				popupPath = selected; fieldOptions = node.fields(); fieldPicker = true;
+				popupMode = PopupMode.ADD; registryPickerOpen = true; registryQuery = ""; registryQueryCursor = 0; registryTypeRow = 0;
+				filterRegistryTypes(true); return;
+			}
+			if (current != null && isContainer(current)) materialize(selected);
+		}
+		beginCustomAdd();
+	}
+
+	private void beginCustomAdd() {
 		JsonElement parent = resolve(selected);
 		if (parent == null || !isContainer(parent)) {
 			feedback.accept("请选择对象或数组节点，再添加子项");
@@ -635,12 +842,13 @@ final class JsonTreeEditor {
 		resetPopupRegistryState();
 		popupPath = selected;
 		popupOriginal = JsonNull.INSTANCE;
+		ComponentIdContext context = idContext(selected);
+		boolean enchantments = context.path().isEmpty() && Set.of("enchantments", "stored_enchantments").contains(context.componentPath());
 		if (parent.isJsonObject()) {
-			keyText = (componentPath().equals("enchantments") || componentPath().equals("stored_enchantments"))
-					? "" : suggestedKey(parent.getAsJsonObject());
+			keyText = enchantments ? "" : suggestedKey(parent.getAsJsonObject());
 			keyCursor = keyText.length();
 		}
-		if (componentId.equals("minecraft:enchantments") && parent.isJsonObject()) {
+		if (enchantments && parent.isJsonObject()) {
 			draftType = ValueType.INTEGER;
 			valueText = "1";
 		} else {
@@ -655,6 +863,10 @@ final class JsonTreeEditor {
 	private void beginEdit() {
 		JsonElement value = resolve(selected);
 		if (value == null) return;
+		if (guidedTree() && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()) {
+			replace(selected, new JsonPrimitive(!value.getAsBoolean())); changed(); return;
+		}
+		if (guidedTree() && isContainer(value)) { beginAdd(); return; }
 		popupMode = PopupMode.EDIT;
 		resetPopupRegistryState();
 		popupPath = selected;
@@ -665,8 +877,10 @@ final class JsonTreeEditor {
 		Step last = selected.last();
 		keyText = last != null && last.objectKey() ? last.key() : "";
 		keyCursor = keyText.length();
+		ComponentIdContext context = idContext(selected);
 		inputFocus = last != null && last.objectKey()
-				&& (componentPath().equals("enchantments") || componentPath().equals("stored_enchantments"))
+				&& context.path().size() == 1
+				&& Set.of("enchantments", "stored_enchantments").contains(context.componentPath())
 				? InputFocus.KEY : InputFocus.VALUE;
 		refreshIdSuggestions(true);
 	}
@@ -683,6 +897,7 @@ final class JsonTreeEditor {
 	}
 
 	private void resetPopupRegistryState() {
+		fieldPicker = false;
 		manualIdHint = null;
 		registryPickerOpen = false;
 		registryQuery = "";
@@ -693,7 +908,9 @@ final class JsonTreeEditor {
 	private void confirmPopup() {
 		try {
 			if (popupMode == PopupMode.RAW) {
-				root = JsonParser.parseString(valueText);
+				JsonElement parsed = JsonParser.parseString(valueText);
+				if (componentForest && !parsed.isJsonObject()) throw new IllegalArgumentException("组件集合必须是对象");
+				root = parsed;
 				selected = Path.root();
 			} else if (popupMode == PopupMode.ADD) {
 				JsonElement parent = resolve(popupPath);
@@ -713,19 +930,29 @@ final class JsonTreeEditor {
 			} else if (popupMode == PopupMode.EDIT) {
 				JsonElement value = draftValue();
 				Step last = popupPath.last();
+				ComponentTreeSchema.Node oldParent = componentForest && last != null && "type".equals(last.key()) ? schema(popupPath.parent()) : null;
 				if (last != null && last.objectKey() && !last.key().equals(keyText.strip())) {
 					renameAndReplace(popupPath, requiredKey(), value);
 				} else {
 					replace(popupPath, value);
+				}
+				if (oldParent != null && oldParent.fields().containsKey("type")
+						&& oldParent.fields().get("type").registry().equals("minecraft:consume_effect_type") && !value.equals(popupOriginal)) {
+					JsonObject parent = resolveActual(popupPath.parent()).getAsJsonObject();
+					ComponentTreeSchema.Node variant = ComponentTreeSchema.variant(oldParent, parent);
+					// Switching effect type is explicit; replace fields whose meaning/shape changed.
+					JsonObject replacement = variant.value().getAsJsonObject();
+					replacement.add("type", value);
+					replace(popupPath.parent(), replacement);
 				}
 			}
 			popupMode = PopupMode.NONE;
 			rebuildRows();
 			ensureSelectedVisible();
 			changeListener.accept(root.deepCopy());
-			feedback.accept("树形组件值已更新；导出时会由服务器再次校验");
+			feedback.accept(observedSchema != null ? "JSON 树已更新；字段建议不代表完整格式" : "树形组件值已更新；导出时会由服务器再次校验");
 		} catch (RuntimeException error) {
-			feedback.accept("错误：" + (error.getMessage() == null ? "无法保存树节点" : error.getMessage()));
+			feedback.accept(LuaUiText.text("错误：") + (error.getMessage() == null ? "无法保存树节点" : error.getMessage()));
 		}
 	}
 
@@ -735,7 +962,7 @@ final class JsonTreeEditor {
 			return;
 		}
 		Path parentPath = selected.parent();
-		JsonElement parent = resolve(parentPath);
+		JsonElement parent = resolveActual(parentPath);
 		Step last = selected.last();
 		if (parent == null || last == null) return;
 		if (last.objectKey() && parent.isJsonObject()) parent.getAsJsonObject().remove(last.key());
@@ -770,7 +997,7 @@ final class JsonTreeEditor {
 			selected = Path.root();
 			return;
 		}
-		JsonElement parent = resolve(path.parent());
+		JsonElement parent = guidedTree() ? materialize(path.parent()) : resolve(path.parent());
 		Step last = path.last();
 		if (parent == null || last == null) throw new IllegalArgumentException("节点路径已失效");
 		if (last.objectKey() && parent.isJsonObject()) parent.getAsJsonObject().add(last.key(), value);
@@ -822,6 +1049,7 @@ final class JsonTreeEditor {
 
 	private boolean needsKeyField() {
 		if (popupMode == PopupMode.RAW) return false;
+		if (guidedField()) return false;
 		if (popupMode == PopupMode.ADD) {
 			JsonElement parent = resolve(popupPath);
 			return parent != null && parent.isJsonObject();
@@ -832,31 +1060,77 @@ final class JsonTreeEditor {
 
 	private void rebuildRows() {
 		List<Row> rebuilt = new ArrayList<>();
-		appendRows(rebuilt, Path.root(), "组件值", root, 0);
+		appendRows(rebuilt, Path.root(), componentForest ? "组件树（" + visibleComponents.size() + "）· 灰色字段可添加"
+				: observedSchema != null ? "数据包 JSON · 灰色字段来自已加载示例" : "组件值", root, 0);
 		rows = List.copyOf(rebuilt);
-		if (resolve(selected) == null) selected = Path.root();
+		if (resolve(selected) == null && rows.stream().noneMatch(row -> row.path().equals(selected))) selected = Path.root();
 	}
 
 	private void appendRows(List<Row> target, Path path, String label, JsonElement value, int depth) {
 		if (target.size() >= MAX_TREE_NODES) return;
 		boolean container = isContainer(value);
-		target.add(new Row(path, label, value, depth, container));
+		ComponentTreeSchema.Node definition = schema(path);
+		if (guidedTree() && !path.steps().isEmpty()) {
+			if (container && discovered.add(path)) collapsed.add(path);
+			if (definition != null) label = definition.label() + (path.last().objectKey() ? " · " + path.last().key() : " [" + path.last().index() + "]");
+			if (path.steps().size() == 1 && componentCatalog.containsKey(path.last().key())) label = componentCatalog.get(path.last().key()).label() + " · " + path.last().key();
+		}
+		target.add(new Row(path, label, value, depth, container, false));
 		if (!container || collapsed.contains(path) || depth >= MAX_TREE_DEPTH) return;
 		if (value.isJsonObject()) {
-			for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
-				appendRows(target, path.childKey(entry.getKey()), entry.getKey(), entry.getValue(), depth + 1);
+			Set<String> keys = new java.util.LinkedHashSet<>();
+			if (definition != null) keys.addAll(definition.fields().keySet());
+			keys.addAll(value.getAsJsonObject().keySet());
+			for (String key : keys) {
+				if (componentForest && path.steps().isEmpty() && componentCatalog.containsKey(key) && !visibleComponents.contains(key)) continue;
+				Path child = path.childKey(key);
+				JsonElement childValue = value.getAsJsonObject().get(key);
+				if (childValue == null && definition != null && definition.fields().containsKey(key))
+					childValue = definition.fields().get(key).value();
+				if (childValue == null) childValue = JsonNull.INSTANCE;
+				appendRows(target, child, key, childValue, depth + 1);
 				if (target.size() >= MAX_TREE_NODES) return;
 			}
+			if (guidedTree() && definition != null && definition.custom()) target.add(new Row(path.childKey("\u0000add"),
+					"＋ 添加自定义字段", JsonNull.INSTANCE, depth + 1, false, true));
 		} else {
 			JsonArray array = value.getAsJsonArray();
 			for (int index = 0; index < array.size(); index++) {
 				appendRows(target, path.childIndex(index), "[" + index + "]", array.get(index), depth + 1);
 				if (target.size() >= MAX_TREE_NODES) return;
 			}
+			if (guidedTree()) target.add(new Row(path.childIndex(array.size()),
+					"＋ 添加" + (definition != null && definition.element() != null ? definition.element().label() : "条目"), JsonNull.INSTANCE, depth + 1, false, true));
 		}
 	}
 
 	private JsonElement resolve(Path path) {
+		JsonElement actual = resolveActual(path);
+		if (actual != null || !guidedTree()) return actual;
+		ComponentTreeSchema.Node node = schema(path);
+		return node == null ? null : node.value();
+	}
+
+	private JsonElement materialize(Path path) {
+		JsonElement current = resolveActual(path);
+		if (current != null) return current;
+		ComponentTreeSchema.Node node = schema(path);
+		JsonElement created = node == null ? new JsonObject() : node.value();
+		if (path.steps().isEmpty()) { root = created; return root; }
+		JsonElement parent = materialize(path.parent());
+		Step step = path.last();
+		if (step.objectKey()) parent.getAsJsonObject().add(step.key(), created);
+		else if (step.index() == parent.getAsJsonArray().size()) parent.getAsJsonArray().add(created);
+		else parent.getAsJsonArray().set(step.index(), created);
+		return created;
+	}
+
+	private void changed() {
+		rebuildRows(); changeListener.accept(root.deepCopy());
+		feedback.accept(componentForest ? "已更新组件树；仅导出已添加/覆盖的组件" : "已更新 JSON 树；灰色建议字段不会自动导出");
+	}
+
+	private JsonElement resolveActual(Path path) {
 		JsonElement current = root;
 		try {
 			for (Step step : path.steps()) {
@@ -921,6 +1195,12 @@ final class JsonTreeEditor {
 	}
 
 	private void refreshIdSuggestions(boolean resetSelection) {
+		ComponentTreeSchema.Node definition = schema(popupTargetPath());
+		if (inputFocus == InputFocus.VALUE && definition != null && definition.registry().isEmpty() && !definition.choices().isEmpty()) {
+			suggestionRevision++; suggestionRegistry = "@choices"; suggestionLabel = "可选值"; suggestionLoading = false;
+			suggestionCatalog = definition.choices().stream().map(option -> new LuaInsertCatalog.Entry(option, option, "")).toList();
+			filterIdSuggestions(resetSelection); return;
+		}
 		IdHint hint = currentIdHint();
 		if (hint == null || popupMode == PopupMode.NONE || popupMode == PopupMode.RAW) {
 			clearIdSuggestions();
@@ -963,9 +1243,24 @@ final class JsonTreeEditor {
 		if (!suggestionLoading) filterIdSuggestions(resetSelection);
 	}
 
+	private void refreshCatalogRevision() {
+		int revision = ScriptManager.catalogRevision();
+		if (revision == observedCatalogRevision) return;
+		observedCatalogRevision = revision;
+		suggestionRevision++; registryTypesRevision++;
+		suggestionRegistry = ""; suggestionCatalog = List.of(); suggestions = List.of(); suggestionLoading = false;
+		registryTypeCatalog = List.of(); registryTypesLoading = false;
+		if (registryPickerOpen && !fieldPicker) ensureRegistryTypesLoaded();
+		if (popupMode != PopupMode.NONE && popupMode != PopupMode.RAW) refreshIdSuggestions(false);
+	}
+
 	private void filterIdSuggestions(boolean resetSelection) {
 		String needle = currentInputText().strip().toLowerCase(java.util.Locale.ROOT);
-		suggestions = suggestionCatalog.stream().filter(entry -> entry.matches(needle)).toList();
+		if (suggestionRegistry.equals("@choices") && suggestionCatalog.stream().anyMatch(entry -> entry.value().equals(currentInputText()))) needle = "";
+		boolean tags = needle.startsWith("#");
+		String query = tags ? needle.substring(1) : needle;
+		suggestions = suggestionCatalog.stream().filter(entry -> entry.value().startsWith("#") == tags)
+				.filter(entry -> entry.matches(query)).toList();
 		if (resetSelection) suggestionRow = 0;
 		suggestionRow = clamp(suggestionRow, 0, Math.max(0, suggestions.size() - 1));
 	}
@@ -1035,16 +1330,37 @@ final class JsonTreeEditor {
 
 	private void filterRegistryTypes(boolean resetSelection) {
 		String needle = registryQuery.strip().toLowerCase(java.util.Locale.ROOT);
-		registryTypes = registryTypeCatalog.stream().filter(type -> type.matches(needle)).toList();
+		if (fieldPicker) {
+			JsonElement actual = resolveActual(popupPath);
+			List<LuaRegistryCatalogData.RegistryType> options = new ArrayList<>(fieldOptions.entrySet().stream().filter(entry -> actual == null || !actual.isJsonObject() || !actual.getAsJsonObject().has(entry.getKey()))
+					.map(entry -> new LuaRegistryCatalogData.RegistryType(entry.getKey(), entry.getValue().label(), entry.getValue().kind(), "", 0))
+					.filter(type -> type.matches(needle)).toList());
+			ComponentTreeSchema.Node node = schema(popupPath);
+			if (node != null && node.custom()) options.add(new LuaRegistryCatalogData.RegistryType("@custom", "＋自定义字段", "自由指定键名和类型", "", 0));
+			registryTypes = List.copyOf(options);
+		} else registryTypes = registryTypeCatalog.stream().filter(type -> type.matches(needle)).toList();
 		if (resetSelection) registryTypeRow = 0;
 		registryTypeRow = clamp(registryTypeRow, 0, Math.max(0, registryTypes.size() - 1));
 	}
 
 	private void applySelectedRegistryType() {
-		if (registryTypesLoading || registryTypes.isEmpty()) return;
+		if (registryTypesLoading && !fieldPicker || registryTypes.isEmpty()) return;
 		LuaRegistryCatalogData.RegistryType selectedType = registryTypes.get(
 				clamp(registryTypeRow, 0, registryTypes.size() - 1));
+		if (fieldPicker) {
+			Path parent = popupPath;
+			if (selectedType.id().equals("@custom")) {
+				selected = parent; materialize(parent); fieldPicker = false; registryPickerOpen = false; beginCustomAdd(); return;
+			}
+			selected = parent.childKey(selectedType.id());
+			replace(selected, fieldOptions.get(selectedType.id()).value());
+			fieldPicker = false; registryPickerOpen = false; popupMode = PopupMode.NONE;
+			discovered.add(parent); collapsed.remove(parent); discovered.add(selected); collapsed.remove(selected); changed(); ensureSelectedVisible();
+			if (!isContainer(resolve(selected))) beginEdit();
+			return;
+		}
 		manualIdHint = new IdHint(selectedType.id(), selectedType.label());
+		manualHintFocus = inputFocus;
 		if (inputFocus == InputFocus.VALUE && draftType != ValueType.STRING) {
 			draftType = ValueType.STRING;
 			valueText = "";
@@ -1071,36 +1387,51 @@ final class JsonTreeEditor {
 	}
 
 	private IdHint currentIdHint() {
-		if (manualIdHint != null) return manualIdHint;
+		if (manualIdHint != null && manualHintFocus == inputFocus) return manualIdHint;
 		IdHint supplied = suppliedComponentHint();
 		if (supplied != null) return supplied;
+		ComponentIdContext context = idContext(popupTargetPath());
 		if (inputFocus == InputFocus.KEY) {
-			if (componentPath().equals("enchantments") || componentPath().equals("stored_enchantments")) {
+			if (context.path().size() == 1 && (context.componentPath().equals("enchantments")
+					|| context.componentPath().equals("stored_enchantments"))) {
 				return new IdHint("minecraft:enchantment", "附魔 ID");
 			}
 			Path parent = popupMode == PopupMode.ADD ? popupPath : popupPath.parent();
-			if (pathContains(parent, "components")) {
+			if (parent.last() != null && "components".equals(parent.last().key())) {
 				return new IdHint("minecraft:data_component_type", "组件类型 ID");
 			}
 			return null;
 		}
 		if (!draftType.hasTextValue() || draftType != ValueType.STRING) return null;
-		String field = normalizedFieldName();
-		String component = componentPath();
+		if (componentId.equals(LuaUiText.text("资源包 JSON"))) {
+			String field = context.field();
+			if (field.equals("parent") || field.equals("model")) return new IdHint(LuaResourceAssetCatalog.MODEL, LuaUiText.text("模型资源 ID"));
+			if (pathContains(popupTargetPath(), "textures") || field.equals("texture")) return new IdHint(LuaResourceAssetCatalog.TEXTURE, LuaUiText.text("纹理资源 ID"));
+			if (field.equals("font")) return new IdHint(LuaResourceAssetCatalog.FONT, LuaUiText.text("字体资源 ID"));
+			Step last = popupTargetPath().last();
+			if (pathContains(popupTargetPath(), "sounds") && (field.equals("name") || last != null && !last.objectKey()))
+				return new IdHint(LuaResourceAssetCatalog.SOUND_FILE, LuaUiText.text("OGG 音频文件 ID"));
+		}
+		ComponentTreeSchema.Node definition = schema(popupTargetPath());
+		if (definition != null && !definition.registry().isEmpty()) return new IdHint(definition.registry(), definition.label());
+		String field = context.field();
+		String component = context.componentPath();
+		String structural = context.structuralRegistry();
+		if (structural != null) return new IdHint(structural, registryLabel(structural));
 		IdHint direct = directComponentHint(component, field);
 		if (direct != null) return direct;
-		if (field.equals("id")) {
+		if (field.equals("id") && context.path().size() == 1) {
 			if (Set.of("container", "bundle_contents", "charged_projectiles", "use_remainder").contains(component)) {
-				return new IdHint("minecraft:item", "物品 ID");
+				return new IdHint("minecraft:item", LuaUiText.text("物品 ID"));
 			}
 			if (component.equals("entity_data") || component.equals("bucket_entity_data")) {
-				return new IdHint("minecraft:entity_type", "实体 ID");
+				return new IdHint("minecraft:entity_type", LuaUiText.text("实体 ID"));
 			}
 			if (component.equals("block_entity_data")) {
 				return new IdHint("minecraft:block_entity_type", "方块实体 ID");
 			}
 			if (component.equals("potion_contents") || pathContains(popupPath, "custom_effects")) {
-				return new IdHint("minecraft:mob_effect", "状态效果 ID");
+				return new IdHint("minecraft:mob_effect", LuaUiText.text("状态效果 ID"));
 			}
 		}
 		if ((component.equals("enchantments") || component.equals("stored_enchantments")) && field.isEmpty()) {
@@ -1116,13 +1447,13 @@ final class JsonTreeEditor {
 		}
 		if ((component.equals("can_place_on") || component.equals("can_break") || component.equals("tool"))
 				&& (field.equals("block") || field.equals("blocks"))) {
-			return new IdHint("minecraft:block", "方块 ID");
+			return new IdHint("minecraft:block", LuaUiText.text("方块 ID"));
 		}
 		if (component.equals("equippable") && field.equals("allowed_entities")) {
-			return new IdHint("minecraft:entity_type", "实体 ID");
+			return new IdHint("minecraft:entity_type", LuaUiText.text("实体 ID"));
 		}
 		if (component.equals("repairable") && (field.equals("item") || field.equals("items"))) {
-			return new IdHint("minecraft:item", "物品 ID");
+			return new IdHint("minecraft:item", LuaUiText.text("物品 ID"));
 		}
 		if (component.equals("damage_resistant") && (field.equals("type") || field.equals("types"))) {
 			return new IdHint("minecraft:damage_type", "伤害类型 ID");
@@ -1139,12 +1470,36 @@ final class JsonTreeEditor {
 	private IdHint suppliedComponentHint() {
 		boolean keyTarget = inputFocus == InputFocus.KEY;
 		if (!keyTarget && (!draftType.hasTextValue() || draftType != ValueType.STRING)) return null;
-		Path targetPath = popupTargetPath();
-		for (LuaComponentEditorData.IdHint hint : componentIdHints) {
-			if (hint.keyTarget() != keyTarget || !pathMatches(hint.path(), targetPath)) continue;
+		ComponentIdContext context = idContext(popupTargetPath());
+		List<LuaComponentEditorData.IdHint> hints = context.componentId().equals(componentId)
+				? componentIdHints : componentHintCatalog.getOrDefault(context.componentId(), List.of());
+		for (LuaComponentEditorData.IdHint hint : hints) {
+			if (hint.keyTarget() != keyTarget || !context.matches(hint.path())) continue;
 			return new IdHint(hint.registry(), hint.label());
 		}
 		return null;
+	}
+
+	private ComponentIdContext idContext(Path path) {
+		if (componentForest) {
+			JsonObject wrapped = new JsonObject(); wrapped.add("components", root);
+			List<String> parts = new ArrayList<>(); parts.add("components");
+			path.steps().forEach(step -> parts.add(step.objectKey() ? step.key() : Integer.toString(step.index())));
+			return ComponentIdContext.resolve(componentId, wrapped, parts);
+		}
+		return ComponentIdContext.resolve(componentId, root, path.steps().stream()
+				.map(step -> step.objectKey() ? step.key() : Integer.toString(step.index())).toList());
+	}
+
+	private String registryLabel(String id) {
+		return registryTypeCatalog.stream().filter(type -> type.id().equals(id))
+				.map(LuaRegistryCatalogData.RegistryType::label).findFirst().orElse(switch (id) {
+					case "minecraft:item" -> LuaUiText.text("物品 ID");
+					case "minecraft:block" -> LuaUiText.text("方块 ID");
+					case "minecraft:entity_type" -> "实体类型 ID";
+					case "minecraft:mob_effect" -> LuaUiText.text("状态效果 ID");
+					default -> id;
+				});
 	}
 
 	private Path popupTargetPath() {
@@ -1153,37 +1508,24 @@ final class JsonTreeEditor {
 			if (parent != null && parent.isJsonObject()) return popupPath.childKey(keyText.strip());
 			if (parent != null && parent.isJsonArray()) return popupPath.childIndex(parent.getAsJsonArray().size());
 		}
-		if (popupMode == PopupMode.EDIT && inputFocus == InputFocus.KEY && needsKeyField()) {
+		if (popupMode == PopupMode.EDIT && needsKeyField()) {
 			return popupPath.parent().childKey(keyText.strip());
 		}
 		return popupPath;
-	}
-
-	private static boolean pathMatches(String pattern, Path path) {
-		if (pattern == null || pattern.isEmpty()) return path.steps().isEmpty();
-		String[] expected = pattern.substring(1).split("/", -1);
-		if (expected.length != path.steps().size()) return false;
-		for (int index = 0; index < expected.length; index++) {
-			if (expected[index].equals("*")) continue;
-			Step actual = path.steps().get(index);
-			String actualValue = actual.objectKey() ? actual.key() : Integer.toString(actual.index());
-			if (!expected[index].equals(actualValue)) return false;
-		}
-		return true;
 	}
 
 	private IdHint directComponentHint(String component, String field) {
 		if (!field.isEmpty()) return null;
 		return switch (component) {
 			case "damage_type" -> new IdHint("minecraft:damage_type", "伤害类型 ID");
-			case "item_model" -> new IdHint(LuaResourceAssetCatalog.ITEM_MODEL, "物品模型资源 ID");
-			case "tooltip_style" -> new IdHint(LuaResourceAssetCatalog.TOOLTIP_STYLE, "提示框样式 ID");
+			case "item_model" -> new IdHint(LuaResourceAssetCatalog.ITEM_MODEL, LuaUiText.text("物品模型资源 ID"));
+			case "tooltip_style" -> new IdHint(LuaResourceAssetCatalog.TOOLTIP_STYLE, LuaUiText.text("提示框样式 ID"));
 			case "instrument" -> new IdHint("minecraft:instrument", "乐器 ID");
 			case "provides_trim_material" -> new IdHint("minecraft:trim_material", "纹饰材料 ID");
 			case "jukebox_playable" -> new IdHint("minecraft:jukebox_song", "唱片歌曲 ID");
 			case "provides_banner_patterns" -> new IdHint("minecraft:banner_pattern", "旗帜图案 ID");
 			case "recipes" -> new IdHint("minecraft:recipe", "配方 ID");
-			case "break_sound", "note_block_sound" -> new IdHint("minecraft:sound_event", "声音 ID");
+			case "break_sound", "note_block_sound" -> new IdHint("minecraft:sound_event", LuaUiText.text("声音 ID"));
 			case "villager_variant" -> new IdHint("minecraft:villager_type", "村民变种 ID");
 			case "wolf_variant" -> new IdHint("minecraft:wolf_variant", "狼变种 ID");
 			case "wolf_sound_variant" -> new IdHint("minecraft:wolf_sound_variant", "狼声音变种 ID");
@@ -1204,19 +1546,19 @@ final class JsonTreeEditor {
 
 	private IdHint genericIdHint(String field) {
 		return switch (field) {
-			case "item", "items", "item_id", "itemid" -> new IdHint("minecraft:item", "物品 ID");
-			case "block", "blocks", "block_id", "blockid" -> new IdHint("minecraft:block", "方块 ID");
+			case "item", "items", "item_id", "itemid" -> new IdHint("minecraft:item", LuaUiText.text("物品 ID"));
+			case "block", "blocks", "block_id", "blockid" -> new IdHint("minecraft:block", LuaUiText.text("方块 ID"));
 			case "entity", "entity_type", "entitytype", "entity_id", "entityid", "allowed_entities" ->
-					new IdHint("minecraft:entity_type", "实体 ID");
+					new IdHint("minecraft:entity_type", LuaUiText.text("实体 ID"));
 			case "enchantment", "enchantment_id", "enchantmentid" -> new IdHint("minecraft:enchantment", "附魔 ID");
-			case "effect", "effect_id", "effectid", "mob_effect", "mobeffect" -> new IdHint("minecraft:mob_effect", "状态效果 ID");
+			case "effect", "effect_id", "effectid", "mob_effect", "mobeffect" -> new IdHint("minecraft:mob_effect", LuaUiText.text("状态效果 ID"));
 			case "attribute", "attribute_id", "attributeid" -> new IdHint("minecraft:attribute", "属性 ID");
 			case "potion" -> new IdHint("minecraft:potion", "药水 ID");
 			case "sound", "sound_event", "soundevent", "equip_sound", "shearing_sound",
 					"block_sound", "disable_sound", "hit_sound", "note_block_sound" ->
-					new IdHint("minecraft:sound_event", "声音 ID");
+					new IdHint("minecraft:sound_event", LuaUiText.text("声音 ID"));
 			case "biome" -> new IdHint("minecraft:biome", "生物群系 ID");
-			case "dimension" -> new IdHint("minecraft:dimension", "维度 ID");
+			case "dimension" -> new IdHint("minecraft:dimension", LuaUiText.text("维度 ID"));
 			case "dimension_type", "dimensiontype" -> new IdHint("minecraft:dimension_type", "维度类型 ID");
 			case "time", "timeline" -> new IdHint("minecraft:timeline", "时间轴 ID");
 			case "world_clock", "worldclock" -> new IdHint("minecraft:world_clock", "世界时钟 ID");
@@ -1233,18 +1575,18 @@ final class JsonTreeEditor {
 			case "trim_material", "trimmaterial", "material" -> new IdHint("minecraft:trim_material", "纹饰材料 ID");
 			case "trim_pattern", "trimpattern", "pattern" -> new IdHint("minecraft:trim_pattern", "纹饰图案 ID");
 			case "recipe" -> new IdHint("minecraft:recipe", "配方 ID");
-			case "loot_table", "loottable" -> new IdHint("minecraft:loot_table", "战利品表 ID");
+			case "loot_table", "loottable" -> new IdHint("minecraft:loot_table", LuaUiText.text("战利品表 ID"));
 			case "advancement" -> new IdHint("minecraft:advancement", "进度 ID");
 			case "game_event", "gameevent" -> new IdHint("minecraft:game_event", "游戏事件 ID");
 			case "damage_type", "damagetype" -> new IdHint("minecraft:damage_type", "伤害类型 ID");
 			case "component", "component_type", "componenttype" -> new IdHint("minecraft:data_component_type", "组件类型 ID");
-			case "item_model", "itemmodel" -> new IdHint(LuaResourceAssetCatalog.ITEM_MODEL, "物品模型资源 ID");
-			case "tooltip_style", "tooltipstyle" -> new IdHint(LuaResourceAssetCatalog.TOOLTIP_STYLE, "提示框样式 ID");
+			case "item_model", "itemmodel" -> new IdHint(LuaResourceAssetCatalog.ITEM_MODEL, LuaUiText.text("物品模型资源 ID"));
+			case "tooltip_style", "tooltipstyle" -> new IdHint(LuaResourceAssetCatalog.TOOLTIP_STYLE, LuaUiText.text("提示框样式 ID"));
 			case "asset_id", "assetid", "equipment_asset", "equipmentasset" ->
-					new IdHint(LuaResourceAssetCatalog.EQUIPMENT, "装备模型资源 ID");
+					new IdHint(LuaResourceAssetCatalog.EQUIPMENT, LuaUiText.text("装备模型资源 ID"));
 			case "camera_overlay", "cameraoverlay", "texture", "texture_id", "textureid" ->
-					new IdHint(LuaResourceAssetCatalog.TEXTURE, "纹理资源 ID");
-			case "font", "font_id", "fontid" -> new IdHint(LuaResourceAssetCatalog.FONT, "字体资源 ID");
+					new IdHint(LuaResourceAssetCatalog.TEXTURE, LuaUiText.text("纹理资源 ID"));
+			case "font", "font_id", "fontid" -> new IdHint(LuaResourceAssetCatalog.FONT, LuaUiText.text("字体资源 ID"));
 			case "hidden_component", "hidden_components" ->
 					new IdHint("minecraft:data_component_type", "组件类型 ID");
 			case "villager_variant", "villagervariant" -> new IdHint("minecraft:villager_type", "村民变种 ID");
@@ -1274,10 +1616,10 @@ final class JsonTreeEditor {
 		if (registryTypeCatalog.isEmpty()) return null;
 		List<String> semantics = new ArrayList<>();
 		addSemantic(semantics, field);
-		Path target = popupTargetPath();
-		for (int index = target.steps().size() - 1; index >= 0; index--) {
-			Step step = target.steps().get(index);
-			if (step.objectKey()) addSemantic(semantics, step.key());
+		ComponentIdContext context = idContext(popupTargetPath());
+		for (int index = context.path().size() - 1; index >= 0; index--) {
+			String step = context.path().get(index);
+			if (!step.matches("[0-9]+")) addSemantic(semantics, step);
 		}
 		addSemantic(semantics, component);
 		LuaRegistryCatalogData.RegistryType best = null;
@@ -1288,6 +1630,8 @@ final class JsonTreeEditor {
 			for (int semanticIndex = 0; semanticIndex < semantics.size(); semanticIndex++) {
 				String semantic = semantics.get(semanticIndex);
 				int score = semanticScore(semantic, registryPath) - semanticIndex;
+				// Prefer the component owner's registry when several mods use the same type name.
+				if (score >= 60 && type.id().split(":", 2)[0].equals(context.componentId().split(":", 2)[0])) score += 2;
 				if (score > bestScore) {
 					best = type;
 					bestScore = score;
@@ -1327,24 +1671,6 @@ final class JsonTreeEditor {
 		if (semantic.length() >= 5 && registry.length() >= 5
 				&& (semantic.endsWith("_" + registry) || registry.endsWith("_" + semantic))) return 65;
 		return 0;
-	}
-
-	private String normalizedFieldName() {
-		String name = needsKeyField() ? keyText : nearestObjectKey(popupPath);
-		return name == null ? "" : name.strip().toLowerCase(java.util.Locale.ROOT).replace('-', '_');
-	}
-
-	private String componentPath() {
-		int colon = componentId.indexOf(':');
-		return (colon >= 0 ? componentId.substring(colon + 1) : componentId).toLowerCase(java.util.Locale.ROOT);
-	}
-
-	private static String nearestObjectKey(Path path) {
-		for (int index = path.steps().size() - 1; index >= 0; index--) {
-			Step step = path.steps().get(index);
-			if (step.objectKey()) return step.key();
-		}
-		return "";
 	}
 
 	private static boolean pathContains(Path path, String key) {
@@ -1420,9 +1746,39 @@ final class JsonTreeEditor {
 	}
 
 	private String selectedLabel() {
-		if (selected.steps().isEmpty()) return componentId.equals("minecraft:enchantments") ? "附魔列表" : "组件值树";
+		if (selected.steps().isEmpty()) return translation != null ? translation.rootLabel()
+				: componentId.equals("minecraft:enchantments") ? "附魔列表" : "组件值树";
 		Step last = selected.last();
-		return last.objectKey() ? last.key() : "数组项 " + last.index();
+		if (!last.objectKey()) return "数组项 " + last.index();
+		if (translation == null) return last.key();
+		String label = translation.label(pathSegments(selected), last.key(), resolve(selected));
+		return label == null || label.isBlank() ? last.key() : label + " · " + last.key();
+	}
+
+	private String translatedRowLabel(Row row) {
+		if (translation == null) return row.label();
+		if (row.path().steps().isEmpty()) return translation.rootLabel();
+		if (row.addAction() || !row.path().last().objectKey()) return row.label();
+		String key = row.path().last().key();
+		String label = translation.label(pathSegments(row.path()), key, row.value());
+		return label == null || label.isBlank() ? key : label + " · " + key;
+	}
+
+	private String translatedPreview(Row row) {
+		if (translation != null) {
+			String label = translation.valueLabel(pathSegments(row.path()), row.value());
+			if (label != null && !label.isBlank()) return label + " · " + preview(row.value());
+		}
+		return preview(row.value());
+	}
+
+	private static String rawKey(Path path) {
+		Step last = path.last();
+		return last == null ? "" : last.objectKey() ? last.key() : Integer.toString(last.index());
+	}
+
+	private static List<String> pathSegments(Path path) {
+		return path.steps().stream().map(step -> step.objectKey() ? step.key() : Integer.toString(step.index())).toList();
 	}
 
 	private int visibleRows() {
@@ -1481,10 +1837,10 @@ final class JsonTreeEditor {
 	}
 
 	private enum ValueType {
-		STRING("字符串", "str", "输入文字", ""),
+		STRING(LuaUiText.text("字符串"), "str", "输入文字", ""),
 		INTEGER("整数", "int", "例如 5", "1"),
 		NUMBER("小数", "num", "例如 1.5", "1.0"),
-		BOOLEAN("布尔值", "bool", "true 或 false", "true"),
+		BOOLEAN(LuaUiText.text("布尔值"), "bool", "true 或 false", "true"),
 		OBJECT("对象", "obj", "", ""),
 		ARRAY("数组", "arr", "", ""),
 		NULL("空值", "null", "", "");
@@ -1564,7 +1920,7 @@ final class JsonTreeEditor {
 		}
 	}
 
-	private record Row(Path path, String label, JsonElement value, int depth, boolean container) {
+	private record Row(Path path, String label, JsonElement value, int depth, boolean container, boolean addAction) {
 	}
 
 	private record Rect(int x, int y, int width, int height) {
@@ -1582,5 +1938,132 @@ final class JsonTreeEditor {
 	}
 
 	private record IdHint(String registry, String label) {
+	}
+
+	/** Opt-in in-game regression check; edits only a detached test tree. */
+	static JsonTreeEditor verifyIdEditor(Minecraft client, LuaComponentEditorData data) {
+		JsonTreeEditor editor = new JsonTreeEditor(client, client.font, ignored -> {}, ignored -> {});
+		editor.setValue("minecraft:container", JsonParser.parseString("""
+				[{"slot":0,"item":{"id":"minecraft:stone","components":{
+				 "minecraft:enchantments":{"minecraft:sharpness":1},
+				 "minecraft:potion_contents":{"custom_effects":[{"id":"minecraft:speed"}]},
+				 "minecraft:use_remainder":"minecraft:glass_bottle"}}}]
+				"""), data.componentIdHints().get("minecraft:container"), data.componentIdHints());
+		Path stack = Path.root().childIndex(0).childKey("item");
+		editor.verifyHint(stack.childKey("id"), "minecraft:item");
+		editor.verifyHint(stack.childKey("components").childKey("minecraft:use_remainder"), "minecraft:item");
+		editor.verifyHint(stack.childKey("components").childKey("minecraft:potion_contents")
+				.childKey("custom_effects").childIndex(0).childKey("id"), "minecraft:mob_effect");
+		Path enchants = stack.childKey("components").childKey("minecraft:enchantments");
+		editor.verifyHint(enchants.childKey("minecraft:sharpness"), "minecraft:enchantment");
+		editor.selected = enchants;
+		editor.beginAdd();
+		if (editor.draftType != ValueType.INTEGER || !"minecraft:enchantment".equals(editor.currentIdHint().registry())) {
+			throw new IllegalStateException("嵌套附魔新增节点没有使用附魔搜索和整数等级");
+		}
+		editor.verifyHint(stack.childKey("id"), "minecraft:item");
+		editor.valueText = "apple";
+		editor.valueCursor = 5;
+		editor.refreshIdSuggestions(true);
+		return editor;
+	}
+
+	private void verifyHint(Path path, String registry) {
+		selected = path;
+		beginEdit();
+		IdHint hint = currentIdHint();
+		if (hint == null || !registry.equals(hint.registry())) throw new IllegalStateException("ID 类型识别错误：" + path + " -> " + hint);
+	}
+
+	void verifyRenderedIdPicker() {
+		if (valueField == null || suggestionArea == null || suggestionArea.height() < ROW_HEIGHT
+				|| valueField.bottom() > suggestionArea.y() || suggestionArea.bottom() > confirmButton.y()
+				|| valueField.right() > popupBounds.right() || popupBounds.width() <= width) {
+			throw new IllegalStateException("窄编辑区域的 ID 选择弹窗存在覆盖或候选区域缺失");
+		}
+		if (suggestions.stream().noneMatch(entry -> entry.value().equals("minecraft:apple"))) {
+			throw new IllegalStateException("物品 ID 搜索没有返回 apple");
+		}
+		clickPopup(suggestionArea.x() + 10, suggestionArea.y() + 8);
+		if (!valueText.equals("minecraft:apple")) throw new IllegalStateException("点击 ID 候选没有填入");
+		keyPressedPopup(new KeyEvent(InputConstants.KEY_RETURN, 0, 0));
+		if (popupMode != PopupMode.NONE || !resolve(selected).getAsString().equals("minecraft:apple")) {
+			throw new IllegalStateException("确认没有保存所选物品 ID");
+		}
+	}
+
+	static JsonTreeEditor verifyComponentForest(Minecraft client, LuaComponentEditorData data) {
+		JsonTreeEditor editor = new JsonTreeEditor(client, client.font, ignored -> {}, ignored -> {});
+		editor.setComponentCatalog(data, new JsonObject());
+		if (editor.rows.size() < data.components().size()) throw new IllegalStateException("组件树漏掉服务端组件");
+		Path potion = Path.root().childKey("minecraft:potion_contents");
+		editor.selected = potion; editor.toggleCollapsed(potion);
+		if (!editor.root.getAsJsonObject().isEmpty()) throw new IllegalStateException("展开预览不应添加组件");
+		Path effects = potion.childKey("custom_effects");
+		editor.selected = effects; editor.beginAdd();
+		Path first = effects.childIndex(0);
+		if (!editor.resolveActual(first).getAsJsonObject().has("id")) throw new IllegalStateException("新增效果没有创建字段");
+		editor.verifyHint(first.childKey("id"), "minecraft:mob_effect");
+		editor.popupMode = PopupMode.NONE;
+		editor.selected = first.childKey("amplifier"); editor.beginEdit();
+		if (editor.draftType != ValueType.INTEGER || editor.needsKeyField()) throw new IllegalStateException("整数属性仍要求编辑 JSON 键");
+		editor.valueText = "2"; editor.confirmPopup();
+		if (editor.resolveActual(first.childKey("amplifier")).getAsInt() != 2) throw new IllegalStateException("未保存可选整数属性");
+		editor.selected = first.childKey("show_particles"); editor.beginEdit();
+		if (editor.resolveActual(editor.selected).getAsBoolean()) throw new IllegalStateException("布尔开关未切换");
+		Path container = Path.root().childKey("minecraft:container");
+		editor.selected = container; editor.beginAdd(); editor.selected = container; editor.beginAdd();
+		if (editor.resolveActual(container.childIndex(1).childKey("slot")).getAsInt() != 1) throw new IllegalStateException("槽位没有自动递增");
+		Path components = container.childIndex(0).childKey("item").childKey("components");
+		editor.selected = components; editor.beginAdd();
+		editor.registryQuery = "minecraft:enchantments"; editor.filterRegistryTypes(true); editor.applySelectedRegistryType();
+		Path enchants = components.childKey("minecraft:enchantments");
+		editor.selected = enchants; editor.beginAdd();
+		if (editor.draftType != ValueType.INTEGER || !editor.currentIdHint().registry().equals("minecraft:enchantment")) throw new IllegalStateException("嵌套附魔没有类型提示");
+		editor.keyText = "minecraft:sharpness"; editor.valueText = "3"; editor.confirmPopup();
+		editor.selected = Path.root().childKey("minecraft:rarity"); editor.beginEdit();
+		if (editor.suggestions.size() != 4) throw new IllegalStateException("稀有度没有列出四个可选值");
+		editor.valueText = "epic"; editor.confirmPopup();
+		editor.selected = Path.root().childKey("minecraft:custom_data"); editor.beginAdd();
+		editor.keyText = "item_id"; editor.inputFocus = InputFocus.VALUE;
+		if (!editor.currentIdHint().registry().equals("minecraft:item")) throw new IllegalStateException("自定义物品字段没有自动识别");
+		editor.valueText = "minecraft:apple"; editor.confirmPopup();
+		if (!editor.root.getAsJsonObject().has("minecraft:custom_data")) throw new IllegalStateException("自定义数据未保存");
+		editor.selected = Path.root().childKey("minecraft:rarity"); editor.deleteSelected();
+		if (editor.root.getAsJsonObject().has("minecraft:rarity")) throw new IllegalStateException("移除覆盖失败");
+		Path onConsume = Path.root().childKey("minecraft:consumable").childKey("on_consume_effects");
+		editor.selected = onConsume; editor.beginAdd();
+		Path consumeType = onConsume.childIndex(0).childKey("type");
+		editor.selected = consumeType; editor.beginEdit(); editor.valueText = "minecraft:remove_effects"; editor.confirmPopup();
+		Path removed = onConsume.childIndex(0).childKey("effects");
+		editor.selected = removed; editor.beginAdd();
+		if (editor.draftType != ValueType.STRING || !editor.currentIdHint().registry().equals("minecraft:mob_effect")) throw new IllegalStateException("效果变体的子字段类型未更新");
+		editor.valueText = "minecraft:speed"; editor.confirmPopup();
+		editor.visibleComponents = Set.of("minecraft:potion_contents", "minecraft:container", "minecraft:custom_data");
+		editor.selected = first; editor.popupMode = PopupMode.NONE; editor.rebuildRows(); editor.scroll = 0;
+		return editor;
+	}
+
+	String probePatch() { return root.toString(); }
+
+	void expandPotionPreview() {
+		Path potion = Path.root().childKey("minecraft:potion_contents");
+		for (Path path : List.of(potion, potion.childKey("custom_effects"), potion.childKey("custom_effects").childIndex(0))) {
+			discovered.add(path); collapsed.remove(path);
+		}
+		selected = potion; rebuildRows(); scroll = 0;
+	}
+
+	void verifyRoutedForestClick(java.util.function.Function<MouseButtonEvent, Boolean> mouse,
+			java.util.function.Function<KeyEvent, Boolean> keys) {
+		Path amplifier = Path.root().childKey("minecraft:potion_contents").childKey("custom_effects").childIndex(0).childKey("amplifier");
+		int index = -1;
+		for (int i = 0; i < rows.size(); i++) if (rows.get(i).path().equals(amplifier)) index = i;
+		if (index < scroll || index >= scroll + visibleRows()) throw new IllegalStateException("可视化属性行不在可见区域");
+		var event = new MouseButtonEvent(x + width / 2.0, top + TOOLBAR_HEIGHT + (index - scroll) * ROW_HEIGHT + 7,
+				new net.minecraft.client.input.MouseButtonInfo(0, 0));
+		if (!mouse.apply(event) || !hasPopup() || !guidedField()) throw new IllegalStateException("实际窗口点击未进入类型化字段编辑");
+		valueText = "4"; keys.apply(new KeyEvent(InputConstants.KEY_RETURN, 0, 0));
+		if (hasPopup() || resolveActual(amplifier).getAsInt() != 4) throw new IllegalStateException("实际窗口确认未保存属性");
 	}
 }

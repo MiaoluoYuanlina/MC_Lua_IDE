@@ -13,17 +13,23 @@ import wiki.ica.xiaomiao.mcluaide.network.LuaProtocol;
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /** Client-only actions gated by the server's mandatory-client policy. */
 final class MinecraftLuaClientApi {
 	private static final int API_TIMEOUT_SECONDS = 10;
 	private static final int MAX_URL_CHARS = 2_048;
+	private static final int RESOURCE_PACK_TIMEOUT_SECONDS = 45;
+	private static final AtomicLong NEXT_RESOURCE_PACK_REQUEST = new AtomicLong(1);
+	private static final Map<Long, PendingResourcePackRequest> RESOURCE_PACK_REQUESTS = new ConcurrentHashMap<>();
 
 	private MinecraftLuaClientApi() {
 	}
@@ -75,6 +81,10 @@ final class MinecraftLuaClientApi {
 		});
 		bind(api, "openIde", args -> send(server, execution, args.checkjstring(1),
 				LuaProtocol.ClientAction.OPEN_IDE, "", ""));
+		bind(api, "hasResourcePack", args -> LuaValue.valueOf(resourcePackRequest(server, execution,
+				args.checkjstring(1), LuaProtocol.ResourcePackAction.HAS, args.checkjstring(2))));
+		bind(api, "enableResourcePack", args -> LuaValue.valueOf(resourcePackRequest(server, execution,
+				args.checkjstring(1), LuaProtocol.ResourcePackAction.ENABLE, args.checkjstring(2))));
 		mc.set("Client", api);
 		mc.set("client", api);
 	}
@@ -85,7 +95,7 @@ final class MinecraftLuaClientApi {
 		boolean delivered = onServer(server, current -> {
 			requireEnabled(execution);
 			ServerPlayer player = current.getPlayerList().getPlayer(playerUuid);
-			if (player == null) throw new LuaError("玩家不在线：" + playerUuid);
+			if (player == null) throw new LuaRecoverableError("玩家不在线：" + playerUuid);
 			if (!ServerPlayNetworking.canSend(player, LuaProtocol.ClientCommand.TYPE)) {
 				throw new LuaError("目标玩家未安装兼容的 MC Lua IDE 客户端模组：" + playerUuid);
 			}
@@ -100,6 +110,52 @@ final class MinecraftLuaClientApi {
 		return onServer(server, current -> clientInfo(current, playerUuid).available());
 	}
 
+	private static boolean resourcePackRequest(MinecraftServer server,
+			ServerScriptManager.ScriptExecution execution, String rawUuid,
+			LuaProtocol.ResourcePackAction action, String rawPackName) {
+		UUID playerUuid = parseUuid(rawUuid);
+		String packName = limited(rawPackName.strip(), "材质包名称", LuaProtocol.MAX_NAME_CHARS);
+		if (packName.isEmpty()) throw new LuaError("材质包名称不能为空");
+		long requestId = NEXT_RESOURCE_PACK_REQUEST.getAndIncrement();
+		CompletableFuture<LuaProtocol.ClientResourcePackResponse> future = new CompletableFuture<>();
+		RESOURCE_PACK_REQUESTS.put(requestId, new PendingResourcePackRequest(playerUuid, future));
+		try {
+			onServer(server, current -> {
+				requireEnabled(execution);
+				ServerPlayer player = current.getPlayerList().getPlayer(playerUuid);
+				if (player == null) throw new LuaRecoverableError("玩家不在线：" + playerUuid);
+				if (!ServerPlayNetworking.canSend(player, LuaProtocol.ClientResourcePackRequest.TYPE)) {
+					throw new LuaError("目标玩家未安装支持材质包 API 的 MC Lua IDE 客户端模组：" + playerUuid);
+				}
+				ServerPlayNetworking.send(player,
+						new LuaProtocol.ClientResourcePackRequest(requestId, action, packName));
+				return true;
+			});
+			LuaProtocol.ClientResourcePackResponse response = future.get(
+					RESOURCE_PACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			if (!response.success()) throw new LuaError(response.message().isBlank()
+					? "客户端材质包操作失败" : response.message());
+			return response.enabled();
+		} catch (InterruptedException error) {
+			Thread.currentThread().interrupt();
+			throw new LuaError("脚本已停止");
+		} catch (TimeoutException error) {
+			throw new LuaError("等待玩家客户端处理材质包超时");
+		} catch (ExecutionException error) {
+			Throwable cause = error.getCause();
+			throw cause instanceof LuaError luaError ? luaError
+					: new LuaError(cause == null || cause.getMessage() == null ? "客户端材质包操作失败" : cause.getMessage());
+		} finally {
+			RESOURCE_PACK_REQUESTS.remove(requestId);
+		}
+	}
+
+	static void receiveResourcePackResponse(ServerPlayer player, LuaProtocol.ClientResourcePackResponse response) {
+		PendingResourcePackRequest pending = RESOURCE_PACK_REQUESTS.get(response.requestId());
+		if (pending == null || !pending.playerUuid().equals(player.getUUID())) return;
+		if (RESOURCE_PACK_REQUESTS.remove(response.requestId(), pending)) pending.future().complete(response);
+	}
+
 	private static ClientInfo clientInfo(MinecraftServer server, UUID playerUuid) {
 		ServerPlayer player = server.getPlayerList().getPlayer(playerUuid);
 		return new ClientInfo(player != null,
@@ -108,8 +164,12 @@ final class MinecraftLuaClientApi {
 	}
 
 	private static void requireEnabled(ServerScriptManager.ScriptExecution execution) {
+		requireEnabled(execution, "MC.Client");
+	}
+
+	static void requireEnabled(ServerScriptManager.ScriptExecution execution, String feature) {
 		if (!execution.limits().requireClientMod() || !LuaLimitConfig.current().requireClientMod()) {
-			throw new LuaError("MC.Client 仅在“设置 → 服务器接入 → 要求玩家安装客户端模组”开启后可用；请开启后重新启动脚本");
+			throw new LuaError(feature + "仅在“Mod Menu → MC Lua IDE → 配置 → 服务器接入 → 要求玩家安装客户端模组”开启后可用；请开启后重新启动脚本");
 		}
 	}
 
@@ -178,5 +238,9 @@ final class MinecraftLuaClientApi {
 	}
 
 	private record ClientInfo(boolean online, boolean available) {
+	}
+
+	private record PendingResourcePackRequest(UUID playerUuid,
+			CompletableFuture<LuaProtocol.ClientResourcePackResponse> future) {
 	}
 }

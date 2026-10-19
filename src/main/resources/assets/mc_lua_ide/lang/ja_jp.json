@@ -1,0 +1,22 @@
+{
+  "key.category.mc_lua_ide.keys": "MC Lua IDE",
+  "key.mc_lua_ide.open": "Lua IDE を開く",
+  "key.mc_lua_ide.debug": "Lua デバッグパネルを開く",
+  "key.mc_lua_ide.pause": "Lua 一時停止／再開（Shift：停止）",
+  "key.mc_lua_ide.step_into": "Lua ステップイン",
+  "key.mc_lua_ide.step_over": "Lua ステップオーバー",
+  "key.mc_lua_ide.step_out": "Lua ステップアウト",
+  "key.mc_lua_ide.debug_scroll_up": "Lua 変数を上へスクロール",
+  "key.mc_lua_ide.debug_scroll_down": "Lua 変数を下へスクロール",
+  "screen.mc_lua_ide.title": "MC Lua IDE",
+  "screen.mc_lua_ide.directory": "スクリプトディレクトリ",
+  "screen.mc_lua_ide.scripts": "スクリプト",
+  "screen.mc_lua_ide.script_name": "スクリプト名",
+  "screen.mc_lua_ide.editor": "Lua エディター",
+  "screen.mc_lua_ide.code_hint": "ここに Lua コードを入力…",
+  "screen.mc_lua_ide.new": "新規",
+  "screen.mc_lua_ide.delete": "削除",
+  "screen.mc_lua_ide.save": "保存",
+  "screen.mc_lua_ide.run": "実行",
+  "screen.mc_lua_ide.stop": "停止"
+}

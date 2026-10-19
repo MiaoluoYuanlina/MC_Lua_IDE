@@ -10,12 +10,211 @@ repositories {
 	// Add repositories to retrieve artifacts from in here.
 	// You should only use this when depending on other mods because
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	maven {
+		name = "Terraformers"
+		url = "https://maven.terraformersmc.com/"
+	}
 	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
 	// for more information about repositories.
 }
 
 loom {
 	splitEnvironmentSourceSets()
+	if (project.hasProperty("variableCopyProbe")) {
+		runs.client {
+			runDir("build/variable-copy-probe")
+			vmArg("-Dmc_lua_ide.variableCopyProbe=true")
+		}
+	}
+	if (project.hasProperty("hudLayoutProbe")) {
+		runs.client {
+			runDir("build/hud-layout-probe")
+			vmArg("-Dmc_lua_ide.hudLayoutProbe=true")
+		}
+	}
+	if (project.hasProperty("localizedNamesProbe")) {
+		runs.client {
+			runDir("build/localized-names-probe")
+			vmArg("-Dmc_lua_ide.localizedNamesProbe=true")
+		}
+	}
+	if (project.hasProperty("containerProbe")) {
+		runs.client {
+			runDir("build/container-probe")
+			vmArg("-Dmc_lua_ide.containerProbe=true")
+			vmArg("-Dmc_lua_ide.shopProbeSource=${file('examples/Bed_Wars/Shop/Main.lua').absolutePath}")
+		}
+	}
+	if (project.hasProperty("runtimeWarningsProbe")) {
+		runs.client {
+			runDir("build/runtime-warnings-probe")
+			vmArg("-Dmc_lua_ide.runtimeWarningsProbe=true")
+		}
+	}
+	if (project.hasProperty("colorPickerProbe")) {
+		runs.client {
+			runDir("build/color-picker-probe")
+			vmArg("-Dmc_lua_ide.colorPickerProbe=true")
+		}
+	}
+	if (project.hasProperty("windowShortcutsProbe")) {
+		runs.client {
+			runDir("build/window-shortcuts-probe")
+			vmArg("-Dmc_lua_ide.windowShortcutsProbe=true")
+		}
+	}
+	if (project.hasProperty("fileRecoveryProbe")) {
+		runs.client {
+			runDir("build/recovery-probe")
+			vmArg("-Dmc_lua_ide.fileRecoveryProbe=true")
+		}
+	}
+	if (project.hasProperty("gitProbe")) {
+		runs.client {
+			runDir("build/git-probe")
+			vmArg("-Dmc_lua_ide.gitProbe=true")
+		}
+	}
+	if (project.hasProperty("toolsProbe")) {
+		runs.client {
+			runDir("build/tools-probe")
+			vmArg("-Dmc_lua_ide.toolsProbe=true")
+		}
+	}
+	if (project.hasProperty("sleepProbe")) {
+		runs.client {
+			runDir("build/sleep-probe")
+			vmArg("-Dmc_lua_ide.sleepProbe=true")
+		}
+	}
+	if (project.hasProperty("intervalProbe")) {
+		runs.client {
+			runDir("build/interval-probe")
+			vmArg("-Dmc_lua_ide.intervalProbe=true")
+		}
+	}
+	if (project.hasProperty("entitySpawnProbe")) {
+		runs.client {
+			runDir("build/entity-spawn-probe")
+			vmArg("-Dmc_lua_ide.entitySpawnProbe=true")
+		}
+	}
+	if (project.hasProperty("editorContextProbe")) {
+		runs.client {
+			runDir("build/editor-context-probe")
+			vmArg("-Dmc_lua_ide.editorContextProbe=true")
+		}
+	}
+	if (project.hasProperty("textJsonProbe")) {
+		runs.client {
+			runDir("build/text-json-probe")
+			vmArg("-Dmc_lua_ide.textJsonProbe=true")
+		}
+	}
+	if (project.hasProperty("insertSoundProbe")) {
+		runs.client {
+			runDir("build/insert-sound-probe")
+			vmArg("-Dmc_lua_ide.insertSoundProbe=true")
+		}
+	}
+	if (project.hasProperty("blockBreakProbe")) {
+		runs.client {
+			runDir(project.hasProperty("blockBreakAxiomJar") ? "build/axiom-block-break-probe" : "build/block-break-probe")
+			vmArg("-Dmc_lua_ide.blockBreakProbe=true")
+			if (project.hasProperty("axiomFixedProbe")) vmArg("-Dmc_lua_ide.axiomFixedProbe=true")
+		}
+	}
+	if (project.hasProperty("mcpProbe")) {
+		runs.client {
+			runDir("build/mcp-probe")
+			vmArg("-Dmc_lua_ide.mcpProbe=true")
+		}
+	}
+	if (project.hasProperty("aiProbe")) {
+		runs.client {
+			runDir("build/ai-probe")
+			vmArg("-Dmc_lua_ide.aiProbe=true")
+		}
+	}
+	// Opt-in isolated sound-device/mixin regression check; never opens an existing save.
+	if (project.hasProperty("oggPlaybackProbe")) {
+		runs.client {
+			runDir("build/ogg-playback-probe")
+			vmArg("-Dmc_lua_ide.oggPlaybackProbe=${file('src/test/resources/resourcepacks/silence.ogg').absolutePath}")
+		}
+	}
+	if (project.hasProperty("soundSeekProbe")) {
+		runs.client {
+			runDir("build/sound-seek-probe")
+			vmArg("-Dmc_lua_ide.soundSeekProbe=true")
+		}
+	}
+	if (project.hasProperty("packCatalogProbe")) {
+		runs.client {
+			runDir("build/resource-catalog-probe")
+			vmArg("-Dmc_lua_ide.packCatalogProbe=${file('src/test/resources/resourcepacks/silence.ogg').absolutePath}")
+		}
+	}
+	if (project.hasProperty("argumentCompletionProbe")) {
+		runs.client {
+			runDir("build/argument-completion-probe")
+			vmArg("-Dmc_lua_ide.argumentCompletionProbe=true")
+		}
+	}
+	if (project.hasProperty("functionEditorProbe")) {
+		runs.client {
+			runDir("build/function-editor-probe")
+			vmArg("-Dmc_lua_ide.functionEditorProbe=true")
+		}
+	}
+	if (project.hasProperty("breakpointProbe")) {
+		runs.client {
+			runDir("build/breakpoint-probe")
+			vmArg("-Dmc_lua_ide.breakpointProbe=true")
+		}
+	}
+	if (project.hasProperty("debugGamePauseProbe")) {
+		runs.client {
+			runDir("build/debug-game-pause-probe")
+			vmArg("-Dmc_lua_ide.debugGamePauseProbe=true")
+		}
+	}
+	if (project.hasProperty("directoryInputProbe")) {
+		runs.client {
+			runDir("build/directory-input-probe")
+			vmArg("-Dmc_lua_ide.directoryInputProbe=true")
+		}
+	}
+	if (project.hasProperty("directoryContextProbe")) {
+		runs.client {
+			runDir("build/directory-context-probe")
+			vmArg("-Dmc_lua_ide.directoryContextProbe=true")
+		}
+	}
+	if (project.hasProperty("scriptCommandProbe")) {
+		runs.client {
+			runDir("build/script-command-probe")
+			vmArg("-Dmc_lua_ide.scriptCommandProbe=true")
+		}
+	}
+	if (project.hasProperty("personalizationProbe")) {
+		runs.client {
+			runDir("build/personalization-probe")
+			vmArg("-Dmc_lua_ide.personalizationProbe=true")
+		}
+	}
+	if (project.hasProperty("largeFileProbe")) {
+		runs.client {
+			runDir("build/large-file-probe")
+			vmArg("-Dmc_lua_ide.largeFileProbe=true")
+		}
+	}
+	if (project.hasProperty("editorInteractionProbe")) {
+		runs.client {
+			runDir("build/editor-interaction-probe")
+			vmArg("-Dmc_lua_ide.editorInteractionProbe=true")
+		}
+	}
 
 	mods {
 		"mc_lua_ide" {
@@ -32,9 +231,23 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// Optional client integration: not bundled into the server or required by players.
+	implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	// Embedded Lua 5.2-compatible runtime used by the authoritative server-side runner.
 	implementation include("org.luaj:luaj-jse:3.0.1")
+	// Windows Ink pen pressure for the client PNG editor; other platforms keep mouse behavior.
+	clientImplementation include("net.java.dev.jna:jna:5.17.0")
+}
+
+// Keep Axiom's shaded libraries out of the launcher/system classpath, just like a real mod pack.
+if (project.hasProperty("blockBreakAxiomJar")) {
+	tasks.register("prepareBlockBreakAxiomFixture", Copy) {
+		from(project.property("blockBreakAxiomJar").toString())
+		into(layout.buildDirectory.dir("axiom-block-break-probe/mods"))
+		rename { "axiom-compat-fixture.jar" }
+	}
+	tasks.named("runClient") { dependsOn "prepareBlockBreakAxiomFixture" }
 }
 
 processResources {
@@ -78,10 +291,475 @@ tasks.register("componentCodecSmoke", JavaExec) {
 }
 
 check.dependsOn componentCodecSmoke
+tasks.register("scriptModuleSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Verifies safe Lua module loading from nested script names."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaScriptModuleSmoke"
+}
+check.dependsOn scriptModuleSmoke
+tasks.register("cooperativeRuntimeSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks independent Lua sleep/event flows, coroutine hooks, cancellation and breakpoints."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaCooperativeRuntimeSmoke"
+}
+check.dependsOn cooperativeRuntimeSmoke
+tasks.register("intervalTimerSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaIntervalTimerSmoke"
+}
+check.dependsOn intervalTimerSmoke
+tasks.register("debugSnapshotSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks that live Lua local and global values can be sampled safely."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaDebugSnapshotSmoke"
+}
+check.dependsOn debugSnapshotSmoke
+tasks.register("breakpointSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaBreakpointSmoke"
+}
+check.dependsOn breakpointSmoke
+tasks.register("scriptCommandSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks command path parsing and asynchronous nested Lua script suggestions."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaScriptCommandSmoke"
+}
+check.dependsOn scriptCommandSmoke
+tasks.register("mcpSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaMcpSmoke"
+}
+check.dependsOn mcpSmoke
+tasks.register("breakpointStoreSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaBreakpointStoreSmoke"
+}
+check.dependsOn breakpointStoreSmoke
+tasks.register("debugKeyBindingsSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaDebugKeyBindingsSmoke"
+}
+check.dependsOn debugKeyBindingsSmoke
+tasks.register("managedPackSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks generated data and resource pack metadata against Minecraft's pack loader."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.ManagedPackSmoke"
+}
+check.dependsOn managedPackSmoke
+tasks.register("datapackWorkspaceSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Verifies managed datapack folders and rename safety."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.DatapackWorkspaceSmoke"
+}
+check.dependsOn datapackWorkspaceSmoke
+
+tasks.register("gitWorkspaceSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks local/GitHub version stores, binary snapshots, safe restore, pagination and non-force upload conflicts."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.GitWorkspaceSmoke"
+}
+check.dependsOn gitWorkspaceSmoke
+tasks.register("githubAccountSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks synthetic GitHub browser login, token isolation, cancellation and repository APIs without real account writes."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.GitHubAccountSmoke"
+}
+check.dependsOn githubAccountSmoke
+tasks.register("docsApiSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks third-party API documentation pages and network serialization."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.DocsApiSmoke"
+}
+check.dependsOn docsApiSmoke
+tasks.register("serverPackSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks bounded resource-pack ZIP uploads, persistence and vanilla-client HTTP downloads."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaServerPackSmoke"
+}
+check.dependsOn serverPackSmoke
+tasks.register("analyzerSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks Lua editor diagnostics against valid and invalid API calls."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaIntegrationProbe"
+}
+check.dependsOn analyzerSmoke
+
+tasks.register("functionEditorSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks function annotations, nested lexical ranges and editor fold state."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaFunctionModelSmoke"
+}
+check.dependsOn functionEditorSmoke
+tasks.register("structurePreviewSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks Minecraft structure NBT detection, rotation and zoom projection."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaStructurePreviewProbe"
+	if (project.hasProperty("structurePreviewFile")) args(project.property("structurePreviewFile").toString())
+	if (project.hasProperty("structurePreviewImage")) args(project.property("structurePreviewImage").toString())
+}
+check.dependsOn structurePreviewSmoke
+tasks.register("resourcePngLayerSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks layered PNG brush, fill, undo, and project persistence."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaPngLayerSmoke"
+}
+check.dependsOn resourcePngLayerSmoke
+
+tasks.register("resourceSoundImportSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks OGG import, namespaced sounds.json merging and overwrite/path protections."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaResourcePackSoundImportSmoke"
+}
+check.dependsOn resourceSoundImportSmoke
+
+tasks.register("resourceItemImportSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks PNG item texture import, modern item/model definitions, conflicts, rollback and submenu routing."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaResourcePackItemImportSmoke"
+}
+check.dependsOn resourceItemImportSmoke
+
+tasks.register("extensionWindowSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks third-party IDE window registration, input, resize, docking and persistence."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaExtensionWindowSmoke"
+}
+check.dependsOn extensionWindowSmoke
+
+tasks.register("ideSessionSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks IDE session restoration, window geometry and close-save acknowledgements."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaIdeSessionSmoke"
+}
+check.dependsOn ideSessionSmoke
+
+tasks.register("fileRecoverySmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks abnormal-exit draft recovery, scoping, coalesced atomic writes, cleanup and PNG layers."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaFileRecoverySmoke"
+}
+check.dependsOn fileRecoverySmoke
+
+tasks.register("argumentCompletionSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks typed Lua argument completion, including dynamic dimension parameters."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaArgumentCompletionSmoke"
+}
+check.dependsOn argumentCompletionSmoke
+
+tasks.register("editorContextMenuSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks editor right-click menu screen bounds, action hit boxes and disabled/keyboard behavior."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaEditorContextMenuSmoke"
+}
+check.dependsOn editorContextMenuSmoke
+
+tasks.register("textJsonSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks JSON text Lua variable concatenation, escaping, styles, expression validation and UI field routing."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaTextJsonSmoke"
+}
+check.dependsOn textJsonSmoke
+
+tasks.register("insertSoundPreviewSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks sound-ID hover/keyboard preview ownership, cancellation, failures and rapid switching."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaInsertSoundPreviewSmoke"
+}
+check.dependsOn insertSoundPreviewSmoke
+
+tasks.register("insertAllIdsSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks restored ID categories, namespace filtering, paging, persistence and sound-page-only preview."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaInsertAllIdsSmoke"
+}
+check.dependsOn insertAllIdsSmoke
+
+tasks.register("windowShortcutsSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks customizable Ctrl/Shift/Alt function-key window chords and persistence."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaWindowShortcutsSmoke"
+}
+check.dependsOn windowShortcutsSmoke
+
+tasks.register("colorPickerSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks full RGB gamut, decimal/hex color output, keyboard and close header hitboxes."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaColorSmoke"
+}
+check.dependsOn colorPickerSmoke
+
+tasks.register("runtimeWarningsSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaRuntimeWarningsSmoke"
+}
+check.dependsOn runtimeWarningsSmoke
+
+tasks.register("inventoryTradeSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaInventoryTradeSmoke"
+}
+check.dependsOn inventoryTradeSmoke
+
+tasks.register("itemFilterSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaItemFilterSmoke"
+}
+check.dependsOn itemFilterSmoke
+
+tasks.register("itemCooldownSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaItemCooldownSmoke"
+}
+check.dependsOn itemCooldownSmoke
+
+tasks.register("variableTextSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaVariableTextSmoke"
+}
+check.dependsOn variableTextSmoke
+
+tasks.register("nameTranslationSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaNameTranslationSmoke"
+}
+check.dependsOn nameTranslationSmoke
+
+tasks.register("hudLayoutSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaHudLayoutSmoke"
+}
+check.dependsOn hudLayoutSmoke
+
+tasks.register("apiSearchFoldingSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaApiSearchFoldingSmoke"
+}
+check.dependsOn apiSearchFoldingSmoke
+
+tasks.register("localizationSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaLocalizationSmoke"
+}
+check.dependsOn localizationSmoke
+
+tasks.register("japaneseSearchSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.JapaneseSearchSmoke"
+}
+check.dependsOn japaneseSearchSmoke
+
+tasks.register("mcpFileSyncSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaMcpFileSyncSmoke"
+}
+check.dependsOn mcpFileSyncSmoke
+
+tasks.register("configuredShopSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaConfiguredShopSmoke"
+	args(file('examples/Bed_Wars/Shop/Main.lua').absolutePath)
+}
+check.dependsOn configuredShopSmoke
+
+tasks.register("configuredShopEditorSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaConfiguredShopEditorSmoke"
+	args(file('examples/Bed_Wars/Shop/Main.lua').absolutePath)
+}
+check.dependsOn configuredShopEditorSmoke
+
+tasks.register("largeFileSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks large UTF-8 file codecs, hard bounds, runtime policy and bounded undo history."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaLargeFileSmoke"
+}
+check.dependsOn largeFileSmoke
+
+tasks.register("selectionOccurrencesSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks literal selection occurrences and bounded large-file highlighting."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaSelectionOccurrencesSmoke"
+}
+check.dependsOn selectionOccurrencesSmoke
+
+tasks.register("dockTabOrderSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks docked tool tab reordering and layout persistence."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.DockTabOrderSmoke"
+}
+check.dependsOn dockTabOrderSmoke
+
+tasks.register("directoryPathInputSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.DirectoryPathInputSmoke"
+}
+check.dependsOn directoryPathInputSmoke
+
+tasks.register("directoryContextSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks all directory context menu overflow regions and safe Explorer workspace paths."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.DirectoryContextMenuSmoke"
+}
+check.dependsOn directoryContextSmoke
+
+tasks.register("packIdCatalogSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.PackIdCatalogSmoke"
+}
+tasks.register("mediaCatalogSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaMediaCatalogSmoke"
+}
+tasks.register("seekSoundSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaSeekSoundSmoke"
+}
+check.dependsOn seekSoundSmoke
+tasks.register("soundAudienceSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks sound broadcast nil coordinates/dimensions and positional distance filters."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaSoundAudienceSmoke"
+}
+check.dependsOn soundAudienceSmoke
+check.dependsOn packIdCatalogSmoke, mediaCatalogSmoke
+
+tasks.register("thirdPartyWindowExampleCompile", JavaCompile) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Compiles the documented third-party IDE window example against the public client API."
+	source = fileTree("examples/third_party_windows") { include "**/*.java" }
+	classpath = sourceSets.client.compileClasspath + sourceSets.client.output
+	destinationDirectory = layout.buildDirectory.dir("third-party-window-example")
+}
+check.dependsOn thirdPartyWindowExampleCompile
 tasks.named("test") {
 	// Verification currently uses the executable Minecraft codec smoke test above.
 	failOnNoDiscoveredTests = false
 }
+
+tasks.register("aiSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks AI provider tool loops, bounds, redaction, read-only paths, annotations and Windows DPAPI registry storage without real API calls."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaAiSmoke"
+}
+check.dependsOn aiSmoke
+
+tasks.register("optionalCompatSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaOptionalCompatSmoke"
+}
+check.dependsOn optionalCompatSmoke
 
 // configure the maven publication
 publishing {

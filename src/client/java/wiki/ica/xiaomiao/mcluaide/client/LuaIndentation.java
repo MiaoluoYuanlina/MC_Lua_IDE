@@ -1,6 +1,8 @@
 package wiki.ica.xiaomiao.mcluaide.client;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -16,18 +18,10 @@ final class LuaIndentation {
 
 	static String indentForNewLine(String source, int cursor) {
 		int safeCursor = Math.max(0, Math.min(cursor, source.length()));
-		int lineStart = source.lastIndexOf('\n', Math.max(0, safeCursor - 1)) + 1;
 		String masked = maskNonCode(source.substring(0, safeCursor));
-		String[] lines = masked.split("\n", -1);
-		int depth = 0;
-		for (int index = 0; index + 1 < lines.length; index++) {
-			depth = depthAfterLine(depth, lines[index]);
-		}
-		String currentLine = lines.length == 0 ? "" : lines[lines.length - 1];
-		if (lineStart == safeCursor && currentLine.isEmpty()) {
-			return INDENT.repeat(depth);
-		}
-		return INDENT.repeat(depthAfterLine(depth, currentLine));
+		IndentState state = new IndentState();
+		for (String line : masked.split("\n", -1)) state.line(line);
+		return INDENT.repeat(state.depth());
 	}
 
 	static String desiredIndentForLine(String source, int lineStart) {
@@ -36,12 +30,9 @@ final class LuaIndentation {
 		if (lineEnd < 0) lineEnd = source.length();
 		String maskedThroughLine = maskNonCode(source.substring(0, lineEnd));
 		String before = maskedThroughLine.substring(0, safeStart);
-		int depth = 0;
-		for (String line : before.split("\n", -1)) {
-			depth = depthAfterLine(depth, line);
-		}
+		IndentState state = beforeLine(before);
 		String currentMasked = maskedThroughLine.substring(safeStart);
-		return INDENT.repeat(Math.max(0, depth + leadingAdjustment(currentMasked)));
+		return INDENT.repeat(state.lineDepth(currentMasked));
 	}
 
 	static boolean startsWithClosingToken(String source, int lineStart, int lineEnd) {
@@ -58,27 +49,27 @@ final class LuaIndentation {
 			return normalized;
 		}
 		int safeStart = Math.max(0, Math.min(insertionStart, source.length()));
-		int lineStart = source.lastIndexOf('\n', Math.max(0, safeStart - 1)) + 1;
+		int lineStart = source.lastIndexOf('\n', safeStart - 1) + 1;
 		String prefix = source.substring(lineStart, safeStart);
 		String sourceBeforeInsertion = source.substring(0, safeStart);
 		String maskedPrefix = maskNonCode(sourceBeforeInsertion);
 		maskedPrefix = maskedPrefix.substring(maskedPrefix.lastIndexOf('\n') + 1);
 		String maskedInserted = maskNonCode(sourceBeforeInsertion + normalized).substring(sourceBeforeInsertion.length());
-		int baseDepth = depthBeforeLine(source, lineStart);
+		IndentState state = beforeLine(maskNonCode(source.substring(0, lineStart)));
 		String[] pastedLines = normalized.split("\n", -1);
 		String[] maskedPastedLines = maskedInserted.split("\n", -1);
 		List<String> formatted = new ArrayList<>(pastedLines.length);
-		int depth = baseDepth;
 
 		for (int index = 0; index < pastedLines.length; index++) {
 			String content = pastedLines[index].stripLeading().stripTrailing();
 			if (index == 0 && !prefix.isBlank()) {
 				formatted.add(maskedPrefix.isBlank() ? pastedLines[index] : content);
-				depth = depthAfterLine(depth, maskedPrefix + maskedPastedLines[index]);
+				state.line(maskedPrefix + maskedPastedLines[index]);
 				continue;
 			}
 			if (content.isEmpty()) {
 				formatted.add("");
+				state.line("");
 				continue;
 			}
 			String trimmedOriginal = pastedLines[index].strip();
@@ -88,18 +79,57 @@ final class LuaIndentation {
 			if (entirelyNonCode && !delimiterOrComment) {
 				// Whitespace inside Lua long strings is data, so never reformat these lines.
 				formatted.add(pastedLines[index]);
+				state.line(maskedPastedLines[index]);
 				continue;
 			}
 			String masked = maskedPastedLines[index].stripLeading().stripTrailing();
-			int lineDepth = Math.max(0, depth + leadingAdjustment(masked));
-			formatted.add(INDENT.repeat(lineDepth) + content);
-			depth = depthAfterLine(depth, masked);
+			String indent = INDENT.repeat(state.lineDepth(masked));
+			// The caller may insert after existing indentation (components/UI).
+			// Do not add the same leading whitespace for a second time.
+			if (index == 0 && prefix.isBlank() && !prefix.isEmpty()) {
+				int existing = 0;
+				for (int c = 0; c < prefix.length(); c++) existing += prefix.charAt(c) == '\t' ? 4 : 1;
+				indent = indent.substring(Math.min(existing, indent.length()));
+			}
+			formatted.add(indent + content);
+			state.line(masked);
 		}
 		return String.join("\n", formatted);
 	}
 
 	static boolean pasteWillBeMultiline(String clipboard) {
 		return expandCompactCode(normalizeNewlines(clipboard)).contains("\n");
+	}
+
+	/** Only change leading indentation. Never rewrite the contents of multiline strings. */
+	static String formatDocument(String source) {
+		List<StringSpan> strings = new ArrayList<>();
+		String masked = maskNonCode(source, strings);
+		IndentState state = new IndentState();
+		StringBuilder result = new StringBuilder(source.length());
+		int start = 0, stringIndex = 0;
+		while (start <= source.length()) {
+			int end = source.indexOf('\n', start);
+			if (end < 0) end = source.length();
+			while (stringIndex < strings.size() && strings.get(stringIndex).end() <= start) stringIndex++;
+			boolean insideString = stringIndex < strings.size() && strings.get(stringIndex).start() < start;
+			String line = source.substring(start, end);
+			String code = masked.substring(start, end);
+			int leading = 0;
+			while (leading < line.length() && (line.charAt(leading) == ' ' || line.charAt(leading) == '\t')) leading++;
+			if (insideString) result.append(line);
+			else if (leading < line.length() && !line.equals("\r")) {
+				int depth = state.lineDepth(code);
+				if (result.length() + (long) depth * 4 + line.length() - leading > wiki.ica.xiaomiao.mcluaide.network.LuaProtocol.MAX_SCRIPT_CHARS)
+					throw new IllegalArgumentException("整理后的文件超过 5,000,000 个字符，未修改原文");
+				result.append(INDENT.repeat(depth)).append(line.substring(leading));
+			} else if (line.endsWith("\r")) result.append('\r');
+			state.line(code);
+			if (end == source.length()) break;
+			result.append('\n');
+			start = end + 1;
+		}
+		return result.toString();
 	}
 
 	private static String normalizeNewlines(String text) {
@@ -187,75 +217,108 @@ final class LuaIndentation {
 		return character == '_' || Character.isLetter(character);
 	}
 
-	private static int depthBeforeLine(String source, int lineStart) {
-		String masked = maskNonCode(source.substring(0, Math.max(0, Math.min(lineStart, source.length()))));
-		int depth = 0;
-		for (String line : masked.split("\n", -1)) {
-			depth = depthAfterLine(depth, line);
-		}
-		return depth;
+	private static IndentState beforeLine(String maskedBefore) {
+		IndentState state = new IndentState();
+		String[] lines = maskedBefore.split("\n", -1);
+		for (int i = 0; i + 1 < lines.length; i++) state.line(lines[i]);
+		return state;
 	}
 
-	private static int leadingAdjustment(String line) {
-		String trimmed = line.stripLeading();
-		int adjustment = 0;
-		if (trimmed.matches("(?:end|until)(?:\\b.*)?")
-				|| trimmed.matches("(?:else|elseif)(?:\\b.*)?")) {
-			adjustment--;
-		}
-		int index = 0;
-		while (index < trimmed.length()) {
-			char character = trimmed.charAt(index);
-			if (character == '}' || character == ')' || character == ']') {
-				adjustment--;
-				index++;
-				while (index < trimmed.length() && Character.isWhitespace(trimmed.charAt(index))) index++;
-			} else {
-				break;
+	/** Keep delimiter identity as well as depth: end) must close one visual level,
+	 * while a call opened on an earlier physical line still has its own level. */
+	private static final class IndentState {
+		private final Deque<Frame> frames = new ArrayDeque<>();
+		private int line;
+		int depth() { return frames.stream().mapToInt(frame -> frame.weight).sum(); }
+		int lineDepth(String masked) {
+			IndentState preview = new IndentState();
+			for (Frame frame : frames) {
+				Frame copy = new Frame(frame.kind, frame.line, frame.weight);
+				copy.parametersPending = frame.parametersPending;
+				preview.frames.addLast(copy);
 			}
+			for (var token : LuaCodeAnalyzer.lex(masked)) {
+				String text = token.text();
+				if (text.equals("else") || text.equals("elseif")) {
+					Frame conditional = preview.find("if");
+					return Math.max(0, preview.depth() - (conditional == null ? 0 : conditional.weight));
+				}
+				if (!Set.of("end", "until", ")", "}", "]").contains(text)) break;
+				preview.close(text, false);
+			}
+			return preview.depth();
 		}
-		return adjustment;
-	}
-
-	private static int depthAfterLine(int depthBefore, String line) {
-		String trimmed = line.strip();
-		if (trimmed.isEmpty()) return depthBefore;
-		List<String> words = new ArrayList<>();
-		Matcher matcher = WORD.matcher(trimmed);
-		while (matcher.find()) words.add(matcher.group());
-
-		int delta = delimiterDelta(trimmed);
-		int forOrWhile = 0;
-		int doCount = 0;
-		for (String word : words) {
-			switch (word) {
-				case "function", "repeat" -> delta++;
-				case "for", "while" -> forOrWhile++;
-				case "do" -> doCount++;
-				case "end", "until" -> delta--;
-				default -> {
+		void line(String masked) {
+			for (var token : LuaCodeAnalyzer.lex(masked)) {
+				String text = token.text();
+				switch (text) {
+					case "function" -> {
+						// foo(function(...): call continuation and callback body are
+						// one indentation step, not two. Retain the '(' at weight 0.
+						for (Frame frame : frames) {
+							if (frame.line != line || !frame.kind.equals("(")) break;
+							frame.weight = 0;
+						}
+						frames.push(new Frame("function", line, 1));
+					}
+					case "if" -> frames.push(new Frame("if", line, 0));
+					case "then" -> { Frame frame = find("if"); if (frame != null) frame.weight = 1; }
+					case "for", "while" -> frames.push(new Frame("loop", line, 0));
+					case "do" -> {
+						Frame frame = frames.peek();
+						if (frame != null && frame.kind.equals("loop") && frame.weight == 0) frame.weight = 1;
+						else frames.push(new Frame("do", line, 1));
+					}
+					case "repeat" -> frames.push(new Frame("repeat", line, 1));
+					case "(", "{", "[" -> {
+						Frame top = frames.peek();
+						boolean parameters = text.equals("(") && top != null && top.parametersPending;
+						int weight = parameters ? 0 : 1;
+						if (parameters) top.parametersPending = false;
+						frames.push(new Frame(text, line, weight));
+					}
+					case "end", "until", ")", "}", "]" -> close(text);
+					default -> { }
+				}
+			}
+			line++;
+		}
+		private Frame find(String kind) {
+			for (Frame frame : frames) if (frame.kind.equals(kind)) return frame;
+			return null;
+		}
+		private void close(String token) { close(token, true); }
+		private void close(String token, boolean restoreContinuation) {
+			Frame target = null;
+			String kind = switch (token) { case ")" -> "("; case "}" -> "{"; case "]" -> "["; case "until" -> "repeat"; default -> ""; };
+			for (Frame frame : frames) {
+				if (kind.isEmpty() ? Set.of("function", "if", "loop", "do").contains(frame.kind) : frame.kind.equals(kind)) {
+					target = frame; break;
+				}
+			}
+			if (target != null) {
+				while (frames.pop() != target) { }
+				// On the closing line, end is aligned with foo(function(...).
+				// Subsequent arguments still belong to foo's continuation level.
+				if (restoreContinuation && target.kind.equals("function")) for (Frame frame : frames) {
+					if (!frame.kind.equals("(") || frame.line != target.line) break;
+					frame.weight = 1;
 				}
 			}
 		}
-		if (words.contains("if") && words.contains("then")) delta++;
-		delta += Math.max(0, doCount - forOrWhile);
-		delta += Math.min(doCount, forOrWhile);
-		return Math.max(0, depthBefore + delta);
 	}
-
-	private static int delimiterDelta(String line) {
-		int delta = 0;
-		for (int index = 0; index < line.length(); index++) {
-			delta += switch (line.charAt(index)) {
-				case '{', '(', '[' -> 1;
-				case '}', ')', ']' -> -1;
-				default -> 0;
-			};
+	private static final class Frame {
+		final String kind; final int line; int weight;
+		boolean parametersPending;
+		Frame(String kind, int line, int weight) {
+			this.kind = kind; this.line = line; this.weight = weight;
+			parametersPending = kind.equals("function");
 		}
-		return delta;
 	}
 
-	private static String maskNonCode(String source) {
+	private record StringSpan(int start, int end) { }
+	private static String maskNonCode(String source) { return maskNonCode(source, null); }
+	private static String maskNonCode(String source, List<StringSpan> strings) {
 		StringBuilder masked = new StringBuilder(source);
 		int index = 0;
 		while (index < source.length()) {
@@ -267,12 +330,14 @@ final class LuaIndentation {
 				index = end;
 			} else if (character == '\'' || character == '"') {
 				int end = quotedStringEnd(source, index, character);
+				if (strings != null) strings.add(new StringSpan(index, end));
 				maskRange(masked, source, index, end);
 				index = end;
 			} else {
 				int level = longBracketLevel(source, index);
 				if (level >= 0) {
 					int end = longBracketEnd(source, index, level);
+					if (strings != null) strings.add(new StringSpan(index, end));
 					maskRange(masked, source, index, end);
 					index = end;
 				} else {
