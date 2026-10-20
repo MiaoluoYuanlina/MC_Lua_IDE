@@ -22,6 +22,17 @@ import java.util.concurrent.CompletableFuture;
 
 /** In-game save location chooser; it remains visible while server API metadata is synchronized. */
 final class LuaApiExportScreen extends Screen {
+    void renderImGui() {
+        directoryField.setValue(NativeUi.field("保存目录",directoryField.getValue()));
+        NativeUi.action("前往",this::goToTypedDirectory);imgui.ImGui.sameLine();NativeUi.action("上级",this::upDirectory);imgui.ImGui.sameLine();NativeUi.action("磁盘",this::showRoots);
+        imgui.ImGui.beginChild("directories",0,Math.max(100,imgui.ImGui.getContentRegionAvailY()-130));
+        for(var path:directories)if(imgui.ImGui.selectable(path.toString()))navigate(path);
+        imgui.ImGui.endChild();
+        fileNameField.setValue(NativeUi.field("文件名",fileNameField.getValue()));
+        imgui.ImGui.beginDisabled(markdown==null||saving||saved||rootView);
+        NativeUi.action(overwriteTarget==null?"导出 Markdown":"确认覆盖",this::save);imgui.ImGui.endDisabled();
+        NativeUi.status(status);
+    }
 	private final LuaIdeScreen previous;
 	private Path directory = FabricLoader.getInstance().getGameDir().toAbsolutePath().normalize();
 	private List<Path> directories = List.of();
@@ -108,6 +119,11 @@ final class LuaApiExportScreen extends Screen {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate() && !closing) {
+			applyingAnimatedBounds = true;
+			try { applyBounds(x,y,width,height); boundsAnimation.snapTo(x,y,width,height); }
+			finally { applyingAnimatedBounds = false; } return;
+		}
 		if (dockSide.docked() && !closing) boundsAnimation.animateTo(left, top,
 				right - left, bottom - top, x, y, width, height);
 	}

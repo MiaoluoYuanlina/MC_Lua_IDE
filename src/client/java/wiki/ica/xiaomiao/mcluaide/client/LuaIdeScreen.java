@@ -45,7 +45,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class LuaIdeScreen extends Screen {
+public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 	private static final int MANUAL_TITLE_HEIGHT = 28;
 	private static final int MANUAL_HINT_HEIGHT = 24;
 	private static final int MANUAL_RESIZE_MARGIN = 6;
@@ -101,6 +101,12 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private final Screen previousScreen;
+	private final ImGuiIdeScreen nativeOwner;
+	private ToolWindow nativeInputTool;
+	private String nativeActivatedTool;
+	private final Map<String, String> nativeToolSizes = new java.util.HashMap<>();
+	private boolean nativeOpening;
+	private boolean nativeDebugRun = true;
 	private String scriptName;
 	private final Map<String, OpenDocument> openDocuments = new LinkedHashMap<>();
 	private OpenDocument currentDocument;
@@ -571,7 +577,12 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	public LuaIdeScreen(Screen previousScreen, String scriptName) {
+		this(previousScreen, scriptName, null);
+	}
+
+	LuaIdeScreen(Screen previousScreen, String scriptName, ImGuiIdeScreen nativeOwner) {
 		super(Component.literal("MC Lua IDE"));
+		this.nativeOwner = nativeOwner;
 		this.previousScreen = previousScreen;
 		var client = net.minecraft.client.Minecraft.getInstance();
 		var server = client.getSingleplayerServer();
@@ -579,11 +590,11 @@ public final class LuaIdeScreen extends Screen {
 				.toAbsolutePath().normalize() : client.getCurrentServer() != null
 				? "server:" + client.getCurrentServer().ip.toLowerCase(Locale.ROOT) : "local";
 		if (client.player != null) scope += ":player:" + client.player.getUUID();
-		session = new LuaIdeSession(WORKSPACE_LAYOUT_FILE.getParent(), scope);
+		session = nativeOwner == null ? new LuaIdeSession(WORKSPACE_LAYOUT_FILE.getParent(), scope) : nativeOwner.nativeSession();
 		fileRecovery = LuaFileRecovery.forSession(session);
-		recoveryPrompt = !fileRecovery.entries().isEmpty();
+		recoveryPrompt = nativeOwner == null && !fileRecovery.entries().isEmpty();
 		breakpointStore = LuaBreakpointClient.store();
-		LuaIdeSession.State savedSession = session.load();
+		LuaIdeSession.State savedSession = nativeOwner == null ? session.load() : new LuaIdeSession.State(List.of(), "");
 		for (LuaIdeSession.Document saved : savedSession.documents()) {
 			OpenDocument document = new OpenDocument(saved.name(), saved.json(), saved.resource());
 			document.cursor = saved.cursor(); document.scroll = saved.scroll();
@@ -602,7 +613,8 @@ public final class LuaIdeScreen extends Screen {
 			if (Float.isFinite(savedScale)) interfaceScale = Math.clamp(savedScale, 0.10F, 3.0F);
 		}
 		catch (NumberFormatException ignored) { }
-		firstManualPending = !firstManualShown && currentDocument == null && !Files.isRegularFile(WORKSPACE_LAYOUT_FILE);
+		firstManualPending = nativeOwner == null && !firstManualShown && currentDocument == null && !Files.isRegularFile(WORKSPACE_LAYOUT_FILE);
+		if (nativeOwner != null) interfaceScale = 1;
 		if (firstManualPending) firstManualShown = true;
 	}
 
@@ -720,7 +732,7 @@ public final class LuaIdeScreen extends Screen {
 		resourceJsonOverlay.resize(width, height);
 		resourcePngOverlay.resize(width, height);
 		initializeExtensionWindows();
-		restoreWorkspaceLayout();
+		if (nativeOwner == null) restoreWorkspaceLayout();
 		if (variableOverlay.isOpen()) LuaDebugHud.setIdeVariablesEnabled(true);
 		if (firstManualPending) {
 			firstManualPending = false;
@@ -916,15 +928,27 @@ public final class LuaIdeScreen extends Screen {
 		return button;
 	}
 
+	private void openIndependentUi() {
+		if (!ImGuiIdeRuntime.available()) { status = LuaUiText.text("新版 UI 不可用，请查看日志", "New UI unavailable; see log"); return; }
+		rememberCurrentDocument();
+		requestClose(openDocuments.values().stream().filter(OpenDocument::dirty).toList(), () -> {
+			recoveryClosed = true;
+			for (String key : List.copyOf(recoveryTracking.keySet())) clearRecoveryDraft(key);
+			saveSession();
+			minecraft.setScreen(new ImGuiIdeScreen(previousScreen, currentDocument != null && !currentDocument.json ? currentDocument.name : ""));
+		});
+	}
+
 	private void buildToolsMenu() {
 		toolMenuItems.forEach(this::removeWidget); toolMenuItems.clear();
 		String[] names = {LuaUiText.text("整理代码"), LuaUiText.text("重载资源包"), LuaUiText.text("重载数据包"), LuaUiText.text("上传并设置服务器资源包…"), LuaUiText.text("导出当前 API…"),
-				LuaUiText.text("服务器配置…"), LuaUiText.text("文件恢复…"), LuaUiText.text("代码折叠  ▶"), LuaUiText.text("MCP 服务器…"), LuaUiText.text("AI工具…")};
+				LuaUiText.text("服务器配置…"), LuaUiText.text("文件恢复…"), LuaUiText.text("代码折叠  ▶"), LuaUiText.text("MCP 服务器…"), LuaUiText.text("AI工具…"),
+				LuaUiText.text("新版 UI…", "New UI…")};
 		Runnable[] actions = {this::formatCurrentCode, this::reloadClientResourcePacks, this::reloadServerDatapacks,
 				() -> setExtensionWindowOpen(LuaServerPackWindow.ID, true), this::exportCurrentApiDocumentation,
 				() -> minecraft.setScreen(new LuaSettingsScreen(this)), () -> setExtensionWindowOpen(LuaFileRecoveryWindow.ID, true),
 				() -> showSubmenu("folding"), () -> setExtensionWindowOpen(LuaMcpWindow.CLIENT_ID, true),
-				() -> setExtensionWindowOpen(LuaAiWindow.ID, true)};
+				() -> setExtensionWindowOpen(LuaAiWindow.ID, true), this::openIndependentUi};
 		int rows = Math.max(3, (height - 34) / 22), perPage = rows >= names.length ? names.length : rows - 2;
 		int pages = (names.length + perPage - 1) / perPage;
 		toolsMenuPage = Math.clamp(toolsMenuPage, 0, pages - 1);
@@ -1119,6 +1143,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private boolean canResizeDock() {
+		if (nativeOwner != null) return false;
 		return !layoutLocked || personalization.resizeDockWhenLocked;
 	}
 
@@ -1157,7 +1182,7 @@ public final class LuaIdeScreen extends Screen {
 
 	/** Reload only saved server documents. Edits made while a Git request was in flight are preserved. */
 	void gitWorkspaceRestored() {
-		if (minecraft.screen != this) return;
+		if (!isCurrentIde()) return;
 		if (currentDocument != null) rememberCurrentDocument();
 		for (OpenDocument document : openDocuments.values()) {
 			if (document.resource || document.dirty()) continue;
@@ -1176,7 +1201,7 @@ public final class LuaIdeScreen extends Screen {
 
 	/** Apply authoritative MCP saves to loaded and background tabs, without losing unsaved edits. */
 	void syncMcpFiles() {
-		if (editor == null || minecraft.screen != this || recoveryPrompt || pendingCloseAction != null || closeSaving) return;
+		if (editor == null || !isCurrentIde() || recoveryPrompt || pendingCloseAction != null || closeSaving) return;
 		rememberCurrentDocument();
 		if (observedMcpRevision != LuaMcpFileSync.revision()) {
 			observedMcpRevision = LuaMcpFileSync.revision();
@@ -1806,6 +1831,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void openScript(String name) {
+		if (nativeOwner != null && !nativeOpening) { nativeOwner.open(ImGuiIdeDocument.Kind.LUA, name, true); return; }
 		if (!ScriptManager.isValidName(name)) {
 			status = "无法打开脚本：路径格式无效";
 			return;
@@ -1862,6 +1888,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void openResourcePackFile(String path) {
+		if (nativeOwner != null && !nativeOpening) { nativeOwner.open(ImGuiIdeDocument.Kind.RESOURCEPACK, path, true); return; }
 		if (path == null || !(LuaResourcePackWorkspace.editableText(path) || path.endsWith(".png") || path.endsWith(".ogg"))) {
 			status = "支持编辑资源包 JSON、.mcmeta、PNG，以及预览 OGG 音频";
 			return;
@@ -1874,6 +1901,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void openDatapackFile(String path) {
+		if (nativeOwner != null && !nativeOpening) { nativeOwner.open(ImGuiIdeDocument.Kind.DATAPACK, path, true); return; }
 		if (path == null || !(path.endsWith(".json") || path.endsWith("/pack.mcmeta")
 				|| path.endsWith(".mcfunction") || path.endsWith(".png")
 				|| path.endsWith(".ogg") || path.endsWith(".nbt"))) {
@@ -1884,6 +1912,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void onDatapackRenamed(LuaFileOverlay.RenameResult renamed) {
+		if (nativeOwner != null) nativeOwner.datapackRenamed(renamed);
 		rememberCurrentDocument();
 		List<OpenDocument> documents = new ArrayList<>(openDocuments.values());
 		openDocuments.clear();
@@ -2043,7 +2072,7 @@ public final class LuaIdeScreen extends Screen {
 				catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
 			}).whenComplete((bytes, failure) -> minecraft.execute(() -> {
 				document.loading = false;
-				if (!openDocuments.containsValue(document) || minecraft.screen != this) return;
+				if (!openDocuments.containsValue(document) || !isCurrentIde()) return;
 				if (failure != null) {
 					if (currentDocument == document) { sourceLoading = false; status = "音频预览失败：" + ScriptManager.message(failure); }
 					return;
@@ -2102,7 +2131,7 @@ public final class LuaIdeScreen extends Screen {
 					}
 					document.preview = new LuaBinaryPreview(minecraft, document.name, bytes);
 					document.loaded = true;
-					if (currentDocument == document && minecraft.screen == this) {
+					if (currentDocument == document && isCurrentIde()) {
 						sourceLoading = false;
 						status = "已加载只读预览：" + document.displayName();
 						syncOverlayState();
@@ -2125,7 +2154,7 @@ public final class LuaIdeScreen extends Screen {
 			document.source = source;
 			document.savedSource = source;
 			document.lastSnapshot = source;
-			if (currentDocument != document || minecraft.screen != this || editor == null) return;
+			if (currentDocument != document || !isCurrentIde() || editor == null) return;
 			restoreDocumentFolds(document);
 			sourceLoaded = true;
 			sourceLoading = false;
@@ -2441,6 +2470,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void activateDockedTool(ToolWindow tool) {
+		if (nativeOwner != null) { nativeActivatedTool = tool.name(); return; }
 		DockSide side = toolDock(tool);
 		if (!side.docked()) return;
 		setSelectedDockTool(side, tool);
@@ -2448,6 +2478,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private boolean toolCanInteract(ToolWindow tool) {
+		if (nativeOwner != null) return nativeInputTool == tool;
 		DockSide side = toolDock(tool);
 		return !side.docked() || activeToolAt(side) == tool;
 	}
@@ -2678,6 +2709,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void applyDockLayout() {
+		if (nativeOwner != null) return;
 		if (editor == null) return;
 		setOverlayLayoutLocked();
 		int workLeft = 8;
@@ -2948,6 +2980,7 @@ public final class LuaIdeScreen extends Screen {
 	}
 
 	private void rememberWorkspaceLayout() {
+		if (nativeOwner != null) return;
 		if (!workspaceLayoutRestored || insertOverlay == null || apiDocsOverlay == null
 				|| componentEditorOverlay == null || datapackJsonEditorOverlay == null || textJsonOverlay == null
 				|| minecraftUiEditorOverlay == null || fileOverlay == null || datapackOverlay == null
@@ -4259,7 +4292,7 @@ public final class LuaIdeScreen extends Screen {
 				if (revision != argumentCatalogRevision || revision != ScriptManager.catalogRevision()) return;
 				if (error == null && remote != null) {
 					argumentCatalogs.put(kind, LuaResourceAssetCatalog.merge(remote, argumentCatalogs.getOrDefault(kind, List.of())));
-					if (minecraft.screen == this && editor != null && editor.isFocused() && !isJsonDocument() && !isFunctionDocument()) {
+					if (isCurrentIde() && editor != null && editor.isFocused() && !isJsonDocument() && !isFunctionDocument()) {
 						LuaCursorContext.Parameter current = LuaCursorContext.parameterAt(textField().value(), textField().cursor());
 						if (current != null && LuaArgumentCompletion.kind(current) == kind) refreshSuggestions();
 					}
@@ -4313,7 +4346,7 @@ public final class LuaIdeScreen extends Screen {
 						String first = moduleSources.keySet().iterator().next(); chars -= moduleSources.remove(first).source.length();
 					}
 				} else moduleSourceFailures.put(module, System.nanoTime() + TimeUnit.SECONDS.toNanos(30));
-				if (minecraft.screen == this && editor != null && editor.isFocused() && !isJsonDocument()) refreshSuggestions();
+				if (isCurrentIde() && editor != null && editor.isFocused() && !isJsonDocument()) refreshSuggestions();
 			}));
 		}
 		return cached == null ? null : cached.source;
@@ -4714,11 +4747,9 @@ public final class LuaIdeScreen extends Screen {
 		status = "正在运行 " + scriptName + ".lua…";
 		try {
 			String source = editor.getValue();
-			runningExecution = ScriptManager.start(
-					scriptName,
-					source,
-					line -> { },
-					result -> { });
+			runningExecution = nativeOwner != null && !nativeDebugRun
+					? ScriptManager.startNormal(scriptName, source, line -> { }, result -> { })
+					: ScriptManager.start(scriptName, source, line -> { }, result -> { });
 			trackRunSave(runningExecution, currentDocument, source);
 			attachExecution(runningExecution, false);
 			updateRunControls();
@@ -6261,7 +6292,7 @@ public final class LuaIdeScreen extends Screen {
 	@Override
 	public void tick() {
 		syncMcpFiles();
-		if (minecraft.screen != this) return;
+		if (!isCurrentIde()) return;
 		if (System.nanoTime() >= nextRecoverySnapshot) {
 			nextRecoverySnapshot = System.nanoTime() + 1_000_000_000L;
 			snapshotRecovery();
@@ -8253,6 +8284,7 @@ public final class LuaIdeScreen extends Screen {
 
 	@Override
 	public void onClose() {
+		if (nativeOwner != null) { nativeOwner.onClose(); return; }
 		if (recoveryPrompt) { chooseRecoveryPrompt(1); return; }
 		if (pendingCloseAction != null) return;
 		rememberCurrentDocument();
@@ -8289,7 +8321,7 @@ public final class LuaIdeScreen extends Screen {
 				saveDocumentForClose(document).exceptionallyCompose(failure -> CompletableFuture.failedFuture(
 						new IllegalStateException(document.displayName() + " · " + ScriptManager.message(failure), failure))),
 				minecraft::execute).whenComplete((ignored, failure) -> minecraft.execute(() -> {
-			if (minecraft.screen != this || pendingCloseAction == null) return;
+			if (!isCurrentIde() || pendingCloseAction == null) return;
 			if (failure != null) {
 				closeSaving = false;
 				closeError = LuaUiText.text("保存失败：") + ScriptManager.message(failure);
@@ -8389,6 +8421,308 @@ public final class LuaIdeScreen extends Screen {
 	@Override
 	public boolean isPauseScreen() {
 		return false;
+	}
+
+	// The same controllers power both frontends. ImGui owns the frames; no second
+	// copy of pack schemas, image tools, native file choosers or extension logic.
+	private boolean isCurrentIde() {
+		return minecraft.screen == this || nativeOwner != null && minecraft.screen == nativeOwner;
+	}
+	record NativeTool(String id, String title) { }
+	record NativeDocument(String name, boolean json, boolean resource, String source, String saved, int cursor, boolean binary) { }
+	List<NativeTool> nativeTools() {
+		return toolWindows().stream().map(tool -> new NativeTool(tool.name(), toolWindowLabel(tool))).toList();
+	}
+	/** The extension window behind a tool pane id ("EXT:..."), or null. */
+	LuaExtensionWindow nativeExtension(String id) {
+		try { return extensionWindows.get(ToolWindow.valueOf(id)); } catch (RuntimeException ignored) { return null; }
+	}
+	List<String> nativeOpenTools() { return toolWindows().stream().filter(this::toolOpen).map(ToolWindow::name).toList(); }
+	void nativeOpenTool(String id) {
+		ToolWindow tool = ToolWindow.valueOf(id);
+		if (toolOpen(tool)) return;
+		nativeToolSizes.remove(id);
+		switch (tool.kind) {
+			case FILES -> fileOverlay.open();
+			case DATAPACK_FILES -> datapackOverlay.open();
+			case RESOURCE_FILES -> resourceDirectoryOverlay.open();
+			case RESOURCE_JSON -> toggleResourceJson();
+			case RESOURCE_PNG -> resourcePngOverlay.open();
+			case DATAPACK_JSON_EDITOR -> toggleDatapackJsonEditor();
+			case COMPONENT_EDITOR -> {
+				var argument = currentItemComponentsArgumentContext();
+				if (argument != null) openComponentEditorForArgument(argument); else componentEditorOverlay.open();
+			}
+			case TEXT_JSON -> {
+				var argument = currentTextJsonArgumentContext();
+				if (argument != null) openTextJsonEditorForArgument(argument); else textJsonOverlay.open();
+			}
+			case MINECRAFT_UI -> minecraftUiEditorOverlay.open();
+			case INSERT -> toggleInsertOverlay();
+			case API_DOCS -> toggleApiDocs();
+			case MANUAL -> { manualOpen = true; manualProgress = 1; }
+			case VARIABLES -> toggleVariableOverlay();
+			case OUTPUT -> { outputVisible = true; outputProgress = 1; }
+			case GIT -> openGitScreen();
+			case PERSONALIZATION -> openPersonalization();
+			case EXPORT -> exportCurrentApiDocumentation();
+			case EXTENSION -> setExtensionWindowOpen(tool.id, true);
+		}
+		hideMenus();
+	}
+	void nativeCloseTool(String id) {
+		ToolWindow tool = ToolWindow.valueOf(id);
+		switch (tool.kind) {
+			case FILES -> fileOverlay.close(); case DATAPACK_FILES -> datapackOverlay.close();
+			case RESOURCE_FILES -> resourceDirectoryOverlay.close(); case RESOURCE_JSON -> resourceJsonOverlay.close();
+			case RESOURCE_PNG -> resourcePngOverlay.close(); case DATAPACK_JSON_EDITOR -> datapackJsonEditorOverlay.close();
+			case COMPONENT_EDITOR -> componentEditorOverlay.close(); case TEXT_JSON -> textJsonOverlay.close();
+			case MINECRAFT_UI -> minecraftUiEditorOverlay.close(); case INSERT -> insertOverlay.close();
+			case API_DOCS -> apiDocsOverlay.close(); case MANUAL -> manualOpen = false;
+			case VARIABLES -> variableOverlay.close(); case OUTPUT -> outputVisible = false;
+			case GIT -> gitPanel = null; case PERSONALIZATION -> personalizationPanel = null; case EXPORT -> exportPanel = null;
+			case EXTENSION -> setExtensionWindowOpen(tool.id, false);
+		}
+	}
+	void nativePrepare(String id, int w, int h, boolean input) {
+		width = w; height = h; interfaceScale = 1; layoutLocked = nativeOwner.layoutLocked();
+		activeMenu = ""; activeSubmenu = "";
+		if (input) {
+			if (!id.equals("FILES")) fileOverlay.releaseKeyboardFocus();
+			if (!id.equals("DATAPACK_FILES")) datapackOverlay.releaseKeyboardFocus();
+			if (!id.equals("INSERT")) insertOverlay.releaseKeyboardFocus();
+			if (!id.equals("API_DOCS")) apiDocsOverlay.releaseKeyboardFocus();
+			if (!id.equals("COMPONENT_EDITOR")) componentEditorOverlay.releaseKeyboardFocus();
+			if (!id.equals("DATAPACK_JSON_EDITOR")) datapackJsonEditorOverlay.releaseKeyboardFocus();
+			if (!id.equals("TEXT_JSON")) textJsonOverlay.releaseKeyboardFocus();
+			if (!id.equals("MINECRAFT_UI")) minecraftUiEditorOverlay.releaseKeyboardFocus();
+			for (var kind : List.of(ToolWindow.RESOURCE_FILES, ToolWindow.RESOURCE_JSON, ToolWindow.RESOURCE_PNG)) if (!id.equals(kind.name())) resourceTool(kind).releaseKeyboardFocus();
+		}
+		if (id.equals("CODE")) {
+			nativeInputTool = null;
+			if (input) { focusedSettingsPanel = null; focusExtensionWindow(null); manualKeyboardFocused = variableWindowFocused = outputKeyboardFocused = false; }
+			editor.setX(EDITOR_X); editor.setY(WORKSPACE_TOP);
+			int codeWidth = Math.max(40, w - EDITOR_X - 12), codeHeight = Math.max(40, h - WORKSPACE_TOP);
+			if (editor.getWidth() != codeWidth) editor.setWidth(codeWidth);
+			if (editor.getHeight() != codeHeight) editor.setHeight(codeHeight);
+			updateEditorFlowWidth(); if (input && !searchOpen) { setFocused(editor); editor.setFocused(true); } return;
+		}
+		ToolWindow tool = ToolWindow.valueOf(id); nativeInputTool = tool;
+		if (!(w + ":" + h).equals(nativeToolSizes.put(id, w + ":" + h))) {
+			switch (tool.kind) {
+				case FILES -> fileOverlay.resize(w,h); case DATAPACK_FILES -> datapackOverlay.resize(w,h);
+				case RESOURCE_FILES -> resourceDirectoryOverlay.resize(w,h); case RESOURCE_JSON -> resourceJsonOverlay.resize(w,h); case RESOURCE_PNG -> resourcePngOverlay.resize(w,h);
+				case DATAPACK_JSON_EDITOR -> datapackJsonEditorOverlay.resize(w,h); case COMPONENT_EDITOR -> componentEditorOverlay.resize(w,h);
+				case TEXT_JSON -> textJsonOverlay.resize(w,h); case MINECRAFT_UI -> minecraftUiEditorOverlay.resize(w,h);
+				case INSERT -> insertOverlay.resize(w,h); case API_DOCS -> apiDocsOverlay.resize(w,h); case VARIABLES -> variableOverlay.resize(w,h);
+				case GIT -> gitPanel.resize(w,h); case PERSONALIZATION -> personalizationPanel.resize(w,h); case EXPORT -> exportPanel.resize(w,h);
+				case EXTENSION -> extensionWindows.get(tool).resize(w,h); default -> { }
+			}
+		}
+		setToolDock(tool, DockSide.LEFT); setSelectedDockTool(DockSide.LEFT, tool);
+		WindowBoundsAnimation.immediate(() -> {
+			if (tool == ToolWindow.MANUAL) { manualWindowX = 0; manualWindowY = 0; manualWindowWidth = w; manualWindowHeight = h; manualProgress = 1; manualBoundsAnimation.snapTo(0,0,w,h); }
+			else if (tool == ToolWindow.OUTPUT) { outputWindowX = 0; outputWindowY = 0; outputWindowWidth = w; outputWindowHeight = h; outputProgress = 1; outputBoundsAnimation.snapTo(0,0,w,h); }
+			else setDockBounds(tool, 0, 0, w, h);
+		});
+		if (!input) return;
+		focusedSettingsPanel = tool == ToolWindow.GIT ? gitPanel : tool == ToolWindow.PERSONALIZATION ? personalizationPanel : tool == ToolWindow.EXPORT ? exportPanel : null;
+		focusExtensionWindow(tool.kind == ToolWindow.Kind.EXTENSION ? extensionWindows.get(tool) : null);
+		if (tool == ToolWindow.COMPONENT_EDITOR) componentEditorOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.DATAPACK_JSON_EDITOR) datapackJsonEditorOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.TEXT_JSON) textJsonOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.MINECRAFT_UI) minecraftUiEditorOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.INSERT) insertOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.FILES) fileOverlay.requestKeyboardFocus();
+		if (tool == ToolWindow.DATAPACK_FILES) datapackOverlay.requestKeyboardFocus();
+		if (resourceTool(tool) != null) resourceTool(tool).requestKeyboardFocus();
+		manualKeyboardFocused = tool == ToolWindow.MANUAL; variableWindowFocused = tool == ToolWindow.VARIABLES;
+		outputKeyboardFocused = tool == ToolWindow.OUTPUT;
+	}
+	void nativeRender(String id, GuiGraphicsExtractor graphics, int mx, int my) {
+		if (id.equals("CODE")) {
+			if (currentDocument != null && currentDocument.binary()) {
+				if (currentDocument.pngCanvas != null) currentDocument.pngCanvas.render(graphics, font, EDITOR_OUTER_X, WORKSPACE_TOP, width - 12, height, mx, my, true);
+				else if (currentDocument.preview != null) currentDocument.preview.render(graphics, font, minecraft, EDITOR_OUTER_X, WORKSPACE_TOP, width - 12, height);
+				return;
+			}
+			graphics.fill(EDITOR_OUTER_X, editor.getY(), editor.getRight(), editor.getBottom(), theme.background());
+			LuaEditorBackground.render(graphics, minecraft, personalization, editor.getX(), editor.getY(), editor.getRight(), editor.getBottom());
+			graphics.fill(EDITOR_OUTER_X, editor.getY(), editor.getX() - 1, editor.getBottom(), lineNumberBackground());
+			LuaEditorViewport.extractOccurrences(graphics, editor);
+			editor.extractRenderState(graphics, mx, my, 0);
+			LuaEditorViewport.extractHorizontalScrollbar(graphics, editor, mx, my);
+			var field = textField(); extractLineNumbers(graphics, field); extractFunctionFoldSummaries(graphics, field);
+			extractErrorHighlights(graphics, field); extractSearchHighlights(graphics, field); extractAiHighlights(graphics, field);
+			extractPausedLine(graphics, field); extractSuggestions(graphics, field, mx, my); extractApiHover(graphics, field, mx, my);
+			if (searchOpen) extractSearch(graphics, mx, my, 0);
+			extractAiHover(graphics, field, mx, my);
+			if (editorContextMenu.isOpen()) editorContextMenu.render(graphics, font, mx, my);
+		} else {
+			ToolWindow tool = ToolWindow.valueOf(id); extractToolWindow(tool, graphics, mx, my);
+			if (tool == ToolWindow.FILES) fileOverlay.renderPopup(graphics, mx, my);
+			if (tool == ToolWindow.DATAPACK_FILES) datapackOverlay.renderPopup(graphics, mx, my);
+			if (tool == ToolWindow.RESOURCE_FILES) resourceDirectoryOverlay.renderDirectoryPopup(graphics, mx, my);
+			if (tool == ToolWindow.INSERT) insertOverlay.updateSoundPreview(mx, my, true, true);
+		}
+	}
+	/** Native frontend dispatch. Never invoke extractToolWindow or any Minecraft widget renderer. */
+	void nativeDrawToolImGui(String id) {
+		ToolWindow tool=ToolWindow.valueOf(id);
+		switch(tool.kind){
+			case FILES->fileOverlay.renderImGui();case DATAPACK_FILES->datapackOverlay.renderImGui();
+			case RESOURCE_FILES->resourceDirectoryOverlay.renderImGui();case RESOURCE_JSON->resourceJsonOverlay.renderImGui();case RESOURCE_PNG->resourcePngOverlay.renderImGui();
+			case DATAPACK_JSON_EDITOR->datapackJsonEditorOverlay.renderImGui();case COMPONENT_EDITOR->componentEditorOverlay.renderImGui();case TEXT_JSON->textJsonOverlay.renderImGui();case MINECRAFT_UI->minecraftUiEditorOverlay.renderImGui();
+			case INSERT->insertOverlay.renderImGui();case API_DOCS->apiDocsOverlay.renderImGui();case VARIABLES->variableOverlay.renderImGui();
+			case GIT->{if(gitPanel!=null)gitPanel.renderImGui();}case PERSONALIZATION->{if(personalizationPanel!=null)personalizationPanel.renderImGui();}case EXPORT->{if(exportPanel!=null)exportPanel.renderImGui();}
+			case EXTENSION->{var window=extensionWindows.get(tool);if(window!=null)window.renderImGui();}
+			case MANUAL->nativeManualImGui();
+			case OUTPUT->{
+				NativeUi.action("复制全部",()->NativeUi.copy(String.join("\n",outputLines)));imgui.ImGui.sameLine();NativeUi.action("清空日志",outputLines::clear);
+				NativeUi.readOnly("##logs",String.join("\n",outputLines),Math.max(80,imgui.ImGui.getContentRegionAvailY()));
+			}
+		}
+	}
+	private void nativeManualImGui(){
+		int lastBlock=-1,index=0;
+		for(var line:manualDocument.lines()){
+			imgui.ImGui.pushID(index++);
+			if(line.kind()==MarkdownManualDocument.Kind.CODE){
+				if(line.codeBlockIndex()!=lastBlock){lastBlock=line.codeBlockIndex();var block=manualDocument.codeBlocks().get(lastBlock);
+					NativeUi.action("插入",()->nativeInsert(block.source()));imgui.ImGui.sameLine();NativeUi.action("复制",()->NativeUi.copy(block.source()));
+					NativeUi.code("##example",block.source(),Math.max(65,Math.min(400,block.source().lines().count()*imgui.ImGui.getTextLineHeightWithSpacing()+15)));
+				}
+			}else if(line.kind()==MarkdownManualDocument.Kind.SPACE)imgui.ImGui.spacing();
+			else {if(line.kind()==MarkdownManualDocument.Kind.HEADING||line.kind()==MarkdownManualDocument.Kind.SUBHEADING)imgui.ImGui.separator();NativeUi.readOnly("##paragraph",line.text(),Math.max(38,(float)Math.ceil(imgui.ImGui.calcTextSize(line.text()).x/Math.max(80,imgui.ImGui.getContentRegionAvailX()))*imgui.ImGui.getTextLineHeightWithSpacing()+12));}
+			imgui.ImGui.popID();
+		}
+	}
+	void nativeDrawBinaryImGui(){if(currentDocument!=null){if(currentDocument.pngCanvas!=null)currentDocument.pngCanvas.renderImGui();else if(currentDocument.preview!=null)currentDocument.preview.renderImGui(minecraft);}}
+	NativeDocument nativeSnapshot() {
+		if (currentDocument == null) return null;
+		rememberCurrentDocument();
+		return new NativeDocument(currentDocument.name, currentDocument.json, currentDocument.resource,
+				currentDocument.source, currentDocument.savedSource, currentDocument.cursor, currentDocument.binary());
+	}
+	void nativeBind(ImGuiIdeDocument document) {
+		String key = (document.kind == ImGuiIdeDocument.Kind.LUA ? "lua:" : document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK ? "resourcepack:" : "datapack:") + document.path;
+		if (document.binary()) {
+			if (currentDocument == null || !currentDocument.key().equals(key)) {
+				nativeOpening = true;
+				try { if (document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK) openResourcePackFile(document.path); else openDatapackFile(document.path); }
+				finally { nativeOpening = false; }
+			}
+			return;
+		}
+		if (currentDocument == null || !currentDocument.key().equals(key)) {
+			rememberCurrentDocument();
+			currentDocument = openDocuments.computeIfAbsent(key, ignored -> new OpenDocument(document.path, !document.lua(), document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK));
+			currentDocument.loaded = true; currentDocument.source = document.source; currentDocument.savedSource = document.saved;
+			currentDocument.cursor = document.restoreOffset; sourceLoaded = true; scriptName = document.path;
+			if (document.restoredMetadata != null) {
+				currentDocument.pendingFolds = document.restoredMetadata.folds(); currentDocument.scroll = document.restoredMetadata.scroll();
+				document.restoredMetadata = null;
+			}
+			LuaSyntaxHighlighter.setJsonMode(editor, !document.lua() && !document.path.endsWith(".mcfunction"));
+			LuaSyntaxHighlighter.setFunctionMode(editor, document.path.endsWith(".mcfunction"));
+			LuaFunctionFolding.bind(textField(), document.lua() ? currentDocument.functionFolds : null);
+			clearSuggestions();
+			restoreCurrentDocument();
+			fileOverlay.setCurrentScript(document.lua() ? document.path : "");
+			datapackOverlay.setCurrentScript(document.kind == ImGuiIdeDocument.Kind.DATAPACK ? document.path : "");
+			if (document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK) resourceJsonOverlay.setJsonSource(document.source);
+		} else if (!textField().value().equals(document.source)) {
+			editor.setValue(document.source); currentDocument.source = document.source;
+		}
+		currentDocument.savedSource = document.saved;
+		lastSavedSource = document.saved;
+	}
+	int nativeCursor() { return editor == null ? 0 : textField().cursor(); }
+	void nativeReplace(int start, int end, String text) {
+		nativeSelect(start, end); textField().insertText(text);
+	}
+	void nativeSelect(int start, int end) {
+		var field = textField(); int size = field.value().length(); field.setSelecting(false); field.seekCursor(Whence.ABSOLUTE, Math.clamp(start,0,size));
+		field.setSelecting(true); field.seekCursor(Whence.ABSOLUTE, Math.clamp(end,0,size)); field.setSelecting(false);
+	}
+	int nativeAnchor(){return ((MultilineTextFieldAccessor)textField()).mcLuaIde$getSelectCursor();}
+	Component nativeHighlight(int start,int end,int line){return LuaSyntaxHighlighter.highlight(editor,textField().value(),textField().value().substring(start,end),start,line);}
+	LuaFunctionFolding.State nativeFolds(){return currentDocument==null||currentDocument.json?null:currentDocument.functionFolds;}
+	void nativeToggleFold(int line){LuaFunctionFolding.toggle(textField(),line);}
+	void nativeToggleBreakpoint(int line){toggleBreakpoint(line);}
+	Set<Integer> nativeBreakpoints(){return isBreakpointDocument()?breakpointStore.lines(currentDocument.name):Set.of();}
+	int nativePausedLine(){return pausedLine();}
+	List<LuaAiAgent.Mark> nativeMarks(){if(currentDocument==null)return List.of();var marks=new ArrayList<>(ai.marks(aiPath(currentDocument),textField().value()));if(textField().value().equals(currentDocument.mcpSource))marks.addAll(currentDocument.mcpMarks);return marks;}
+	void nativeDismissMarks(){ai.clearMarks();clearMcpMarks();}
+	void nativeCodeKey(KeyEvent event){nativePrepare("CODE",900,600,true);clearSuggestions();keyPressed(event);}
+	void nativeCodeCharacter(CharacterEvent event){nativePrepare("CODE",900,600,true);charTyped(event);}
+	record NativeCompletion(String insertion,String label,String tooltip){}
+	List<NativeCompletion> nativeCompletions(){
+		nativePrepare("CODE",900,600,true);refreshSuggestions();return suggestions.stream().map(value->{
+			var choice=argumentSuggestionChoices.getOrDefault(value,moduleSuggestionChoices.get(value));
+			return new NativeCompletion(value,suggestionLabel(value),choice!=null?choice.tooltip():functionSuggestionTooltips.getOrDefault(value,""));
+		}).toList();
+	}
+	void nativeAcceptCompletion(String value){nativePrepare("CODE",900,600,true);refreshSuggestions();int index=suggestions.indexOf(value);if(index>=0){selectedSuggestion=index;applySelectedSuggestion();}}
+	void nativeSmartSelect(int offset){
+		var field=textField();String source=field.value();if(source.isEmpty())return;offset=Math.clamp(offset,0,source.length()-1);
+		int start=offset,end=offset+1;char current=source.charAt(offset);int[] quoted=quotedRangeAt(source,offset);
+		if(quoted!=null){start=current==source.charAt(quoted[0])?quoted[0]:quoted[0]+1;end=current==source.charAt(quoted[1]-1)?quoted[1]:quoted[1]-1;}
+		else if(isEditorIdentifierCharacter(current)){while(start>0&&isEditorIdentifierCharacter(source.charAt(start-1)))start--;while(end<source.length()&&isEditorIdentifierCharacter(source.charAt(end)))end++;}
+		else if(Character.isWhitespace(current)){while(start>0&&source.charAt(start-1)!='\n'&&Character.isWhitespace(source.charAt(start-1)))start--;while(end<source.length()&&source.charAt(end)!='\n'&&Character.isWhitespace(source.charAt(end)))end++;}
+		else if(isOpeningDelimiter(current)||isClosingDelimiter(current)){int match=matchingDelimiter(source,offset);if(match>=0){start=Math.min(offset,match);end=Math.max(offset,match)+1;}}
+		nativeSelect(start,end);
+	}
+	void nativeInsert(String text) { textField().insertText(text); }
+	boolean nativeDirty(String name, boolean json, boolean resource) {
+		var doc = openDocuments.get((resource ? "resourcepack:" : json ? "datapack:" : "lua:") + name);
+		return doc != null && doc.dirty();
+	}
+	CompletableFuture<Void> nativeSave() { rememberCurrentDocument(); return currentDocument == null ? CompletableFuture.completedFuture(null) : saveDocumentForClose(currentDocument); }
+	String nativeStatus() { return status; }
+	LuaPersonalizationSettings nativePersonalization(){return personalization;}
+	boolean nativeShortcutTool(String id){return !id.startsWith("NATIVE_")&&shortcutOpenedTools.contains(ToolWindow.valueOf(id));}
+	void nativeOpenApi(String symbol){apiDocsOverlay.openAt(symbol);nativeActivatedTool="API_DOCS";}
+	void nativeDebugMode(boolean debug) { nativeDebugRun = debug; }
+	void nativeRun(boolean debug) { nativeDebugRun = debug; toggleRun(); }
+	boolean nativeResizeLocked() { return personalization.resizeDockWhenLocked; }
+	String nativeTakeActivatedTool() { String tool = nativeActivatedTool; nativeActivatedTool = null; return tool; }
+	LuaIdeSession.Document nativeMetadata(ImGuiIdeDocument document) {
+		rememberCurrentDocument();
+		var doc = openDocuments.get((document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK ? "resourcepack:" : document.lua() ? "lua:" : "datapack:") + document.path);
+		return doc == null ? new LuaIdeSession.Document(document.path, !document.lua(), document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK, document.restoreOffset, 0)
+				: new LuaIdeSession.Document(doc.name, doc.json, doc.resource, doc.cursor, doc.scroll, doc.pendingFolds != null ? doc.pendingFolds : doc.functionFolds.snapshot(doc.source));
+	}
+	void nativeForget(ImGuiIdeDocument document, boolean discard) {
+		var key = (document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK ? "resourcepack:" : document.lua() ? "lua:" : "datapack:") + document.path;
+		var doc = openDocuments.remove(key);
+		if (doc != null) {
+			if (doc.preview != null) doc.preview.close(minecraft);
+			if (doc.pngCanvas != null) doc.pngCanvas.close();
+			if (discard) clearRecoveryDraft(key);
+			if (currentDocument == doc) { currentDocument = null; sourceLoaded = false; editor.setValue(""); }
+		}
+	}
+	void nativeDispose() {
+		ai.cancel(false); snapshotRecovery();
+		extensionWindows.values().forEach(LuaExtensionWindow::dispose); LuaOggPreviewPlayer.stop();
+		for (var document : openDocuments.values()) { if (document.preview != null) document.preview.close(minecraft); if (document.pngCanvas != null) document.pngCanvas.close(); }
+	}
+	void nativeDiscardAll() {
+		recoveryClosed = true;
+		for (String key : List.copyOf(recoveryTracking.keySet())) clearRecoveryDraft(key);
+	}
+	void nativeCommand(String command) {
+		if (command.startsWith("font:")) { applyScale(ScaleTarget.FONT, Integer.parseInt(command.substring(5))); return; }
+		if (command.startsWith("theme:")) { var selected = LuaSyntaxHighlighter.Theme.valueOf(command.substring(6)); setTheme(selected, selected.name()); return; }
+		switch (command) {
+			case "format" -> formatCurrentCode(); case "reload_resources" -> reloadClientResourcePacks(); case "reload_datapacks" -> reloadServerDatapacks();
+			case "settings" -> nativeOwner.openServerSettings();
+			case "expand_all" -> applyCodeFolding(LuaFunctionFolding.Action.EXPAND_ALL);
+			case "fold_all" -> applyCodeFolding(LuaFunctionFolding.Action.COLLAPSE_ALL);
+			case "fold_functions" -> applyCodeFolding(LuaFunctionFolding.Action.COLLAPSE_FUNCTIONS);
+			case "search" -> openSearchFromSelection();
+		}
 	}
 
 	private static final class OpenDocument {

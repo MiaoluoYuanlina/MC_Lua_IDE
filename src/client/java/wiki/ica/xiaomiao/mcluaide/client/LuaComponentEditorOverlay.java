@@ -28,6 +28,23 @@ import java.util.function.Consumer;
 
 /** Dockable visual editor for server-authoritative item, block and entity data components. */
 final class LuaComponentEditorOverlay {
+	void renderImGui() {
+		Category next=NativeUi.combo("目标类型",category,List.of(Category.values()),c->c.label);
+		if(next!=category){category=next;clearLoadedTarget();refreshTargets(true);}
+		targetPaneExpanded=NativeUi.check("选择目标 ID",targetPaneExpanded);
+		if(targetPaneExpanded) {
+			String text=NativeUi.field("搜索目标",targetQuery);if(!text.equals(targetQuery)){targetQuery=text;refreshTargets(false);}
+			imgui.ImGui.beginChild("targets",0,160,true);
+			for(int i=0;i<targets.size();i++)if(imgui.ImGui.selectable(targets.get(i).label(),selectedTarget!=null&&selectedTarget.value().equals(targets.get(i).value()))){targetRow=i;loadSelectedTarget(true);}
+			imgui.ImGui.endChild();
+		} else if(selectedTarget!=null)imgui.ImGui.textUnformatted(selectedTarget.label());
+		String text=NativeUi.field("筛选组件",componentQuery);if(!text.equals(componentQuery)){componentQuery=text;filterComponents();}
+		boolean all=NativeUi.check("显示全部可用字段",showAll);if(all!=showAll){showAll=all;filterComponents();}
+		if(data!=null)treeEditor.renderImGui();else imgui.ImGui.textWrapped(loading?"正在读取游戏组件…":"选择目标以读取可用组件、状态和数据");
+		NativeUi.action("插入",()->export(Export.INSERT));imgui.ImGui.sameLine();NativeUi.action("复制 Lua",()->export(Export.COPY_STACK));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->export(Export.COPY_JSON));
+		if(imgui.ImGui.getIO().getKeyCtrl()&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))export(Export.INSERT);
+		NativeUi.status(status);
+	}
 	private static final int TITLE_HEIGHT = 28;
 	private static final int RESIZE_MARGIN = 6;
 	private static final int MIN_WIDTH = 520;
@@ -246,6 +263,10 @@ final class LuaComponentEditorOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (!dockSide.docked()) return;
 		boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight, x, y, width, height);
 	}

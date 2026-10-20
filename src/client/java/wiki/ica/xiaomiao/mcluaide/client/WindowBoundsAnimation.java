@@ -2,6 +2,12 @@ package wiki.ica.xiaomiao.mcluaide.client;
 
 /** Small critically-damped style transition used by movable IDE tool windows. */
 final class WindowBoundsAnimation {
+	private static boolean immediate;
+	static boolean isImmediate() { return immediate; }
+	static void immediate(Runnable layout) {
+		boolean previous = immediate; immediate = true;
+		try { layout.run(); } finally { immediate = previous; }
+	}
 	private static final float RESPONSE = 0.34F;
 	private int targetX;
 	private int targetY;
@@ -29,6 +35,7 @@ final class WindowBoundsAnimation {
 
 	Bounds tick(int x, int y, int width, int height) {
 		if (!active) return new Bounds(x, y, width, height, false);
+		if (immediate) { active = false; return new Bounds(targetX, targetY, targetWidth, targetHeight, false); }
 		int nextX = approach(x, targetX);
 		int nextY = approach(y, targetY);
 		int nextWidth = approach(width, targetWidth);

@@ -23,6 +23,34 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Read-only editor surface for files that must never pass through the text editor. */
 final class LuaBinaryPreview {
+    void renderImGui(Minecraft client) {
+        imgui.ImGui.textWrapped(detail);if(!error.isEmpty())imgui.ImGui.textWrapped(error);
+        if(audio!=null){
+            LuaOggPreviewPlayer.poll();
+            NativeUi.action(LuaOggPreviewPlayer.playing()?"停止":"播放",()->{if(LuaOggPreviewPlayer.playing())LuaOggPreviewPlayer.stop();else try{LuaOggPreviewPlayer.play(client,bytes,audio.duration());}catch(IOException e){error=e.getMessage();}});
+            float[] position={(float)LuaOggPreviewPlayer.position()};
+            if(imgui.ImGui.sliderFloat("##position",position,0,(float)audio.duration(),LuaOggMetadata.time(position[0])+" / "+LuaOggMetadata.time(audio.duration())))LuaOggPreviewPlayer.seek(client,bytes,audio.duration(),position[0]);
+            NativeUi.readOnly("##metadata",String.join("\n",audioDetails)+"\n"+LuaOggPreviewPlayer.state()+"\n"+LuaOggPreviewPlayer.error(),Math.max(100,imgui.ImGui.getContentRegionAvailY()));
+        }else if(root!=null){
+            if(structure!=null){showNbtTree=NativeUi.check("显示 NBT 树",showNbtTree);imgui.ImGui.sameLine();NativeUi.action("重置视角",structure::reset);}
+            if(structure!=null&&!showNbtTree){
+                int w=Math.max(40,(int)imgui.ImGui.getContentRegionAvailX()),h=Math.max(40,(int)imgui.ImGui.getContentRegionAvailY());
+                NativeUi.media("structure:"+name,w,h,g->structure.render(g,client,0,0,w,h));
+                if(imgui.ImGui.isItemHovered()){
+                    if(imgui.ImGui.isMouseClicked(0))structure.beginDrag(imgui.ImGui.getMousePosX(),imgui.ImGui.getMousePosY());
+                    if(imgui.ImGui.getIO().getMouseWheel()!=0)structure.zoom(imgui.ImGui.getIO().getMouseWheel());
+                }
+                if(imgui.ImGui.isMouseDown(0))structure.drag(imgui.ImGui.getMousePosX(),imgui.ImGui.getMousePosY());else structure.release();
+            }else{
+                for(var row:List.copyOf(rows)){
+                    imgui.ImGui.pushID(row.path);imgui.ImGui.indent(row.depth*12);
+                    if(row.branch){boolean before=expanded.contains(row.path);imgui.ImGui.setNextItemOpen(before);boolean now=imgui.ImGui.treeNodeEx(row.text,imgui.flag.ImGuiTreeNodeFlags.NoTreePushOnOpen);if(now!=before){if(now)expanded.add(row.path);else expanded.remove(row.path);rebuildRows();}}
+                    else if(imgui.ImGui.selectable(row.text))NativeUi.copy(row.text);
+                    imgui.ImGui.unindent(row.depth*12);imgui.ImGui.popID();
+                }
+            }
+        }else if(texture!=null){float scale=Math.min(imgui.ImGui.getContentRegionAvailX()/imageWidth,imgui.ImGui.getContentRegionAvailY()/imageHeight);var gpu=client.getTextureManager().getTexture(texture).getTexture();imgui.ImGui.image(((com.mojang.blaze3d.opengl.GlTexture)gpu).glId(),imageWidth*scale,imageHeight*scale);}
+    }
 	private static final AtomicInteger NEXT_TEXTURE = new AtomicInteger();
 	private final String name;
 	private final byte[] bytes;

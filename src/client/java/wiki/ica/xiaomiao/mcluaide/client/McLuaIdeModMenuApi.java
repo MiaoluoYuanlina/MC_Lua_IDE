@@ -7,6 +7,6 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 public final class McLuaIdeModMenuApi implements ModMenuApi {
 	@Override
 	public ConfigScreenFactory<?> getModConfigScreenFactory() {
-		return LuaSettingsScreen::new;
+		return previous -> new NativePanelScreen(previous,false);
 	}
 }

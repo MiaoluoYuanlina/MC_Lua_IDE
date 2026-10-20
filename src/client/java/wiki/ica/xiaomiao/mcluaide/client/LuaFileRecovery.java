@@ -138,7 +138,8 @@ final class LuaFileRecovery {
 							if (!layers.isEmpty() && (layers.getFirst().image().getWidth() != w || layers.getFirst().image().getHeight() != h))
 								throw new IOException("恢复图层尺寸不一致");
 							layers.add(new LuaPngLayerDocument.Layer(p.getProperty("layer." + index + ".name", "图层"),
-									reader.read(0), Boolean.parseBoolean(p.getProperty("layer." + index + ".visible", "true"))));
+									reader.read(0), Boolean.parseBoolean(p.getProperty("layer." + index + ".visible", "true")),
+										LuaPngLayerDocument.parseOpacity(p.getProperty("layer." + index + ".opacity", "1"))));
 						} finally { reader.dispose(); }
 					}
 				}
@@ -189,7 +190,7 @@ final class LuaFileRecovery {
 					p.setProperty("layers", "" + draft.image().layers().size()); p.setProperty("selected", "" + draft.image().selected());
 					int index = 0;
 					for (var layer : draft.image().layers()) {
-						p.setProperty("layer." + index + ".name", layer.name()); p.setProperty("layer." + index + ".visible", "" + layer.visible());
+						p.setProperty("layer." + index + ".name", layer.name()); p.setProperty("layer." + index + ".visible", "" + layer.visible()); p.setProperty("layer." + index + ".opacity", "" + layer.opacity());
 						ByteArrayOutputStream output = new ByteArrayOutputStream();
 						if (!ImageIO.write(layer.image(), "PNG", output)) throw new IOException("无法编码恢复图片");
 						put(zip, "layer_" + index++ + ".png", output.toByteArray());

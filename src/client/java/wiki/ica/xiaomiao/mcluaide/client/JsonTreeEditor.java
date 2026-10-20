@@ -28,6 +28,71 @@ import java.util.function.Consumer;
 
 /** Small recursive JSON tree editor used for complex item-stack component values. */
 final class JsonTreeEditor {
+	void renderImGui() {
+		refreshCatalogRevision(); rebuildRows();
+		imgui.ImGui.pushID(System.identityHashCode(this));
+		NativeUi.action("添加",this::beginAdd); NativeUi.next("编辑"); NativeUi.action("编辑",this::beginEdit);
+		NativeUi.next("删除"); NativeUi.action("删除",this::deleteSelected); NativeUi.next("JSON"); NativeUi.action("JSON",this::beginRaw);
+		imgui.ImGui.beginChild("tree",0,Math.max(100,imgui.ImGui.getContentRegionAvailY()-28),true);
+		for(var row:List.copyOf(rows)) {
+			imgui.ImGui.pushID(row.path().toString());
+			imgui.ImGui.indent(Math.min(row.depth(),MAX_TREE_DEPTH)*12f);
+			boolean present=resolveActual(row.path())!=null;
+			if(!present)imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,.52f,.58f,.66f,1);
+			int flags=imgui.flag.ImGuiTreeNodeFlags.NoTreePushOnOpen|imgui.flag.ImGuiTreeNodeFlags.OpenOnArrow|imgui.flag.ImGuiTreeNodeFlags.SpanAvailWidth;
+			if(!row.container())flags|=imgui.flag.ImGuiTreeNodeFlags.Leaf;
+			if(selected.equals(row.path()))flags|=imgui.flag.ImGuiTreeNodeFlags.Selected;
+			imgui.ImGui.setNextItemOpen(!collapsed.contains(row.path()),imgui.flag.ImGuiCond.Always);
+			imgui.ImGui.treeNodeEx(translatedRowLabel(row)+"  "+(row.container()?"":scalarText(row.value())),flags);
+			if(imgui.ImGui.isItemClicked())selected=row.path();
+			if(imgui.ImGui.isItemToggledOpen())toggleCollapsed(row.path());
+			if(imgui.ImGui.isItemHovered()&&imgui.ImGui.isMouseDoubleClicked(0)) {
+				selected=row.path(); if(row.addAction()){selected=selected.parent();beginAdd();}else if(!row.container())beginEdit();
+			}
+			if(translation!=null)NativeUi.hint(translation.description(pathSegments(row.path()),rawKey(row.path()),row.value()));
+			if(imgui.ImGui.beginPopupContextItem("node_actions")) {
+				selected=row.path();
+				if(imgui.ImGui.menuItem("添加字段 / 元素"))beginAdd();
+				if(imgui.ImGui.menuItem("编辑值"))beginEdit();
+				if(imgui.ImGui.menuItem("启用 / 添加默认值")&&!present){materialize(selected);discovered.add(selected);changed();}
+				if(imgui.ImGui.menuItem("删除"))deleteSelected();
+				imgui.ImGui.endPopup();
+			}
+			if(!present)imgui.ImGui.popStyleColor();
+			imgui.ImGui.unindent(Math.min(row.depth(),MAX_TREE_DEPTH)*12f); imgui.ImGui.popID();
+		}
+		imgui.ImGui.endChild();
+		if(popupMode!=PopupMode.NONE)imgui.ImGui.openPopup("edit_node");
+		imgui.ImGui.setNextWindowSize(580,560,imgui.flag.ImGuiCond.Appearing);
+		if(imgui.ImGui.beginPopupModal("edit_node")) {
+			if(registryPickerOpen) {
+				String next=NativeUi.field(fieldPicker?"筛选字段":"筛选注册表",registryQuery);
+				if(!next.equals(registryQuery)){registryQuery=next;filterRegistryTypes(true);}
+				imgui.ImGui.beginChild("registries",0,Math.max(80,imgui.ImGui.getContentRegionAvailY()-50),true);
+				for(int i=0;i<registryTypes.size();i++)if(imgui.ImGui.selectable(registryTypes.get(i).display(),i==registryTypeRow)){registryTypeRow=i;applySelectedRegistryType();break;}
+				imgui.ImGui.endChild();
+			} else {
+				if(needsKeyField()) {
+					String next=NativeUi.field("键名",keyText);
+					if(imgui.ImGui.isItemActive())inputFocus=InputFocus.KEY;
+					if(!next.equals(keyText)){keyText=next;keyCursor=next.length();refreshIdSuggestions(true);}
+				}
+				if(popupMode!=PopupMode.RAW)draftType=NativeUi.combo("类型",draftType,ValueType.values());
+				String next=popupMode==PopupMode.RAW?NativeUi.multiline("##raw",valueText,220):NativeUi.field("值",valueText);
+				if(imgui.ImGui.isItemActive())inputFocus=InputFocus.VALUE;
+				if(!next.equals(valueText)){valueText=next;valueCursor=next.length();refreshIdSuggestions(true);}
+				NativeUi.action("选择 ID 类型",this::openRegistryPicker);
+				imgui.ImGui.textDisabled(suggestionLoading?"正在读取 ID…":suggestionLabel);
+				imgui.ImGui.beginChild("ids",0,Math.max(60,imgui.ImGui.getContentRegionAvailY()-55),true);
+				for(int i=0;i<suggestions.size();i++)if(imgui.ImGui.selectable(suggestions.get(i).label(),i==suggestionRow)){suggestionRow=i;applySelectedSuggestion();}
+				imgui.ImGui.endChild();
+			}
+			if(imgui.ImGui.button("确定")){if(registryPickerOpen)applySelectedRegistryType();else confirmPopup();if(popupMode==PopupMode.NONE)imgui.ImGui.closeCurrentPopup();}
+			imgui.ImGui.sameLine(); if(imgui.ImGui.button("取消")){popupMode=PopupMode.NONE;registryPickerOpen=false;imgui.ImGui.closeCurrentPopup();}
+			imgui.ImGui.endPopup();
+		}
+		imgui.ImGui.popID();
+	}
 	private static final int TOOLBAR_HEIGHT = 22;
 	private static final int ROW_HEIGHT = 18;
 	private static final int MAX_TREE_NODES = 4_096;

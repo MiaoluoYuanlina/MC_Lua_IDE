@@ -3,6 +3,10 @@
   "package": "wiki.ica.xiaomiao.mcluaide.client.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "ImGuiPresentMixin",
+    "ImGuiGameRendererAccessor",
+    "ImGuiGuiRendererAccessor",
+    "ImGuiRenderTargetMixin",
     "FontProviderAccessor",
     "KeyboardHandlerDebugMixin",
     "WindowShortcutCloseMixin",

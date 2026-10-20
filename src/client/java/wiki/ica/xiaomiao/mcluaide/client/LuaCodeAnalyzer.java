@@ -96,7 +96,7 @@ final class LuaCodeAnalyzer {
 
 	private static Diagnostic compile(String source, String scriptName) {
 		try {
-			JsePlatform.standardGlobals().load(source, scriptName + ".lua");
+			wiki.ica.xiaomiao.mcluaide.server.LuaSandbox.syntaxOnly().load(source, scriptName + ".lua");
 			return null;
 		} catch (LuaError error) {
 			return syntaxDiagnostic(source, error.getMessage());

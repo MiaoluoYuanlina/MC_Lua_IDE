@@ -32,6 +32,7 @@ public final class LuaSettingsScreen extends Screen {
 			mcpNotice = "正在检查管理员权限…";
 			ScriptManager.checkAccess().whenComplete((ignored, failure) -> minecraft.execute(() -> {
 				if (failure != null) { mcpNotice = ScriptManager.message(failure); return; }
+				if (previousScreen instanceof ImGuiIdeScreen nativeIde) { minecraft.setScreen(nativeIde); nativeIde.openTool("EXT:" + LuaMcpWindow.SERVER_ID); return; }
 				LuaIdeScreen ide = previousScreen instanceof LuaIdeScreen existing ? existing : new LuaIdeScreen(this, "");
 				minecraft.setScreen(ide); ide.setExtensionWindowOpen(LuaMcpWindow.SERVER_ID, true);
 			}));

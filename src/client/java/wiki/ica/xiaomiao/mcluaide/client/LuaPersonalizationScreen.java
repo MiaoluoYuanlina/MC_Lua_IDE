@@ -15,6 +15,54 @@ import java.util.List;
 
 /** Client-only appearance page inspired by a terminal settings pane. */
 final class LuaPersonalizationScreen extends Screen {
+    void renderImGui() {
+        for(var tab:Section.values()) { if(imgui.ImGui.button(LuaUiText.text(tab.label)))section=tab;NativeUi.next(tab.label); }
+        imgui.ImGui.newLine();
+        switch(section) {
+            case TEXT -> {
+                draft.theme=NativeUi.combo("配色方案",draft.theme,LuaSyntaxHighlighter.Theme.values());
+                draft.fontFace=NativeUi.combo("字体",draft.fontFace,LuaPersonalizationSettings.FontFace.values());
+                draft.fontPercent=NativeUi.integer("字号 %",draft.fontPercent,10,300);
+                draft.lineHeight=(float)Math.clamp(NativeUi.number("行高",draft.lineHeight),.8,2);
+                draft.cellWidth=(float)Math.clamp(NativeUi.number("字符宽度",draft.cellWidth),.5,2);
+                draft.codeWheelSensitivity=(float)Math.clamp(NativeUi.number("代码滚轮灵敏度",draft.codeWheelSensitivity),.1,20);
+                draft.codeWordWrap=NativeUi.check("过长代码自动换行",draft.codeWordWrap);
+            }
+            case CURSOR -> {
+                draft.cursorShape=NativeUi.combo("光标形状",draft.cursorShape,LuaPersonalizationSettings.CursorShape.values());
+                draft.cursorBlink=NativeUi.check("光标闪烁",draft.cursorBlink);
+                draft.cursorWidth=NativeUi.integer("光标宽度",draft.cursorWidth,1,4);
+                draft.cursorColor=NativeUi.color("光标颜色",draft.cursorColor);
+            }
+            case BACKGROUND -> {
+                draft.backgroundFile=NativeUi.field("背景图片文件名",draft.backgroundFile);
+                NativeUi.action("打开背景图片目录",()->{try{java.nio.file.Files.createDirectories(LuaPersonalizationSettings.BACKGROUNDS);Util.getPlatform().openPath(LuaPersonalizationSettings.BACKGROUNDS);}catch(Exception e){status=e.getMessage();}});
+                draft.backgroundOpacity=NativeUi.integer("背景不透明度 %",draft.backgroundOpacity,0,80);
+                draft.backgroundFit=NativeUi.combo("背景图像拉伸模式",draft.backgroundFit,LuaPersonalizationSettings.BackgroundFit.values());
+                draft.backgroundAlignment=NativeUi.combo("背景图像对齐",draft.backgroundAlignment,List.of(LuaPersonalizationSettings.BackgroundAlignment.values()),v->LuaUiText.text(v.label));
+            }
+            case WINDOW -> draft.resizeDockWhenLocked=NativeUi.check("固定布局后仍可调整边框",draft.resizeDockWhenLocked);
+            case SYNTAX -> {
+                for(var role:LuaSyntaxHighlighter.ColorRole.values()) {
+                    int before=draft.syntaxColor(role),after=NativeUi.color(role.name(),0xFF000000|before);
+                    if(after!=(0xFF000000|before))draft.syntaxColors.put(role,after&0xFFFFFF);
+                }
+                NativeUi.action("恢复默认配色",draft.syntaxColors::clear);
+            }
+            case SHORTCUTS -> {
+                shortcutModifiers=NativeUi.integer("修饰键 1=Ctrl 2=Shift 4=Alt",shortcutModifiers,1,7);
+                shortcutFunction=NativeUi.integer("F 键",shortcutFunction,1,12);
+                for(var action:LuaWindowShortcuts.Target.values()) {
+                    if(imgui.ImGui.button(action.name()))draft.windowShortcuts.set(shortcutModifiers,shortcutFunction,action);
+                    imgui.ImGui.sameLine();
+                }
+                imgui.ImGui.newLine();
+            }
+        }
+        imgui.ImGui.separator();
+        NativeUi.action("保存并应用",()->{try{draft.save();previous.setPersonalization(draft.copy());status="已保存并应用";}catch(Exception e){status=e.getMessage();}});
+        NativeUi.status(status);
+    }
 	private enum Section { TEXT("文本"), CURSOR("光标"), BACKGROUND("背景图"), WINDOW("窗口布局"), SHORTCUTS("快捷键"), SYNTAX("文本 / 语法配色");
 		final String label; Section(String label) { this.label = label; } }
 	private record Hit(int left, int top, int right, int bottom, Runnable action) {
@@ -115,6 +163,11 @@ final class LuaPersonalizationScreen extends Screen {
 					Math.min(floatingWidth, width), Math.min(floatingHeight, height));
 	}
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate() && !closing) {
+			applyingAnimatedBounds = true;
+			try { applyBounds(x,y,width,height); boundsAnimation.snapTo(x,y,width,height); }
+			finally { applyingAnimatedBounds = false; } return;
+		}
 		if (dockSide.docked() && !closing) boundsAnimation.animateTo(panelLeft, panelTop,
 				panelRight - panelLeft, panelBottom - panelTop, x, y, width, height);
 	}

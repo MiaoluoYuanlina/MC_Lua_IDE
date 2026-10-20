@@ -12,7 +12,7 @@ import wiki.ica.xiaomiao.mcluaide.client.LuaIdeScreen;
 public abstract class EditBoxInputFocusMixin {
 	@WrapMethod(method = "setFocused")
 	private void mcLuaIde$onlyNotifyFocusChanges(boolean focused, Operation<Void> original) {
-		if (Minecraft.getInstance().screen instanceof LuaIdeScreen
+		if ((Minecraft.getInstance().screen instanceof LuaIdeScreen || Minecraft.getInstance().screen instanceof wiki.ica.xiaomiao.mcluaide.client.ImGuiIdeScreen)
 				&& ((EditBox) (Object) this).isFocused() == focused) return;
 		original.call(focused);
 	}

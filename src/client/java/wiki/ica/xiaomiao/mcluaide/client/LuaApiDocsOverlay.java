@@ -23,6 +23,60 @@ import java.util.function.Consumer;
 
 /** Animated API reference with availability/custom-root -> namespace -> method navigation. */
 final class LuaApiDocsOverlay {
+    void renderImGui() {
+        refreshDocumentation();
+        String query=NativeUi.input("##API filter",filterQuery);
+        if(!query.equals(filterQuery)){filterQuery=query;onFilterChanged();}
+        if(pinyinToggleVisible()) pinyinSearchEnabled=NativeUi.check("拼音首字母",pinyinSearchEnabled);
+        if(romajiToggleVisible()) romajiSearchEnabled=NativeUi.check("ローマ字検索",romajiSearchEnabled);
+        if(imgui.ImGui.beginTable("api",2,imgui.flag.ImGuiTableFlags.Resizable|imgui.flag.ImGuiTableFlags.BordersInnerV)) {
+            imgui.ImGui.tableSetupColumn("navigation",imgui.flag.ImGuiTableColumnFlags.WidthFixed,220);
+            imgui.ImGui.tableSetupColumn("details"); imgui.ImGui.tableNextColumn();
+            imgui.ImGui.beginChild("navigation");
+            int index=0;
+            for(var row:treeRows()) {
+                imgui.ImGui.pushID(index++); imgui.ImGui.indent(row.depth()*12);
+                boolean leaf=row.type()==RowType.METHOD||row.type()==RowType.PAGE;
+                if(leaf) {
+                    if(imgui.ImGui.selectable(row.label(),row.entry()!=null?row.entry()==selected:row.page()==selectedPage))activate(row);
+                } else {
+                    boolean expanded=switch(row.type()) {
+                        case ROOT->rootExpanded;
+                        case SECTION->filterQuery.isBlank()?expandedSections.contains(row.section().key()):!searchCollapsedSections.contains(row.section().key());
+                        case GROUP->filterQuery.isBlank()?expandedGroups.contains(groupKey(row.section(),row.group())):!searchCollapsedGroups.contains(groupKey(row.section(),row.group()));
+                        default->false;
+                    };
+                    imgui.ImGui.setNextItemOpen(expanded);
+                    boolean now=imgui.ImGui.treeNodeEx(row.label(),imgui.flag.ImGuiTreeNodeFlags.NoTreePushOnOpen|imgui.flag.ImGuiTreeNodeFlags.SpanAvailWidth);
+                    if(now!=expanded)activate(row);
+                }
+                imgui.ImGui.unindent(row.depth()*12); imgui.ImGui.popID();
+            }
+            imgui.ImGui.endChild(); imgui.ImGui.tableNextColumn(); imgui.ImGui.beginChild("details");
+            if(selectedPage!=null) {
+                imgui.ImGui.textWrapped(selectedPage.translation().pageTitle());
+                for(var element:selectedPage.translation().elements()) {
+                    imgui.ImGui.pushID(index++);
+                    if(element.kind()==McLuaIdeDocsApi.ElementKind.CODE) nativeCode(element.content());
+                    else NativeUi.readOnly("##text",element.content(),Math.max(46,imgui.ImGui.calcTextSize(element.content()).y+20));
+                    imgui.ImGui.popID();
+                }
+            } else if(selected!=null) {
+                var entry=selected.documentation(); imgui.ImGui.textWrapped(selected.symbol());
+                if(entry.clientRequired())imgui.ImGui.textColored(1,.68f,.25f,1,LuaUiText.text("客户端 Mod 专用：目标玩家必须安装兼容版本"));
+                StringBuilder description=new StringBuilder(entry.signature()).append("\n\n作用：").append(entry.summary()).append("\n返回：").append(entry.returns());
+                for(int i=0;i<entry.parameters().size();i++)description.append("\n参数").append(i+1).append("：").append(entry.describe(entry.parameters().get(i)));
+                description.append("\n\n").append(entry.details()).append("\n\n").append(usageHint(selected));
+                NativeUi.readOnly("##description",description.toString(),Math.max(180,imgui.ImGui.getContentRegionAvailY()*.46f));
+                nativeCode(LuaApiDocumentation.usageTemplate(selected.symbol()));
+            } else imgui.ImGui.textWrapped(LuaUiText.text("展开目录或搜索 API"));
+            imgui.ImGui.endChild(); imgui.ImGui.endTable();
+        }
+    }
+    private void nativeCode(String source) {
+        NativeUi.action("插入",()->insertion.accept(source)); imgui.ImGui.sameLine(); NativeUi.action("复制",()->NativeUi.copy(source));
+        NativeUi.code("##template",source,Math.max(100,Math.min(380,source.lines().count()*imgui.ImGui.getTextLineHeightWithSpacing()+15)));
+    }
 	private static final int TITLE_HEIGHT = 28;
 	private static final int BREADCRUMB_HEIGHT = 25;
 	private static final int FILTER_HEIGHT = 30;
@@ -319,6 +373,10 @@ final class LuaApiDocsOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (!dockSide.docked()) return;
 		boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight,
 				x, y, width, height);

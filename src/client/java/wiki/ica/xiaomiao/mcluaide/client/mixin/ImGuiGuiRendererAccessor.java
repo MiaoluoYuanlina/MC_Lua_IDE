@@ -1,0 +1,13 @@
+package wiki.ica.xiaomiao.mcluaide.client.mixin;
+
+import net.minecraft.client.gui.render.GuiRenderer;
+import net.minecraft.client.renderer.state.gui.GuiRenderState;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
+import org.spongepowered.asm.mixin.gen.Accessor;
+
+@Mixin(GuiRenderer.class)
+public interface ImGuiGuiRendererAccessor {
+    @Accessor("renderState") GuiRenderState mcLuaIde$state();
+    @Mutable @Accessor("renderState") void mcLuaIde$state(GuiRenderState state);
+}

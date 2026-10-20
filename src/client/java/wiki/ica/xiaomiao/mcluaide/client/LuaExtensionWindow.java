@@ -12,6 +12,64 @@ import java.util.Properties;
 
 /** Host-managed frame; third-party code owns only the clipped content area. */
 final class LuaExtensionWindow {
+    void renderImGui() {
+        if(content instanceof McLuaIdeWindowApi.NativeContent nativeContent && !failed) {
+            int w=(int)imgui.ImGui.getContentRegionAvailX(),h=(int)imgui.ImGui.getContentRegionAvailY();
+            if(w!=contentWidth||h!=contentHeight){contentWidth=w;contentHeight=h;call(()->content.resize(w,h));}
+            call(nativeContent::renderImGui);
+        } else if(content!=null&&!failed) renderLegacy();
+        else imgui.ImGui.textWrapped(LuaUiText.text("扩展窗口发生错误，请查看客户端日志","The extension window failed; see the client log"));
+    }
+    private static final java.util.Set<String> WARNED=new java.util.HashSet<>();
+    private final boolean[] legacyPressed=new boolean[3];
+    /** One log line and one chat message per window id and game run, however many times it is opened. */
+    private void warnLegacy(){
+        if(!WARNED.add(id()))return;
+        String en="IDE window \"" + id() + "\" uses the legacy Content.render(GuiGraphicsExtractor) API and runs in a compatibility layer. Update it to McLuaIdeWindowApi.NativeContent (extension API version " + McLuaIdeWindowApi.EXTENSION_API_VERSION + ").";
+        McLuaIdeMod.LOGGER.warn(en);
+        var player=net.minecraft.client.Minecraft.getInstance().player;
+        if(player!=null)player.sendSystemMessage(net.minecraft.network.chat.Component.literal("[MC Lua IDE] ⚠ "+LuaUiText.text("IDE 窗口“"+title()+"”("+id()+")仍使用旧版 Content 接口，已启用兼容显示；请扩展作者更新为 NativeContent。",en)).withStyle(net.minecraft.ChatFormatting.YELLOW));
+    }
+    /**
+     * Old extensions draw with Minecraft widgets. Their drawing is rasterized into a texture at the old GUI scale, shown in the
+     * window, and mouse and keyboard input is translated back into the content-local events the old interface expects.
+     */
+    private void renderLegacy(){
+        warnLegacy();
+        imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,1f,.72f,.25f,1f);
+        imgui.ImGui.textWrapped("⚠ "+LuaUiText.text("此扩展仍使用旧版 Content 接口，已通过兼容层显示（外观与输入可能与新版控件不同）。请更新为 NativeContent。","This extension uses the legacy Content API and is shown through a compatibility layer (look and input may differ). Please update it to NativeContent."));
+        imgui.ImGui.popStyleColor();
+        imgui.ImGui.separator();
+        float scale=Math.max(1,net.minecraft.client.Minecraft.getInstance().getWindow().getGuiScale());
+        float availableWidth=Math.max(8,imgui.ImGui.getContentRegionAvailX()),availableHeight=Math.max(8,imgui.ImGui.getContentRegionAvailY());
+        int logicalWidth=Math.max(1,(int)(availableWidth/scale)),logicalHeight=Math.max(1,(int)(availableHeight/scale));
+        if(logicalWidth!=contentWidth||logicalHeight!=contentHeight){contentWidth=logicalWidth;contentHeight=logicalHeight;call(()->content.resize(logicalWidth,logicalHeight));}
+        focus(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows));
+        float left=imgui.ImGui.getCursorScreenPosX(),top=imgui.ImGui.getCursorScreenPosY();
+        float localX=(imgui.ImGui.getMousePosX()-left)/scale,localY=(imgui.ImGui.getMousePosY()-top)/scale;
+        int mouseX=(int)Math.floor(localX),mouseY=(int)Math.floor(localY);
+        NativeUi.mediaScaled("ext:"+id(),logicalWidth,logicalHeight,scale,mouseX,mouseY,graphics->call(()->content.render(graphics,mouseX,mouseY)));
+        imgui.ImGui.setCursorScreenPos(left,top);
+        imgui.ImGui.invisibleButton("##legacy_surface",logicalWidth*scale,logicalHeight*scale,imgui.flag.ImGuiButtonFlags.MouseButtonLeft|imgui.flag.ImGuiButtonFlags.MouseButtonRight|imgui.flag.ImGuiButtonFlags.MouseButtonMiddle);
+        boolean hovered=imgui.ImGui.isItemHovered();
+        var io=imgui.ImGui.getIO();
+        for(int button=0;button<3;button++){
+            final int b=button;
+            MouseButtonEvent event=new MouseButtonEvent(localX,localY,new net.minecraft.client.input.MouseButtonInfo(b,legacyModifiers(io)));
+            if(hovered&&imgui.ImGui.isMouseClicked(b)){legacyPressed[b]=true;boolean twice=imgui.ImGui.isMouseDoubleClicked(b);call(()->content.mouseClicked(event,twice));}
+            if(!legacyPressed[b])continue;
+            if(imgui.ImGui.isMouseDown(b)){
+                float dx=io.getMouseDeltaX()/scale,dy=io.getMouseDeltaY()/scale;
+                if(dx!=0||dy!=0)call(()->content.mouseDragged(event,dx,dy));
+            } else { legacyPressed[b]=false; call(()->content.mouseReleased(event)); }
+        }
+        if(hovered&&(io.getMouseWheel()!=0||io.getMouseWheelH()!=0))call(()->content.mouseScrolled(localX,localY,io.getMouseWheelH(),io.getMouseWheel()));
+    }
+    private static int legacyModifiers(imgui.ImGuiIO io){
+        return (io.getKeyCtrl()?org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL:0)|(io.getKeyShift()?org.lwjgl.glfw.GLFW.GLFW_MOD_SHIFT:0)|(io.getKeyAlt()?org.lwjgl.glfw.GLFW.GLFW_MOD_ALT:0);
+    }
+    /** True when this window shows old-style content that expects keyboard events. */
+    boolean legacyContent(){ return content!=null&&!failed&&!(content instanceof McLuaIdeWindowApi.NativeContent); }
 	private static final int TITLE_HEIGHT = 28;
 	private final int MIN_WIDTH;
 	private final int MIN_HEIGHT;
@@ -166,6 +224,10 @@ final class LuaExtensionWindow {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			this.x = x; this.y = y; this.width = width; this.height = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (dockSide.docked()) boundsAnimation.animateTo(this.x, this.y, this.width, this.height,
 				x, y, width, height);
 	}

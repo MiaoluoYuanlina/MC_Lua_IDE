@@ -12,7 +12,23 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /** The shared IDE frame supplies movement, docking, resizing, animation and layout persistence. */
-final class LuaMcpWindow implements McLuaIdeWindowApi.Content {
+final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        imgui.ImGui.textWrapped((server?"服务端":"客户端")+" MCP · Streamable HTTP · 127.0.0.1 · Token");
+        imgui.ImGui.beginDisabled(busy);
+        String typedPort=NativeUi.field("监听端口",port.getValue()).replaceAll("[^0-9]","");
+        if(!typedPort.equals(port.getValue()))port.setValue(typedPort.length()>5?typedPort.substring(0,5):typedPort);
+        write=NativeUi.check("允许写 Lua 文件（覆盖原内容）",write);execute=NativeUi.check("允许运行/停止脚本",execute);
+        imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("高危：执行可改变世界，令牌不要发给不可信的人。"));
+        NativeUi.action("开启 / 应用配置",()->apply(true,false));imgui.ImGui.sameLine();NativeUi.action("关闭服务",()->apply(false,false));NativeUi.action("重置令牌",()->apply(data!=null&&data.running(),true));
+        if(data!=null){
+            NativeUi.action("复制连接提示词",()->context.copyText(LuaMcpServer.prompt(data.settings(),server)));
+            NativeUi.action("复制调用日志",()->context.copyText(LuaMcpServer.JSON.toJson(data.logs())));
+            NativeUi.action("清空调用日志",()->{if(server)ScriptManager.clearMcpServerLogs().whenComplete((v,e)->context.minecraft().execute(()->{if(!disposed&&e==null)data=v;}));else{LuaClientMcpService.clearLogs();data=LuaClientMcpService.status();}});
+        }
+        NativeUi.action("刷新",()->refresh(true));imgui.ImGui.endDisabled();NativeUi.status(notice);
+        if(data!=null)NativeUi.readOnly("##calls",data.logs().stream().map(log->log.method()+" "+log.tool()+" · "+log.outcome()+" · "+log.milliseconds()+"ms").collect(java.util.stream.Collectors.joining("\n")),Math.max(100,imgui.ImGui.getContentRegionAvailY()));
+    }
     static final String CLIENT_ID = "mc_lua_ide:mcp_client", SERVER_ID = "mc_lua_ide:mcp_server";
     private final McLuaIdeWindowApi.Context context;
     private final boolean server;

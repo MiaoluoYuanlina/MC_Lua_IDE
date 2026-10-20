@@ -43,6 +43,47 @@ import java.util.function.Consumer;
 
 /** Draggable, resizable and searchable runtime ID picker. */
 final class LuaInsertOverlay {
+    private boolean nativeFocusQuery;
+    void renderImGui() {
+        var chosen=NativeUi.combo("类型",kind,List.of(LuaInsertCatalog.Kind.values()),LuaInsertCatalog.Kind::label);
+        if(chosen!=kind)selectKind(chosen);
+        namespaceQuery=NativeUi.input("##namespace search",namespaceQuery);
+        var options=filteredNamespaceOptions();
+        var current=namespaceOptions.isEmpty()?null:namespaceOptions.get(Math.min(namespaceIndex,namespaceOptions.size()-1));
+        var option=NativeUi.combo("命名空间",current,options,value->value.displayName()+" ("+value.count()+")");
+        if(option!=null&&option!=current){namespaceIndex=namespaceOptions.indexOf(option);filterEntries(true);}
+        if(nativeFocusQuery){imgui.ImGui.setKeyboardFocusHere();nativeFocusQuery=false;}
+        String next=NativeUi.input("##ID search",query); if(!query.equals(next)){query=next;filterEntries(true);}
+        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)) {
+            int delta=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.DownArrow)?1:imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.UpArrow)?-1:0;
+            if(delta!=0&&!filtered.isEmpty()){selectedRow=Math.floorMod(selectedRow+delta,filtered.size());previewSelectedSound();}
+            int horizontal=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.RightArrow)?1:imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.LeftArrow)?-1:0;
+            if(horizontal!=0&&!imgui.ImGui.getIO().getWantTextInput())selectKind(LuaInsertCatalog.Kind.values()[Math.floorMod(kind.ordinal()+horizontal,LuaInsertCatalog.Kind.values().length)]);
+        }
+        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))insertSelected();
+        imgui.ImGui.beginChild("ids",0,Math.max(60,imgui.ImGui.getContentRegionAvailY()-40));
+        float rowHeight=Math.max(28,imgui.ImGui.getTextLineHeightWithSpacing());
+        var clipper=new imgui.ImGuiListClipper(); clipper.begin(filtered.size(),rowHeight);
+        boolean hoveringSound=false;
+        while(clipper.step())for(int index=clipper.getDisplayStart();index<clipper.getDisplayEnd();index++) {
+            var entry=filtered.get(index); imgui.ImGui.pushID(index);
+            float x=imgui.ImGui.getCursorPosX(),y=imgui.ImGui.getCursorPosY();
+            if(imgui.ImGui.selectable("##id",index==selectedRow,imgui.flag.ImGuiSelectableFlags.AllowDoubleClick,0,rowHeight)) {
+                selectedRow=index;previewSelectedSound(); if(imgui.ImGui.isMouseDoubleClicked(0))insertSelected();
+            }
+            if(imgui.ImGui.isItemHovered()) {
+                imgui.ImGui.setTooltip(entry.value()+"\n"+entry.entry().label());
+                if(kind==LuaInsertCatalog.Kind.SOUND){hoveringSound=true;soundPreview.pointer(imgui.ImGui.getMousePosX(),imgui.ImGui.getMousePosY(),entry.soundId());}
+            }
+            imgui.ImGui.setCursorPos(x,y);
+            NativeUi.media("id:"+entry.kind()+":"+entry.value(),24,24,g->renderEntryIcon(g,entry.kind(),entry.entry(),4,4));
+            imgui.ImGui.sameLine(); imgui.ImGui.textUnformatted(entry.entry().label()+"   "+entry.value());
+            imgui.ImGui.setCursorPos(x,y+rowHeight);imgui.ImGui.dummy(0,0);imgui.ImGui.popID();
+        }
+        clipper.end();clipper.destroy();imgui.ImGui.endChild();
+        if(!hoveringSound&&kind==LuaInsertCatalog.Kind.SOUND)soundPreview.pointer(-1,-1,null);
+        NativeUi.action("插入",this::insertSelected);imgui.ImGui.sameLine();imgui.ImGui.textDisabled(filtered.size()+" IDs");
+    }
 	private static final int TITLE_HEIGHT = 28;
 	private static final int RESIZE_MARGIN = 6;
 	private static final int MIN_WIDTH = 380;
@@ -135,6 +176,7 @@ final class LuaInsertOverlay {
 	}
 
 	void open(LuaInsertCatalog.Kind preferredKind, String initialQuery) {
+		nativeFocusQuery=true;
 		stopSoundPreview();
 		open = true;
 		keyboardFocused = true;
@@ -283,6 +325,10 @@ final class LuaInsertOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (!dockSide.docked()) return;
 		boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight,
 				x, y, width, height);
@@ -294,6 +340,7 @@ final class LuaInsertOverlay {
 	}
 
 	void requestKeyboardFocus() {
+		nativeFocusQuery=true;
 		if (open) keyboardFocused = true;
 	}
 

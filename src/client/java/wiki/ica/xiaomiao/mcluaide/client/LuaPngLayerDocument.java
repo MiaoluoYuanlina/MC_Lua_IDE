@@ -27,7 +27,9 @@ import java.util.zip.ZipOutputStream;
 /** Non-destructive in-memory PNG layers; the PNG stays flat and project layers live in client config. */
 final class LuaPngLayerDocument {
 	enum Tool { PENCIL, BRUSH, ERASER, FILL, PICKER }
-	record Layer(String name, BufferedImage image, boolean visible) { }
+	record Layer(String name, BufferedImage image, boolean visible, float opacity) {
+		Layer(String name, BufferedImage image, boolean visible) { this(name, image, visible, 1f); }
+	}
 	record RecoveryImage(List<Layer> layers, int selected) { }
 	private record Snapshot(List<Layer> layers, int selected) { }
 	private static final int MAX_LAYERS = 16;
@@ -162,7 +164,61 @@ final class LuaPngLayerDocument {
 		if (index < 0 || index >= layers.size()) return;
 		snapshot();
 		Layer old = layers.get(index);
-		layers.set(index, new Layer(old.name(), old.image(), !old.visible()));
+		layers.set(index, new Layer(old.name(), old.image(), !old.visible(), old.opacity()));
+		changed();
+	}
+
+	static float parseOpacity(String raw) {
+		try { float value = Float.parseFloat(raw); return Float.isFinite(value) ? Math.clamp(value, 0f, 1f) : 1f; }
+		catch (NumberFormatException ignored) { return 1f; }
+	}
+
+	void renameLayer(int index, String name) {
+		if (index < 0 || index >= layers.size()) return;
+		String clean = name == null ? "" : name.strip();
+		if (clean.isEmpty()) clean = "图层 " + (index + 1);
+		if (clean.length() > 48) clean = clean.substring(0, 48);
+		Layer old = layers.get(index);
+		if (old.name().equals(clean)) return;
+		snapshot();
+		layers.set(index, new Layer(clean, old.image(), old.visible(), old.opacity()));
+		changed();
+	}
+
+	/** Pass beginChange=true on the first frame of a slider drag so the whole drag is one undo step. */
+	void setOpacity(int index, float opacity, boolean beginChange) {
+		if (index < 0 || index >= layers.size()) return;
+		float clamped = Math.clamp(opacity, 0f, 1f);
+		Layer old = layers.get(index);
+		if (old.opacity() == clamped) return;
+		if (beginChange) snapshot();
+		layers.set(index, new Layer(old.name(), old.image(), old.visible(), clamped));
+		changed();
+	}
+
+	void duplicateLayer() {
+		if (layers.size() >= MAX_LAYERS) return;
+		snapshot();
+		Layer source = layers.get(selected);
+		selected++;
+		layers.add(selected, new Layer(source.name() + " 副本", copy(source.image()), source.visible(), source.opacity()));
+		changed();
+	}
+
+	/** Flattens the selected layer onto the one below it, honouring both opacities. */
+	void mergeDown() {
+		if (selected <= 0) return;
+		snapshot();
+		Layer top = layers.get(selected), bottom = layers.get(selected - 1);
+		BufferedImage merged = copy(bottom.image());
+		Graphics2D graphics = merged.createGraphics();
+		try {
+			graphics.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, top.visible() ? Math.clamp(top.opacity(), 0f, 1f) : 0f));
+			graphics.drawImage(top.image(), 0, 0, null);
+		} finally { graphics.dispose(); }
+		layers.remove(selected);
+		selected--;
+		layers.set(selected, new Layer(bottom.name(), merged, bottom.visible(), bottom.opacity()));
 		changed();
 	}
 
@@ -189,7 +245,7 @@ final class LuaPngLayerDocument {
 				graphics.setComposite(AlphaComposite.Src);
 				graphics.drawImage(layer.image(), 0, 0, null);
 			} finally { graphics.dispose(); }
-			resized.add(new Layer(layer.name(), image, layer.visible()));
+			resized.add(new Layer(layer.name(), image, layer.visible(), layer.opacity()));
 		}
 		layers.clear(); layers.addAll(resized);
 		width = newWidth; height = newHeight;
@@ -216,7 +272,10 @@ final class LuaPngLayerDocument {
 		Graphics2D graphics = result.createGraphics();
 		try {
 			graphics.setComposite(AlphaComposite.SrcOver);
-			for (Layer layer : layers) if (layer.visible()) graphics.drawImage(layer.image(), 0, 0, null);
+			for (Layer layer : layers) if (layer.visible() && layer.opacity() > 0f) {
+					graphics.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.clamp(layer.opacity(), 0f, 1f)));
+					graphics.drawImage(layer.image(), 0, 0, null);
+				}
 		} finally { graphics.dispose(); }
 		return result;
 	}
@@ -307,7 +366,7 @@ final class LuaPngLayerDocument {
 	}
 
 	private Snapshot capture() {
-		return new Snapshot(layers.stream().map(layer -> new Layer(layer.name(), copy(layer.image()), layer.visible())).toList(), selected);
+		return new Snapshot(layers.stream().map(layer -> new Layer(layer.name(), copy(layer.image()), layer.visible(), layer.opacity())).toList(), selected);
 	}
 
 	private void restore(Snapshot snapshot) {
@@ -337,6 +396,7 @@ final class LuaPngLayerDocument {
 					Layer layer = layers.get(index);
 					properties.setProperty("layer." + index + ".name", layer.name());
 					properties.setProperty("layer." + index + ".visible", Boolean.toString(layer.visible()));
+					properties.setProperty("layer." + index + ".opacity", Float.toString(layer.opacity()));
 					ByteArrayOutputStream encoded = new ByteArrayOutputStream();
 					if (!ImageIO.write(layer.image(), "PNG", encoded)) throw new IOException("图层 PNG 编码不可用");
 					zip.putNextEntry(new ZipEntry("layer_" + index + ".png"));
@@ -381,7 +441,8 @@ final class LuaPngLayerDocument {
 		layers.clear();
 		for (int index = 0; index < count; index++) layers.add(new Layer(
 				properties.getProperty("layer." + index + ".name", "图层 " + (index + 1)), images.get(index),
-				Boolean.parseBoolean(properties.getProperty("layer." + index + ".visible", "true"))));
+				Boolean.parseBoolean(properties.getProperty("layer." + index + ".visible", "true")),
+					parseOpacity(properties.getProperty("layer." + index + ".opacity", "1"))));
 		try { selected = Math.clamp(Integer.parseInt(properties.getProperty("selected", "0")), 0, count - 1); }
 		catch (NumberFormatException ignored) { selected = 0; }
 	}

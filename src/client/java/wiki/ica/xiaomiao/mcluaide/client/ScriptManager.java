@@ -54,6 +54,16 @@ public final class ScriptManager {
 	private ScriptManager() {
 	}
 
+	/**
+	 * Development-only self tests are selected by MC_LUA_IDE_*_TEST environment variables. The probe classes are not part of
+	 * the released jar, so they are only touched when one of those variables is set.
+	 */
+	private static void runDevelopmentProbes() {
+		if (System.getenv().keySet().stream().noneMatch(name -> name.startsWith("MC_LUA_IDE_") && name.endsWith("_TEST"))) return;
+		try { LuaIntegrationProbe.runIfEnabled(); }
+		catch (LinkageError missing) { McLuaIdeMod.LOGGER.warn("MC_LUA_IDE_*_TEST is set but the probe classes are not available in this build"); }
+	}
+
 	public static void registerNetworking() {
 		if (!REGISTERED.compareAndSet(false, true)) return;
 		ClientLoginNetworking.registerGlobalReceiver(LuaProtocol.CLIENT_CHECK_ID,
@@ -91,7 +101,7 @@ public final class ScriptManager {
 				if (failure == null) {
 					McLuaIdeMod.LOGGER.info("MC Lua IDE administrator protocol ready");
 					LuaClientMcpService.restore();
-					LuaIntegrationProbe.runIfEnabled();
+					runDevelopmentProbes();
 				}
 				else McLuaIdeMod.LOGGER.info("MC Lua IDE server available but access was denied: {}",
 						message(failure));
@@ -630,7 +640,7 @@ public final class ScriptManager {
 
 	public static String validate(String name, String source) {
 		try {
-			JsePlatform.standardGlobals().load(source, name + ".lua");
+			wiki.ica.xiaomiao.mcluaide.server.LuaSandbox.syntaxOnly().load(source, name + ".lua");
 			return null;
 		} catch (LuaError error) {
 			return error.getMessage();
@@ -670,8 +680,8 @@ public final class ScriptManager {
 			future.completeExceptionally(error);
 			return future;
 		}
-		boolean fileTransfer = LuaProtocol.requestTextLimit(action.ordinal()) == LuaProtocol.MAX_SCRIPT_CHARS
-				|| LuaProtocol.responseTextLimit(action.ordinal()) == LuaProtocol.MAX_SCRIPT_CHARS;
+		boolean fileTransfer = LuaProtocol.requestTextLimit(action.id()) == LuaProtocol.MAX_SCRIPT_CHARS
+				|| LuaProtocol.responseTextLimit(action.id()) == LuaProtocol.MAX_SCRIPT_CHARS;
 		boolean packWork = action == LuaProtocol.Action.RELOAD_DATAPACKS || action == LuaProtocol.Action.FINISH_SERVER_PACK_UPLOAD
 				|| action == LuaProtocol.Action.SET_SERVER_PACK;
 		boolean gitWork = switch (action) {

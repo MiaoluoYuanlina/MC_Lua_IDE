@@ -15,6 +15,22 @@ import java.util.Map;
 
 /** Paged editor for the server-authoritative Lua execution policy. */
 public final class LuaLimitsScreen extends Screen {
+    void renderImGui(){
+        var page=NativeUi.combo("分类",PAGES.get(pageIndex),PAGES,p->LuaUiText.text(p.title()));pageIndex=PAGES.indexOf(page);
+        imgui.ImGui.textWrapped(LuaUiText.text(page.description()));imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("服务端全局设置：所有管理员共用"));
+        imgui.ImGui.beginDisabled(!loaded||saving);
+        for(var setting:page.settings()){
+            imgui.ImGui.pushID(setting.key());
+            if(setting.type()==SettingType.NUMBER)values.put(setting.key(),NativeUi.field(setting.label(),values.getOrDefault(setting.key(),"")));
+            else values.put(setting.key(),Boolean.toString(NativeUi.check(setting.label(),Boolean.parseBoolean(values.getOrDefault(setting.key(),"false")))));
+            if(setting.type()==SettingType.DANGEROUS_BOOLEAN)imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("高危：")+LuaUiText.text(setting.description()));
+            else if(setting.type()==SettingType.WARNING_BOOLEAN)imgui.ImGui.textColored(1,.78f,.3f,1,LuaUiText.text("警告：")+LuaUiText.text(setting.description()));
+            else imgui.ImGui.textWrapped(LuaUiText.text(setting.description()));
+            imgui.ImGui.popID();imgui.ImGui.separator();
+        }
+        NativeUi.action("恢复默认",this::resetDefaults);imgui.ImGui.endDisabled();
+        NativeUi.action(loaded?"保存到服务器":"重试读取",()->{if(loaded)save();else load();});NativeUi.status(status);
+    }
 	private static final List<Page> PAGES = List.of(
 			new Page("执行资源", "限制脚本体积、运行时间以及输出量", List.of(
 					number("maxScriptChars", "执行脚本最大字符数", "1,024 - 5,000,000；仅限制执行／模块加载，不限制编辑保存"),

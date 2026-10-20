@@ -13,7 +13,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Built-in content uses the IDE's shared animation, resizing, docking and saved-layout frame. */
-final class LuaServerPackWindow implements McLuaIdeWindowApi.Content {
+final class LuaServerPackWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        imgui.ImGui.textWrapped(LuaUiText.text("原版客户端兼容 · 仅管理员可配置"));imgui.ImGui.beginDisabled(busy);
+        NativeUi.action("选择资源包 ZIP…",this::choose);url.setValue(NativeUi.field("下载地址",url.getValue()));port.setValue(NativeUi.field("下载端口",port.getValue()));
+        hosted=NativeUi.check("使用模组 ZIP 下载服务",hosted);required=NativeUi.check("要求玩家接受资源包",required);
+        NativeUi.action("上传并应用",this::apply);imgui.ImGui.sameLine();NativeUi.action("停用资源包",this::disable);imgui.ImGui.endDisabled();
+        if(job!=null&&!job.result.isDone())NativeUi.action("取消上传",()->job.cancel());
+        for(var row:rows())imgui.ImGui.textWrapped(row.text);
+    }
 	static final String ID = "mc_lua_ide:server_resource_pack";
 	private final McLuaIdeWindowApi.Context context;
 	private final EditBox url, port;

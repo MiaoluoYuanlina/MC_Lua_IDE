@@ -19,6 +19,48 @@ import java.util.function.Consumer;
 
 /** Dockable Minecraft JSON text-component builder with a live formatted preview. */
 final class LuaTextJsonOverlay {
+	void renderImGui() {
+		if(imgui.ImGui.beginTable("segments",2,imgui.flag.ImGuiTableFlags.Resizable|imgui.flag.ImGuiTableFlags.BordersInnerV)) {
+			imgui.ImGui.tableSetupColumn("分段",imgui.flag.ImGuiTableColumnFlags.WidthFixed,180);imgui.ImGui.tableSetupColumn("属性");imgui.ImGui.tableNextColumn();
+			NativeUi.action("添加",this::addSegment);imgui.ImGui.sameLine();NativeUi.action("删除",this::deleteSegment);
+			NativeUi.action("复制分段",this::duplicateSegment);NativeUi.action("上移",()->moveSegment(-1));imgui.ImGui.sameLine();NativeUi.action("下移",()->moveSegment(1));
+			for(int i=0;i<segments.size();i++)if(imgui.ImGui.selectable((i+1)+" · "+segments.get(i).previewText(),i==selectedIndex))selectSegment(i);
+			imgui.ImGui.tableNextColumn();var segment=segments.get(selectedIndex);
+			segment.kind=NativeUi.combo("内容类型",segment.kind,List.of(LuaTextJsonDocument.Kind.values()),v->LuaUiText.text(v.label));
+			switch(segment.kind) {
+				case TEXT->segment.text=NativeUi.field("文字",segment.text);
+				case SCORE->{segment.scoreName=NativeUi.field("持有者 / 选择器",segment.scoreName);segment.scoreObjective=NativeUi.field("积分项",segment.scoreObjective);}
+				case SELECTOR->{segment.selector=NativeUi.field("目标选择器",segment.selector);segment.separator=NativeUi.field("分隔符",segment.separator);}
+				case TRANSLATE->{segment.translate=NativeUi.field("翻译键",segment.translate);segment.fallback=NativeUi.field("后备文字",segment.fallback);}
+				case KEYBIND->segment.keybind=NativeUi.field("按键 ID",segment.keybind);
+				case LUA_VARIABLE->segment.luaVariable=NativeUi.field("Lua 变量 / 表达式",segment.luaVariable);
+			}
+			if(imgui.ImGui.collapsingHeader("颜色",imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
+				segment.gradient=NativeUi.check("启用渐变",segment.gradient);
+				String stops=NativeUi.field("十六进制色标（逗号分隔）",segment.gradientStops);
+				if(!stops.equals(segment.gradientStops)){segment.gradientStops=stops;String first=stops.split("[,，;；\\s]+",2)[0];if(first.matches("#?[0-9a-fA-F]{6}"))segment.color=first.startsWith("#")?first:"#"+first;}
+				int picked=NativeUi.color("插入颜色",0xff000000|safeRgb(segment.color));String hex=String.format("#%06X",picked&0xffffff);
+				if(!hex.equalsIgnoreCase(segment.color)){segment.color=hex;String[] parts=segment.gradientStops.split(",",2);segment.gradientStops=hex+(parts.length>1?","+parts[1]:"");}
+				if(imgui.ImGui.button("添加色标"))segment.gradientStops+=", "+hex;
+			}
+			if(imgui.ImGui.collapsingHeader("样式",imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
+				String color=NativeUi.field("颜色 ID",segment.color);if(!color.equals(segment.color)){segment.color=color;String[] parts=segment.gradientStops.split(",",2);segment.gradientStops=color+(parts.length>1?","+parts[1]:"");}
+				segment.fontId=NativeUi.field("字体 ID",segment.fontId);segment.bold=NativeUi.check("粗体",segment.bold);imgui.ImGui.sameLine();segment.italic=NativeUi.check("斜体",segment.italic);
+				segment.underlined=NativeUi.check("下划线",segment.underlined);imgui.ImGui.sameLine();segment.strikethrough=NativeUi.check("删除线",segment.strikethrough);segment.obfuscated=NativeUi.check("随机字符",segment.obfuscated);
+			}
+			if(imgui.ImGui.collapsingHeader("悬浮显示")){
+				segment.hover=NativeUi.combo("悬浮类型",segment.hover,List.of(LuaTextJsonDocument.Hover.values()),v->LuaUiText.text(v.label));
+				switch(segment.hover){case TEXT->segment.hoverText=NativeUi.field("悬浮文字",segment.hoverText);case ITEM->{segment.hoverItem=NativeUi.field("物品 ID",segment.hoverItem);segment.hoverCount=NativeUi.field("数量",segment.hoverCount);}case ENTITY->{segment.hoverEntityType=NativeUi.field("实体类型",segment.hoverEntityType);segment.hoverEntityUuid=NativeUi.field("实体 UUID",segment.hoverEntityUuid);segment.hoverEntityName=NativeUi.field("实体名称",segment.hoverEntityName);}default->{}}
+			}
+			if(imgui.ImGui.collapsingHeader("点击事件")){segment.click=NativeUi.combo("点击动作",segment.click,List.of(LuaTextJsonDocument.Click.values()),v->LuaUiText.text(v.label));segment.clickValue=NativeUi.field("点击参数",segment.clickValue);}
+			imgui.ImGui.endTable();
+		}
+		imgui.ImGui.separatorText("分段预览");
+		int previewWidth=Math.max(32,(int)imgui.ImGui.getContentRegionAvailX());
+		NativeUi.media("text_component_preview",previewWidth,48,g->{int px=6;for(var segment:segments){String text=segment.previewText();List<Integer> colors=null;try{if(segment.gradient&&segment.kind==LuaTextJsonDocument.Kind.TEXT)colors=LuaTextJsonDocument.gradientColors(segment.gradientStops,text.codePointCount(0,text.length()));}catch(IllegalArgumentException ignored){}int charIndex=0;for(int position=0;position<text.length()&&px<previewWidth-8;){int cp=text.codePointAt(position);String ch=new String(Character.toChars(cp));Component styled=Component.literal(ch).withStyle(previewStyle(segment,colors==null?safeRgb(firstColorText(segment)):colors.get(charIndex++)));g.text(font,styled,px,17,0xFFFFFFFF);px+=font.width(styled);position+=Character.charCount(cp);}}});
+		for(int i=0;i<segments.size();i++){var segment=segments.get(i);int rgb=safeRgb(segment.color);imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,(rgb>>16&255)/255f,(rgb>>8&255)/255f,(rgb&255)/255f,1);if(imgui.ImGui.selectable(segment.previewText()+"##preview"+i,i==selectedIndex))selectSegment(i);NativeUi.hint(hoverSummary(segment));imgui.ImGui.popStyleColor();}
+		NativeUi.readOnly("##generated",generatedJsonSafe(),120);NativeUi.action("插入",this::insertJson);imgui.ImGui.sameLine();NativeUi.action("复制",this::copyJson);NativeUi.status(status);
+	}
 	private static final int TITLE_HEIGHT = 28;
 	private static final int RESIZE_MARGIN = 6;
 	private static final int MIN_WIDTH = 430;
@@ -189,6 +231,10 @@ final class LuaTextJsonOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (dockSide.docked()) {
 			boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight, x, y, width, height);
 		}

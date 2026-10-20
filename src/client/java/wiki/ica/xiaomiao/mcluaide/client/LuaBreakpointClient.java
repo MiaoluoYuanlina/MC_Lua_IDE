@@ -92,7 +92,7 @@ final class LuaBreakpointClient {
 	}
 	static void tick(Minecraft client) {
 		if (client.player == null || !ScriptManager.isServerAvailable()) return;
-		boolean watching = showInfo || client.screen instanceof LuaIdeScreen || client.screen instanceof LuaDebugScreen || client.screen instanceof LuaDebugKeysScreen || client.screen instanceof LuaHudLayoutScreen
+		boolean watching = showInfo || client.screen instanceof LuaIdeScreen || client.screen instanceof ImGuiIdeScreen || client.screen instanceof LuaDebugScreen || client.screen instanceof LuaDebugKeysScreen || client.screen instanceof LuaHudLayoutScreen
 				|| ScriptManager.activeExecution() != null || LuaDebuggerCamera.enabled();
 		if (!watching) return;
 		store();

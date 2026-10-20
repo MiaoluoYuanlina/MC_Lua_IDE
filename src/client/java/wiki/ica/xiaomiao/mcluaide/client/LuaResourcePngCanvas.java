@@ -13,6 +13,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Editable PNG shown in the IDE's main editor viewport, not in a separate screen. */
 final class LuaResourcePngCanvas {
+    void renderImGui() {
+        imgui.ImGui.textDisabled(document.width()+" × "+document.height()+" · 滚轮缩放 · 中键平移 · Ctrl+S");
+        float x=imgui.ImGui.getCursorScreenPosX(),y=imgui.ImGui.getCursorScreenPosY();
+        int w=Math.max(50,(int)imgui.ImGui.getContentRegionAvailX()),h=Math.max(50,(int)imgui.ImGui.getContentRegionAvailY());
+        left=(int)x;top=(int)y-25;right=left+w;bottom=(int)y+h;
+        double scale=Math.max(.25,Math.min(64,Math.min(w/(double)document.width(),h/(double)document.height())*zoom));
+        imageWidth=Math.max(1,(int)Math.round(document.width()*scale));imageHeight=Math.max(1,(int)Math.round(document.height()*scale));
+        imageX=(int)(x+(w-imageWidth)/2+panX);imageY=(int)(y+(h-imageHeight)/2+panY);
+        imgui.ImGui.invisibleButton("paint",w,h,imgui.flag.ImGuiButtonFlags.MouseButtonLeft|imgui.flag.ImGuiButtonFlags.MouseButtonMiddle);
+        boolean hovered=imgui.ImGui.isItemHovered();float mx=imgui.ImGui.getMousePosX(),my=imgui.ImGui.getMousePosY();
+        if(hovered){
+            if(imgui.ImGui.isMouseClicked(0))click(mx,my,0);if(imgui.ImGui.isMouseClicked(2))click(mx,my,2);
+            if(imgui.ImGui.getIO().getMouseWheel()!=0)scroll(mx,my,imgui.ImGui.getIO().getMouseWheel());
+        }
+        if(painting||panning){if(imgui.ImGui.isMouseDown(panning?2:0))drag(mx,my);else release();}
+        updateTexture();var draw=imgui.ImGui.getWindowDrawList();draw.pushClipRect(x,y,x+w,y+h,true);
+        if(dynamic!=null)draw.addImage(((com.mojang.blaze3d.opengl.GlTexture)dynamic.getTexture()).glId(),imageX,imageY,imageX+imageWidth,imageY+imageHeight);
+        draw.addRect(imageX,imageY,imageX+imageWidth,imageY+imageHeight,0xFFD6CCB9);
+        if(hovered&&mx>=imageX&&mx<imageX+imageWidth&&my>=imageY&&my<imageY+imageHeight){
+            int px=(int)((mx-imageX)*document.width()/imageWidth),py=(int)((my-imageY)*document.height()/imageHeight);
+            var bounds=previewPixelBounds(px,py,tool==LuaPngLayerDocument.Tool.FILL||tool==LuaPngLayerDocument.Tool.PICKER?1:LuaPngLayerDocument.pressureSize(toolSize(),WindowsPenPressure.currentPressure()),document.width(),document.height());
+            float ax=imageX+projectedPixelEdge(bounds.left(),imageWidth,document.width()),ay=imageY+projectedPixelEdge(bounds.top(),imageHeight,document.height()),bx=imageX+projectedPixelEdge(bounds.right(),imageWidth,document.width()),by=imageY+projectedPixelEdge(bounds.bottom(),imageHeight,document.height());
+            draw.addRect(ax,ay,bx,by,0xFF000000);draw.addRect(ax+1,ay+1,bx-1,by-1,0xFFFFFFFF);
+        }draw.popClipRect();
+    }
 	record PixelBounds(int left, int top, int right, int bottom) { }
 	private static final AtomicInteger NEXT_TEXTURE = new AtomicInteger();
 	private final Minecraft minecraft;
@@ -162,6 +187,12 @@ final class LuaResourcePngCanvas {
 		for (int y = 0; y < image.getHeight(); y++) for (int x = 0; x < image.getWidth(); x++)
 			pixels.setPixel(x, y, checkerPreviewPixel(x, y, image.getRGB(x, y)));
 		dynamic.upload();
+		// ImGui samples texture objects directly, outside Minecraft's sampler cache.
+		int old=org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_TEXTURE_BINDING_2D);
+		org.lwjgl.opengl.GL11.glBindTexture(org.lwjgl.opengl.GL11.GL_TEXTURE_2D,((com.mojang.blaze3d.opengl.GlTexture)dynamic.getTexture()).glId());
+		org.lwjgl.opengl.GL11.glTexParameteri(org.lwjgl.opengl.GL11.GL_TEXTURE_2D,org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER,org.lwjgl.opengl.GL11.GL_NEAREST);
+		org.lwjgl.opengl.GL11.glTexParameteri(org.lwjgl.opengl.GL11.GL_TEXTURE_2D,org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER,org.lwjgl.opengl.GL11.GL_NEAREST);
+		org.lwjgl.opengl.GL11.glBindTexture(org.lwjgl.opengl.GL11.GL_TEXTURE_2D,old);
 		textureDirty = false;
 	}
 

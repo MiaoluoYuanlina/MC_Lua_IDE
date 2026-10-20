@@ -13,6 +13,12 @@ import java.util.Map;
 
 /** Server-global client installation policy. */
 public final class ServerAccessSettingsScreen extends Screen {
+    void renderImGui(){
+        imgui.ImGui.beginDisabled(loadedSettings==null||saving);requireClientMod=NativeUi.check("要求玩家安装客户端模组",requireClientMod);imgui.ImGui.endDisabled();
+        imgui.ImGui.textColored(1,.7f,.3f,1,LuaUiText.text(WARNING));
+        imgui.ImGui.textWrapped(LuaUiText.text("关闭：普通玩家可使用原版客户端进入，管理员仍需安装模组。"));
+        NativeUi.action(loadedSettings==null?"重试读取":"保存到服务器",()->{if(loadedSettings==null)load();else save();});NativeUi.status(status);
+    }
 	private static final String WARNING =
 			"开启后，未安装 MC Lua IDE 或协议版本不一致的客户端会在登录阶段被拒绝。";
 	private final Screen previousScreen;

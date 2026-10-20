@@ -23,6 +23,8 @@ public final class LuaFunctionFolding {
         private LuaFunctionModel model=LuaFunctionModel.parse("");
         private final Set<Integer> collapsed=new HashSet<>();
         private final NavigableMap<Integer,Integer> hiddenRanges=new TreeMap<>();
+        private long revision;
+        long revision(){return revision;}
         LuaFunctionModel model(String source) {
             if(source.equals(model.source))return model;
             String old=model.source;int prefix=0;
@@ -74,6 +76,7 @@ public final class LuaFunctionFolding {
             rebuildHiddenRanges();
         }
         private void rebuildHiddenRanges() {
+            revision++;
             // Index merged display ranges once per fold change, not once per display row.
             NavigableMap<Integer,Integer> ranges=new TreeMap<>();
             for(var fold:model.folds)if(collapsed(fold))ranges.merge(fold.hiddenStart(),fold.hiddenEnd(),Math::max);

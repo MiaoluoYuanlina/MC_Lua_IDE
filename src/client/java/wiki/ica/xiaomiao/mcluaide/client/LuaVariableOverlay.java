@@ -12,6 +12,19 @@ import java.util.List;
 
 /** IDE window for the same authorized variable snapshot used by the in-game HUD. */
 final class LuaVariableOverlay {
+    void renderImGui() {
+        text.update(LuaDebugHud.displayRows());
+        NativeUi.action("复制全部",()->NativeUi.copy(text.lines().stream().map(line->line.text()).collect(java.util.stream.Collectors.joining("\n"))));
+        imgui.ImGui.sameLine();imgui.ImGui.textDisabled(LuaDebugHud.script());
+        for(var line:text.lines()) {
+            var row=line.row(); imgui.ImGui.indent(row.depth()*12);
+            imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,NativeUi.rgba(LuaDebugHud.valueColor(row.type())));
+            imgui.ImGui.selectable(row.text()+(row.value().isEmpty()?"":" = "+row.value()));
+            if(imgui.ImGui.beginPopupContextItem()) { NativeUi.action("复制",()->NativeUi.copy(row.text()+" = "+row.value())); imgui.ImGui.endPopup(); }
+            imgui.ImGui.popStyleColor();imgui.ImGui.unindent(row.depth()*12);
+        }
+        if(text.lines().isEmpty())imgui.ImGui.textWrapped(LuaDebugHud.status());
+    }
 	private static final int TITLE_HEIGHT = 28;
 	private static final int ROW_HEIGHT = 14;
 	private static final int MIN_WIDTH = 190;
@@ -111,6 +124,10 @@ final class LuaVariableOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			this.x = x; this.y = y; this.width = width; this.height = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (dockSide.docked()) boundsAnimation.animateTo(this.x, this.y, this.width, this.height,
 				x, y, width, height);
 	}

@@ -24,7 +24,8 @@ public abstract class MultiLineEditBoxSyntaxMixin {
 	@WrapMethod(method = "setFocused")
 	private void mcLuaIde$stableInputFocus(boolean focused, Operation<Void> original) {
 		MultiLineEditBox self = (MultiLineEditBox) (Object) this;
-		if (net.minecraft.client.Minecraft.getInstance().screen instanceof wiki.ica.xiaomiao.mcluaide.client.LuaIdeScreen
+		if ((net.minecraft.client.Minecraft.getInstance().screen instanceof wiki.ica.xiaomiao.mcluaide.client.LuaIdeScreen
+				|| net.minecraft.client.Minecraft.getInstance().screen instanceof wiki.ica.xiaomiao.mcluaide.client.ImGuiIdeScreen)
 				&& self.isFocused() == focused) return;
 		original.call(focused);
 	}

@@ -630,15 +630,15 @@ public final class LuaSyntaxHighlighter {
 
 	public enum Theme {
 		DARK(ChatFormatting.LIGHT_PURPLE, ChatFormatting.GREEN, ChatFormatting.GOLD,
-				ChatFormatting.AQUA, ChatFormatting.DARK_GRAY, ChatFormatting.WHITE, ChatFormatting.RED,
-				ChatFormatting.BLUE, ChatFormatting.YELLOW, ChatFormatting.DARK_AQUA, ChatFormatting.YELLOW,
+				ChatFormatting.AQUA, ChatFormatting.GRAY, ChatFormatting.WHITE, ChatFormatting.RED,
+				ChatFormatting.LIGHT_PURPLE, ChatFormatting.YELLOW, ChatFormatting.DARK_AQUA, ChatFormatting.YELLOW,
 				0xE00B0E14),
 		LIGHT(ChatFormatting.DARK_PURPLE, ChatFormatting.DARK_GREEN, ChatFormatting.DARK_AQUA,
 				ChatFormatting.BLUE, ChatFormatting.DARK_GRAY, ChatFormatting.BLACK, ChatFormatting.RED,
 				ChatFormatting.DARK_PURPLE, ChatFormatting.DARK_GRAY, ChatFormatting.DARK_BLUE, ChatFormatting.GOLD,
 				0xE0E8E8E8),
 		HIGH_CONTRAST(ChatFormatting.LIGHT_PURPLE, ChatFormatting.GREEN, ChatFormatting.YELLOW,
-				ChatFormatting.AQUA, ChatFormatting.WHITE, ChatFormatting.WHITE, ChatFormatting.RED,
+				ChatFormatting.AQUA, ChatFormatting.GRAY, ChatFormatting.WHITE, ChatFormatting.RED,
 				ChatFormatting.YELLOW, ChatFormatting.YELLOW, ChatFormatting.AQUA, ChatFormatting.GOLD,
 				0xF0000000);
 

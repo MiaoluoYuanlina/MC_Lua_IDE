@@ -183,7 +183,7 @@ final class LuaDebugHud {
 	static void render(GuiGraphicsExtractor graphics, DeltaTracker ignored) {
 		Minecraft client = Minecraft.getInstance();
 		if (!variablesEnabled || client.player == null || client.options.hideGui
-				|| client.screen instanceof LuaIdeScreen || client.screen instanceof LuaHudLayoutScreen) return;
+				|| client.screen instanceof LuaIdeScreen || client.screen instanceof ImGuiIdeScreen || client.screen instanceof LuaHudLayoutScreen) return;
 		renderPanel(graphics, LuaHudLayout.current().bounds(LuaHudLayout.Panel.VARIABLES,
 				graphics.guiWidth(), graphics.guiHeight()), false);
 	}
@@ -246,7 +246,7 @@ final class LuaDebugHud {
 		}
 	}
 
-	private static int valueColor(String type) {
+	static int valueColor(String type) {
 		return switch (type) {
 			case "string" -> 0xFF9DDFA8;
 			case "number" -> 0xFFFFD078;

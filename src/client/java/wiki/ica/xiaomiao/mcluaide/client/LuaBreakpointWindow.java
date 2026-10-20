@@ -17,7 +17,18 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /** Built-in debugger content hosted by the same dockable frame as extension windows. */
-final class LuaBreakpointWindow implements McLuaIdeWindowApi.Content {
+final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        for(var button:controls()){imgui.ImGui.beginDisabled(!button.enabled);NativeUi.action(button.label,()->control.accept(button.action));imgui.ImGui.endDisabled();}
+        boolean pause=LuaBreakpointClient.state().pauseGame(),next=NativeUi.check("遇到断点暂停游戏（全服）",pause);if(next!=pause)LuaBreakpointClient.setPauseGame(next);
+        NativeUi.action(LuaBreakpointClient.movementLabel(),()->LuaBreakpointClient.setAllowPlayerMovement(!LuaBreakpointClient.state().allowPlayerMovement()));
+        NativeUi.action(LuaDebuggerCamera.label(),()->LuaDebuggerCamera.setEnabled(!LuaDebuggerCamera.enabled()));
+        for(var detail:details()) {
+            imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,NativeUi.rgba(detail.color));
+            if(imgui.ImGui.selectable(detail.text)&&!detail.source.isBlank())navigate.accept(detail.source,detail.line);
+            imgui.ImGui.popStyleColor();
+        }
+    }
 	static final String ID = "mc_lua_ide:breakpoint_debugger";
 	private static final int ROW_HEIGHT = 15, BUTTON_HEIGHT = 21, GAP = 4;
 	private static final int TEXT = 0xFFCEDAEA, MUTED = 0xFF93A9C2, GOLD = 0xFFFFCF77;

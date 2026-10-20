@@ -25,6 +25,21 @@ import wiki.ica.xiaomiao.mcluaide.editor.DatapackScaffoldCatalog;
 
 /** A dockable data-pack JSON editor backed by examples from the active server packs. */
 final class LuaDatapackJsonEditorOverlay {
+	void renderImGui() {
+		if(imgui.ImGui.button("类型"))showSources=false; imgui.ImGui.sameLine();if(imgui.ImGui.button("游戏示例"))showSources=true;
+		imgui.ImGui.sameLine();NativeUi.action("刷新",this::refreshOptions);
+		String next=NativeUi.input("##filter",query);if(!next.equals(query)){query=next;listScroll=0;}
+        boolean narrow=imgui.ImGui.getContentRegionAvailX()<480;
+        if(narrow){String choice=NativeUi.combo("类别 / 示例",showSources?selectedId:category,visibleEntries(),entry->showSources?entry:categories.stream().filter(c->c.path().equals(entry)).findFirst().map(c->c.label()+" · "+c.path()).orElse(entry));if(!choice.equals(showSources?selectedId:category))activateEntry(choice);tree.renderImGui();}
+		if(!narrow&&imgui.ImGui.beginTable("json_split",2,imgui.flag.ImGuiTableFlags.Resizable|imgui.flag.ImGuiTableFlags.BordersInnerV)) {
+			imgui.ImGui.tableSetupColumn("类别 / 示例",imgui.flag.ImGuiTableColumnFlags.WidthFixed,210);imgui.ImGui.tableSetupColumn("编辑");imgui.ImGui.tableNextColumn();
+			imgui.ImGui.beginChild("categories",0,Math.max(100,imgui.ImGui.getContentRegionAvailY()-70),true);
+			for(String entry:visibleEntries())if(imgui.ImGui.selectable(showSources?entry:categories.stream().filter(c->c.path().equals(entry)).findFirst().map(c->c.label()+" · "+c.path()).orElse(entry),entry.equals(selectedId)||!showSources&&entry.equals(category)))activateEntry(entry);
+			imgui.ImGui.endChild();imgui.ImGui.tableNextColumn();tree.renderImGui();imgui.ImGui.endTable();
+		}
+		NativeUi.action("插入配置",this::validateAndInsert);imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->NativeUi.copy(PRETTY.toJson(document)));
+		imgui.ImGui.sameLine();NativeUi.action("读取当前文件",()->{String source=currentFileJson.get();if(source!=null)importJson(source);});NativeUi.status(status);
+	}
 	private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().create();
 	private static final int TITLE = 28;
 	private static final int ROW = 21;
@@ -181,6 +196,10 @@ final class LuaDatapackJsonEditorOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			this.x = x; this.y = y; this.width = width; this.height = height; progress = 1;
+			animation.snapTo(x,y,width,height); return;
+		}
 		if (dockSide.docked()) animation.animateTo(this.x, this.y, this.width, this.height, x, y, width, height);
 	}
 

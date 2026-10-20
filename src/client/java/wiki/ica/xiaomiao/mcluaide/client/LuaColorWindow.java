@@ -10,7 +10,17 @@ import java.util.List;
 import java.util.function.Function;
 
 /** Dockable color content. The host owns the frame, close button, animation and layout. */
-final class LuaColorWindow implements McLuaIdeWindowApi.Content {
+final class LuaColorWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        float[] rgb={color.channel(0)/255f,color.channel(1)/255f,color.channel(2)/255f};
+        if(imgui.ImGui.colorPicker3("##RGB",rgb,imgui.flag.ImGuiColorEditFlags.DisplayHex|imgui.flag.ImGuiColorEditFlags.PickerHueBar))color.rgb(Math.round(rgb[0]*255)<<16|Math.round(rgb[1]*255)<<8|Math.round(rgb[2]*255));
+        color.format=NativeUi.combo("输出格式",color.format,List.of(LuaColorModel.Format.values()),v->LuaUiText.text(v.label));
+        color.hexNumber=NativeUi.check("0xRRGGBB 数值",color.hexNumber);
+        NativeUi.readOnly("##result",color.text(),45);
+        NativeUi.action("插入",this::insert);imgui.ImGui.sameLine();NativeUi.action("复制",()->context.copyText(color.text()));
+        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))insert();
+        NativeUi.status(status);
+    }
 	static final String ID = "mc_lua_ide:color_picker";
 	private enum Focus { SQUARE, HUE, RED, GREEN, BLUE, FORMAT, HEX_STYLE, INSERT, COPY }
 	private record Area(Focus focus, int x, int y, int w, int h) {

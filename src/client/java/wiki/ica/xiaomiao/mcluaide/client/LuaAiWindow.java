@@ -9,7 +9,21 @@ import wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeWindowApi;
 import java.util.*;
 
 /** Configuration content inside the normal animated/dockable IDE frame. */
-final class LuaAiWindow implements McLuaIdeWindowApi.Content {
+final class LuaAiWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        var provider=NativeUi.combo("API",draft.selected,List.of(LuaAiSettings.Provider.values()),v->v.label);
+        if(provider!=draft.selected){rememberProvider();draft.selected=provider;loadProvider();}
+        endpoint.setValue(NativeUi.field("HTTPS API 基础地址",endpoint.getValue()));model.setValue(NativeUi.field("模型 ID",model.getValue()));
+        imgui.ImGui.textUnformatted("API Key");key.setValue(NativeUi.password("##key",key.getValue()));
+        imgui.ImGui.textDisabled(draft.api().key().isBlank()?LuaUiText.text("尚未保存密钥"):LuaUiText.text("已保存 · 留空保留原密钥"));
+        NativeUi.action("清除当前服务密钥",()->{rememberProvider();var api=draft.api();draft.apis.put(draft.selected,new LuaAiSettings.Api(api.endpoint(),api.model(),""));loadProvider();});
+        draft.enabled=NativeUi.check("AI 自动分析运行报错",draft.enabled);
+        imgui.ImGui.textColored(1,.7f,.35f,1,LuaUiText.text("启用后将报错及相关代码发送给所选服务，可能产生费用。"));
+        NativeUi.action("保存配置",()->{try{rememberProvider();controller.configure(draft);notice="已加密保存至当前用户注册表";loadProvider();}catch(Exception|LinkageError error){notice="保存失败，没有保存明文密钥";}});
+        NativeUi.action("分析当前运行报错",controller::manual);imgui.ImGui.sameLine();NativeUi.action("取消分析 / 清除标注",()->{controller.cancel(true);controller.clearMarks();});
+        NativeUi.status(notice+"\n"+controller.status());
+        for(String line:explanations())imgui.ImGui.textWrapped(line);
+    }
     static final String ID = "mc_lua_ide:ai_tools";
     private final McLuaIdeWindowApi.Context context;
     private final LuaAiController controller;

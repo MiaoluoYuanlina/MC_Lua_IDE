@@ -7,7 +7,7 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import wiki.ica.xiaomiao.mcluaide.client.LuaIdeScreen;
+import wiki.ica.xiaomiao.mcluaide.client.ExtensionWindowHost;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +17,7 @@ import java.util.function.Function;
 
 /** Client-only, trusted Java extensions to the IDE's floating/docked window system. */
 public final class McLuaIdeWindowApi {
-	public static final int EXTENSION_API_VERSION = 1;
+	public static final int EXTENSION_API_VERSION = 2;
 	private static final Map<String, Definition> WINDOWS = new LinkedHashMap<>();
 	private McLuaIdeWindowApi() { }
 
@@ -38,16 +38,23 @@ public final class McLuaIdeWindowApi {
 	public static boolean open(String id) {
 		Minecraft client = Minecraft.getInstance();
 		if (!client.isSameThread()) throw new IllegalStateException("Use Minecraft.execute on the client thread");
-		return client.screen instanceof LuaIdeScreen ide && ide.setExtensionWindowOpen(id, true);
+		return client.screen instanceof ExtensionWindowHost host && host.setExtensionWindowOpen(id, true);
 	}
 
 	public static boolean close(String id) {
 		Minecraft client = Minecraft.getInstance();
 		if (!client.isSameThread()) throw new IllegalStateException("Use Minecraft.execute on the client thread");
-		return client.screen instanceof LuaIdeScreen ide && ide.setExtensionWindowOpen(id, false);
+		return client.screen instanceof ExtensionWindowHost host && host.setExtensionWindowOpen(id, false);
 	}
 
-	/** One content instance per IDE session. Drawing and mouse coordinates are content-local. */
+	/**
+	 * Legacy window content that draws with Minecraft's {@link GuiGraphicsExtractor}. One content instance per IDE session;
+	 * drawing and mouse coordinates are content-local.
+	 * <p>
+	 * Still supported through a compatibility layer: the IDE rasterizes {@link #render} into a texture, shows it inside the
+	 * window and translates mouse and keyboard input back into these callbacks. Each such window logs a warning, sends one
+	 * chat notice per game run and shows a banner. Implement {@link NativeContent} instead for the native look and input.
+	 */
 	public interface Content {
 		void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY);
 		default void resize(int width, int height) { }
@@ -64,6 +71,13 @@ public final class McLuaIdeWindowApi {
 		default boolean charTyped(CharacterEvent event) { return false; }
 		/** Release textures/resources when this IDE session ends, including hidden windows. */
 		default void disposed() { }
+	}
+
+	/** Native Dear ImGui controls. Called within the IDE's context, window and ID scope.
+	 * Do not call NewFrame/Render/Begin for the host window or install GLFW callbacks. */
+	public interface NativeContent extends Content {
+		void renderImGui();
+		@Override default void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY) { }
 	}
 
 	/** Available on the client thread only; retain no references after disposed(). */

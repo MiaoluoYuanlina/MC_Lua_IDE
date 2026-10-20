@@ -45,7 +45,7 @@ public final class LuaDebugKeyBindings {
 		if (window != client.getWindow().handle()) return false;
 		if (eventAction == GLFW.GLFW_RELEASE) return consumedGameKeys.remove(event.key());
 		if (eventAction == GLFW.GLFW_REPEAT) {
-			boolean debugScreen = client.screen instanceof LuaIdeScreen || client.screen instanceof LuaDebugScreen || client.screen instanceof LuaDebugKeysScreen;
+			boolean debugScreen = client.screen instanceof LuaIdeScreen || client.screen instanceof ImGuiIdeScreen || client.screen instanceof LuaDebugScreen || client.screen instanceof LuaDebugKeysScreen;
 			return consumedGameKeys.contains(event.key()) || debugScreen && match(event) != null;
 		}
 		if (client.screen != null || client.player == null || !ScriptManager.isServerAvailable()) return false;

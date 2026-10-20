@@ -33,7 +33,7 @@ public final class McLuaIdeClient implements ClientModInitializer {
 							LuaOggPreviewPlayer.stop();
 							ScriptManager.invalidateAllRegistryCatalogs();
 						});
-		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { LuaClientMcpService.shutdown(); LuaDebuggerCamera.disconnected(); WindowsPenPressure.uninstall(); });
+		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> { ImGuiIdeRuntime.shutdown(); LuaClientMcpService.shutdown(); LuaDebuggerCamera.disconnected(); WindowsPenPressure.uninstall(); });
 
 		KeyMapping.Category category = KeyMapping.Category.register(
 				wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.id("keys"));
@@ -65,6 +65,9 @@ public final class McLuaIdeClient implements ClientModInitializer {
 		ClientTickEvents.START_CLIENT_TICK.register(LuaDebuggerCamera::tick);
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			if (Boolean.getBoolean("mc_lua_ide.imGuiProbe")) ImGuiIdeProbe.tick(client);
+				GameControl.tick(client);
+				if (Boolean.getBoolean("mc_lua_ide.gameControlProbe")) GameControlProbe.tick(client);
 			if (Boolean.getBoolean("mc_lua_ide.fileRecoveryProbe")) LuaFileRecoveryProbe.tick(client);
 			if (Boolean.getBoolean("mc_lua_ide.gitProbe")) LuaGitProbe.tick(client);
 			if (Boolean.getBoolean("mc_lua_ide.toolsProbe")) LuaToolsProbe.tick(client);
@@ -100,7 +103,7 @@ public final class McLuaIdeClient implements ClientModInitializer {
 			while (openIdeKey.consumeClick()) openIde(client);
 			while (openDebugKey.consumeClick()) {
 				if (client.screen == null && client.player != null)
-					client.setScreen(new LuaDebugScreen(null));
+					client.setScreen(new NativePanelScreen(null,true));
 			}
 			while (debugScrollUpKey.consumeClick()) {
 				if (client.screen == null && client.player != null) LuaDebugHud.scroll(-1);
@@ -204,7 +207,8 @@ public final class McLuaIdeClient implements ClientModInitializer {
 				return;
 			}
 			ScriptManager.ScriptExecution active = ScriptManager.activeExecution();
-			client.setScreen(new LuaIdeScreen(client.screen, active == null ? "" : active.name()));
+			if(!ImGuiIdeRuntime.available()) {if(client.player!=null)client.player.sendSystemMessage(Component.literal("新版 UI 渲染器不可用，请查看客户端日志并重启；未保存代码可从恢复草稿找回。"));return;}
+			client.setScreen(new ImGuiIdeScreen(client.screen, active == null ? "" : active.name()));
 		}));
 	}
 }

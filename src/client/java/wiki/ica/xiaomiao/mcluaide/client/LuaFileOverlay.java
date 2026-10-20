@@ -22,6 +22,43 @@ import wiki.ica.xiaomiao.mcluaide.network.LuaScriptNames;
 
 /** Animated, draggable and resizable Lua script manager used inside the IDE. */
 final class LuaFileOverlay {
+	void renderImGui() {
+		imgui.ImGui.textDisabled(mode==Mode.LUA?"lua/":"datapacks/");
+		int start=editingFullPath?0:inputNameStart();String prefix=name.substring(0,Math.min(start,name.length()));
+		if(!prefix.isEmpty())imgui.ImGui.textWrapped(prefix);
+		String text=NativeUi.input("##name",name.substring(Math.min(start,name.length())));name=prefix+text;cursor=anchor=name.length();
+		if(inputAction!=InputAction.NONE){NativeUi.action("确认",this::submitInputAction);imgui.ImGui.sameLine();NativeUi.action("取消",()->cancelInputAction(true));}
+		else {if(NativeIcons.button("file","新建文件",false))createScript();NativeUi.next("　");if(NativeIcons.button("folder",mode==Mode.LUA?"新建文件夹":"新建数据包",false)){if(mode==Mode.LUA)createDirectory();else createPackTemplate();}}
+		NativeUi.next("　");if(NativeIcons.button("refresh","刷新目录",false))refreshScripts();
+		imgui.ImGui.beginChild("files",0,Math.max(80,imgui.ImGui.getContentRegionAvailY()-65),true); nativeChildren("");
+		if(imgui.ImGui.beginPopupContextWindow("root",1|imgui.flag.ImGuiPopupFlags.NoOpenOverItems)){contextEntry=new ScriptManager.ScriptEntry("",true);nativeContext();imgui.ImGui.endPopup();}imgui.ImGui.endChild();
+		if(paletteOpen)imgui.ImGui.openPopup("categories");
+		if(imgui.ImGui.beginPopup("categories")) {
+			paletteQuery=NativeUi.input("##query",paletteQuery);imgui.ImGui.beginChild("types",480,300,true);
+			for(var option:filteredCategories()){if(imgui.ImGui.selectable(option.label()+" · "+option.path())){createScaffoldDirectory(option);imgui.ImGui.closeCurrentPopup();}NativeUi.hint(option.purpose());}
+			imgui.ImGui.endChild();if(imgui.ImGui.button("关闭")){paletteOpen=false;imgui.ImGui.closeCurrentPopup();}imgui.ImGui.endPopup();
+		}
+		NativeUi.status(status);
+	}
+	private void nativeChildren(String parent) {
+		for(var entry:entries) {
+			int slash=entry.path().lastIndexOf('/');if(!parent.equals(slash<0?"":entry.path().substring(0,slash)))continue;
+			imgui.ImGui.pushID(entry.path());String label=entry.path().substring(slash+1)+(mode==Mode.LUA&&!entry.directory()?".lua":"");
+			if(mode==Mode.DATAPACK&&entry.directory()){var info=DatapackScaffoldCatalog.category(relativeDatapackDirectory(entry.path()));if(info!=null)label+=" - "+info.label();}
+			boolean expanded=false;
+			if(entry.directory()){imgui.ImGui.setNextItemOpen(!collapsedDirectories.contains(entry.path()));expanded=imgui.ImGui.treeNodeEx(label,imgui.flag.ImGuiTreeNodeFlags.OpenOnArrow);if(expanded)collapsedDirectories.remove(entry.path());else collapsedDirectories.add(entry.path());}
+			else if(imgui.ImGui.selectable(label,entry.path().equals(currentScript)))opener.accept(entry.path());
+			if(imgui.ImGui.beginPopupContextItem("actions")){contextEntry=entry;rebuildVisible();selectedRow=indexOfVisible(entry.path());nativeContext();imgui.ImGui.endPopup();}
+			if(expanded){nativeChildren(entry.path());imgui.ImGui.treePop();}imgui.ImGui.popID();
+		}
+	}
+	private void nativeContext() {
+		for(var action:contextActions(contextEntry)) {
+			if(action==ContextAction.QUICK_CATEGORY) {
+				if(imgui.ImGui.beginMenu("快捷创建")){paletteParent=contextEntry.path();for(var option:filteredCategories()){if(imgui.ImGui.menuItem(option.label()+" · "+leaf(option.path())))createScaffoldDirectory(option);NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}
+			} else if(imgui.ImGui.menuItem(contextLabel(action)))runContextAction(action);
+		}
+	}
 	enum Mode { LUA, DATAPACK }
 	record RenameResult(String oldPath, String newPath, boolean directory) { }
 	private enum ContextAction { OPEN, NEW_SCRIPT, NEW_LUA_DIRECTORY, NEW_JSON, NEW_NAMESPACE, NEW_DIRECTORY, QUICK_CATEGORY, NEW_TYPED_FILE, RENAME, OPEN_EXPLORER, OPEN_TERMINAL, DELETE }
@@ -238,6 +275,10 @@ final class LuaFileOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (!dockSide.docked()) return;
 		boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight,
 				x, y, width, height);

@@ -44,7 +44,7 @@ final class LuaDebugScreen extends Screen {
 				.bounds(left + 15, top + 130, panelWidth - 30, 23)
 				.tooltip(Tooltip.create(Component.literal(LuaUiText.text("预览全部游戏内调试浮窗；拖动移动、边框缩放，右键调整背景透明度；自动保存，不改变显示开关")))).build());
 		updateToggle();
-		addRenderableWidget(Button.builder(Component.literal(previous instanceof LuaIdeScreen ? "返回 IDE" : "返回游戏"), button -> onClose())
+		addRenderableWidget(Button.builder(Component.literal(previous instanceof LuaIdeScreen || previous instanceof ImGuiIdeScreen ? "返回 IDE" : "返回游戏"), button -> onClose())
 				.bounds(left + panelWidth - 105, top + 193, 90, 22).build());
 	}
 
@@ -54,10 +54,12 @@ final class LuaDebugScreen extends Screen {
 		breakpointToggle.setMessage(Component.literal(LuaUiText.text("断点信息显示：") + (LuaBreakpointClient.showInfo() ? LuaUiText.text("开") : LuaUiText.text("关"))));
 		logToggle.setMessage(Component.literal(LuaUiText.text("显示 Lua 日志：") + (LuaLogHud.enabled() ? LuaUiText.text("开") : LuaUiText.text("关"))));
 	}
-	boolean editorActionAvailable() { return previous instanceof LuaIdeScreen ide && ide.isBreakpointDocument(); }
+	boolean editorActionAvailable() { return previous instanceof LuaIdeScreen ide && ide.isBreakpointDocument()
+			|| previous instanceof ImGuiIdeScreen nativeIde && nativeIde.controller() != null && nativeIde.controller().isBreakpointDocument(); }
 	void perform(LuaDebugKeyBindings.Action action) {
 		if (action.editorOnly) {
 			if (previous instanceof LuaIdeScreen ide) ide.performDebuggerAction(action);
+			else if (previous instanceof ImGuiIdeScreen ide && ide.controller() != null) ide.controller().performDebuggerAction(action);
 		} else LuaBreakpointClient.control(action.command);
 	}
 

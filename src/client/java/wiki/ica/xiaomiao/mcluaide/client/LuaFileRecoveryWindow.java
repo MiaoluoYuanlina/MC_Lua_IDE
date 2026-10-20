@@ -11,7 +11,16 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /** Content only: the shared IDE host owns movement, resizing, docking and animation. */
-final class LuaFileRecoveryWindow implements McLuaIdeWindowApi.Content {
+final class LuaFileRecoveryWindow implements McLuaIdeWindowApi.NativeContent {
+    @Override public void renderImGui() {
+        imgui.ImGui.textWrapped(LuaUiText.text("恢复到编辑标签；保存前不会覆盖原文件"));
+        for(var entry:rows())if(imgui.ImGui.selectable(entry.name()+"  "+TIME.format(Instant.ofEpochMilli(entry.updated()))+"##"+entry.id(),entry.id().equals(selected),imgui.flag.ImGuiSelectableFlags.AllowDoubleClick)) {
+            selected=entry.id();confirmDelete="";if(imgui.ImGui.isMouseDoubleClicked(0))restore.accept(entry);
+        }
+        NativeUi.action("恢复选中",this::restoreSelected);imgui.ImGui.sameLine();NativeUi.action("恢复全部",()->rows().forEach(restore));
+        NativeUi.action(selected.equals(confirmDelete)&&!selected.isEmpty()?"确认删除草稿":"删除草稿",()->{if(!selected.isEmpty()){if(selected.equals(confirmDelete)){recovery.discard(selected);selected=confirmDelete="";}else confirmDelete=selected;}});
+        NativeUi.status(recovery.failure());
+    }
 	static final String ID = "mc_lua_ide:file_recovery";
 	private final McLuaIdeWindowApi.Context context;
 	private final LuaFileRecovery recovery;

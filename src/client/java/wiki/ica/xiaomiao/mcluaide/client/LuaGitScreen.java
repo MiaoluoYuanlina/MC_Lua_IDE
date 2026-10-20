@@ -18,6 +18,50 @@ import net.minecraft.util.Util;
 
 /** Administrator-only Git publishing and browser-login flow. Access tokens never enter this UI. */
 final class LuaGitScreen extends Screen {
+    private void nativeField(String name,EditBox box) { box.setValue(NativeUi.field(name,box.getValue())); }
+    void renderImGui() {
+        var selectedMode=NativeUi.combo("Git",mode,LuaGit.Mode.values());if(selectedMode!=mode)switchMode(selectedMode);
+        for(var tab:new Page[]{Page.COMMIT,Page.HISTORY,Page.SETTINGS,Page.ACCOUNT,Page.REPOSITORIES}) {
+            if(imgui.ImGui.button(switch(tab){case COMMIT->LuaUiText.text("提交");case HISTORY->LuaUiText.text("版本历史");case SETTINGS->LuaUiText.text("设置");case ACCOUNT->"GitHub 登录";default->LuaUiText.text("仓库");})) {
+                if(tab==Page.ACCOUNT)openAccount();else if(tab==Page.REPOSITORIES)loadRepositories(1);else {setPage(tab);if(tab==Page.HISTORY&&history==null)refreshHistory(0);}
+            }
+            imgui.ImGui.sameLine();
+        }
+        imgui.ImGui.newLine();imgui.ImGui.beginDisabled(busy||authBusy);
+        switch(page) {
+            case COMMIT -> {
+                nativeField("提交说明",message);nativeField("详细说明",description);
+                NativeUi.action(mode==LuaGit.Mode.LOCAL?"保存本地版本":"推送已保存文件",this::push);
+            }
+            case SETTINGS -> {nativeField("仓库地址",repository);nativeField("分支",branch);NativeUi.action("保存仓库设置",this::save);}
+            case HISTORY -> {
+                NativeUi.action("刷新",()->refreshHistory(history==null?0:history.offset()));
+                if(history!=null){imgui.ImGui.sameLine();NativeUi.action("更新",()->refreshHistory(Math.max(0,history.offset()-30)));imgui.ImGui.sameLine();NativeUi.action("更早",()->refreshHistory(history.offset()+30));}
+                if(history!=null)for(var commit:history.commits())if(imgui.ImGui.selectable(DATE.format(Instant.ofEpochMilli(commit.time()))+"  "+commit.summary()+"##"+commit.sha(),commit.sha().equals(selectedSha)))select(commit.sha(),"");
+                if(detail!=null) {
+                    NativeUi.action(confirmed?"确认恢复所选版本":"恢复所选版本",this::restore);
+                    for(var file:detail.files())if(imgui.ImGui.selectable(file.status()+" "+file.path(),file.path().equals(detail.file())))select(selectedSha,file.path());
+                    sourcePreview=NativeUi.check("查看完整代码",sourcePreview);
+                    NativeUi.code("##diff",sourcePreview?detail.source():detail.diff(),250);
+                }
+            }
+            case ACCOUNT -> {
+                if(account!=null){imgui.ImGui.textWrapped(account.notice());imgui.ImGui.textUnformatted(account.login()+" "+account.userCode());}
+                NativeUi.action("使用浏览器登录",this::startLogin);imgui.ImGui.sameLine();NativeUi.action("打开登录页面",()->openLink("https://github.com/login/device"));
+                NativeUi.action("复制登录码",()->{if(account!=null)NativeUi.copy(account.userCode());});imgui.ImGui.sameLine();NativeUi.action("退出登录",this::logout);
+                NativeUi.action("配置 GitHub App",()->setPage(Page.CONFIGURE_GITHUB));
+            }
+            case CONFIGURE_GITHUB -> {nativeField("OAuth App Client ID",clientId);NativeUi.action("保存 Client ID",this::saveClientId);}
+            case REPOSITORIES -> {
+                nativeField("筛选仓库",repoSearch);NativeUi.action("刷新仓库",()->loadRepositories(repositories==null?1:repositories.page()));imgui.ImGui.sameLine();NativeUi.action("新建仓库",()->setPage(Page.CREATE_REPOSITORY));
+                for(var repo:filteredRepositories())if(imgui.ImGui.selectable(repo.fullName()+"  "+repo.description(),repo.fullName().equals(selectedRepository)))selectedRepository=repo.fullName();
+                NativeUi.action("使用选中仓库",()->selectRepository(selectedRepository));
+                if(repositories!=null){NativeUi.action("上一页",()->loadRepositories(Math.max(1,repositories.page()-1)));imgui.ImGui.sameLine();NativeUi.action("下一页",()->loadRepositories(repositories.page()+1));}
+            }
+            case CREATE_REPOSITORY -> {nativeField("新仓库名称",repoName);nativeField("仓库简介",repoDescription);privateRepository=NativeUi.check("私有仓库",privateRepository);NativeUi.action(createConfirmed?"确认创建仓库":"创建仓库",this::createRepository);}
+        }
+        imgui.ImGui.endDisabled();NativeUi.status(status);
+    }
 	private final LuaIdeScreen previous;
 	private EditBox repository;
 	private EditBox branch;
@@ -129,6 +173,11 @@ final class LuaGitScreen extends Screen {
 		}
 	}
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate() && !closing) {
+			applyingAnimatedBounds = true;
+			try { applyBounds(x,y,width,height); boundsAnimation.snapTo(x,y,width,height); }
+			finally { applyingAnimatedBounds = false; } return;
+		}
 		if (dockSide.docked() && !closing) boundsAnimation.animateTo(left, top, right - left, bottom - top,
 				x, y, width, height);
 	}

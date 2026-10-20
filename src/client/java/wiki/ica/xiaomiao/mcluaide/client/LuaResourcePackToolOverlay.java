@@ -28,7 +28,93 @@ import java.util.function.Predicate;
 
 /** Three independent dockable tool windows for client resource-pack editing. */
 final class LuaResourcePackToolOverlay {
-	enum Kind { DIRECTORY, JSON, PNG }
+	void renderImGui() {
+		if(kind==Kind.DIRECTORY)nativeDirectory();else if(kind==Kind.JSON)nativeJson();else nativePng();
+		NativeUi.status(status);
+	}
+	private void nativeDirectory() {
+		imgui.ImGui.textDisabled("resourcepacks/");
+		int start=editingFullPath?0:DirectoryPathInput.leafStart(path);String prefix=path.substring(0,Math.min(start,path.length()));
+		if(!prefix.isEmpty())imgui.ImGui.textWrapped(prefix);
+		path=prefix+NativeUi.input("##path",path.substring(Math.min(start,path.length())));pathCursor=pathAnchor=path.length();
+		if(pendingCreate!=PendingCreate.NONE){NativeUi.action("确认",this::submitPendingCreate);imgui.ImGui.sameLine();NativeUi.action("取消",this::cancelPendingCreate);}
+		else NativeUi.action("+ 资源包",()->prepareCreate(PendingCreate.PACK,"","new_pack",""));
+		imgui.ImGui.sameLine();NativeUi.action("刷新",this::refresh);
+		imgui.ImGui.beginChild("resource_tree",0,Math.max(80,imgui.ImGui.getContentRegionAvailY()-60),true);nativeChildren("");
+		if(imgui.ImGui.beginPopupContextWindow("root",1|imgui.flag.ImGuiPopupFlags.NoOpenOverItems)){contextEntry=null;nativeContext();imgui.ImGui.endPopup();}imgui.ImGui.endChild();
+		if(assetImportPrompt()){imgui.ImGui.textWrapped("为导入文件填写 ID / 名称，然后确认");}
+	}
+	private void nativeChildren(String parent) {
+		for(var entry:entries){int slash=entry.path().lastIndexOf('/');if(!parent.equals(slash<0?"":entry.path().substring(0,slash)))continue;
+			imgui.ImGui.pushID(entry.path());String label=entry.path().substring(slash+1);boolean expanded=false;
+			var info=ResourcePackScaffoldCatalog.categoryFor(entry.path());if(entry.directory()&&info!=null)label+=" - "+info.label();
+			if(entry.directory()){imgui.ImGui.setNextItemOpen(!collapsed.contains(entry.path()));expanded=imgui.ImGui.treeNodeEx(label,imgui.flag.ImGuiTreeNodeFlags.OpenOnArrow);if(expanded)collapsed.remove(entry.path());else collapsed.add(entry.path());}
+			else if(imgui.ImGui.selectable(label,entry.path().equals(selected))){selected=path=entry.path();opener.accept(entry.path());}
+			if(imgui.ImGui.beginPopupContextItem("actions")){contextEntry=entry;selected=entry.path();nativeContext();imgui.ImGui.endPopup();}
+			if(expanded){nativeChildren(entry.path());imgui.ImGui.treePop();}imgui.ImGui.popID();
+		}
+	}
+	private void nativeContext() {
+		for(var action:contextActions()){
+			if(action==ContextAction.QUICK_ADD){if(imgui.ImGui.beginMenu("快速添加")){if(imgui.ImGui.menuItem("OGG 音效"))chooseAsset(contextDirectory(),false);if(imgui.ImGui.menuItem("PNG 物品材质"))chooseAsset(contextDirectory(),true);imgui.ImGui.endMenu();}}
+			else if(action==ContextAction.QUICK_CATEGORY){if(imgui.ImGui.beginMenu("快捷创建资源类型")){for(var option:availableCategories(contextDirectory())){if(imgui.ImGui.menuItem(option.label()+" · "+option.path())){String target=namespaceRoot(contextDirectory())+"/"+option.path();action(()->LuaResourcePackWorkspace.createDirectory(target),"已创建："+target);revealPath(target);}NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}}
+			else if(imgui.ImGui.menuItem(contextLabel(action)))runDirectoryContextAction(action);
+		}
+	}
+	private void nativeJson() {
+		if(imgui.ImGui.button("类型"))jsonShowExamples=false;imgui.ImGui.sameLine();if(imgui.ImGui.button("游戏示例"))jsonShowExamples=true;
+		imgui.ImGui.sameLine();NativeUi.action("刷新",this::loadJsonExamples);jsonQuery=NativeUi.field("搜索",jsonQuery);
+        boolean narrow=imgui.ImGui.getContentRegionAvailX()<480;
+        if(narrow){String choice=NativeUi.combo("类别 / 示例",jsonShowExamples?selectedExample:category,visibleJsonEntries(),entry->entry);if(!choice.equals(jsonShowExamples?selectedExample:category))activateJsonEntry(choice);tree.renderImGui();}
+		if(!narrow&&imgui.ImGui.beginTable("resource_json",2,imgui.flag.ImGuiTableFlags.Resizable|imgui.flag.ImGuiTableFlags.BordersInnerV)){
+			imgui.ImGui.tableSetupColumn("类型 / 示例",imgui.flag.ImGuiTableColumnFlags.WidthFixed,190);imgui.ImGui.tableSetupColumn("JSON");imgui.ImGui.tableNextColumn();
+			imgui.ImGui.beginChild("types",0,Math.max(100,imgui.ImGui.getContentRegionAvailY()-100),true);
+			for(String entry:visibleJsonEntries())if(imgui.ImGui.selectable(entry,entry.equals(jsonShowExamples?selectedExample:category)))activateJsonEntry(entry);
+			imgui.ImGui.endChild();imgui.ImGui.tableNextColumn();tree.renderImGui();imgui.ImGui.endTable();
+		}
+		NativeUi.action("写入主编辑器",()->jsonChange.accept(PRETTY.toJson(value)+"\n"));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->NativeUi.copy(PRETTY.toJson(value)));
+		imgui.ImGui.sameLine();NativeUi.action("读取当前文件",()->message.accept("resource-json-refresh"));
+	}
+	private void nativePng() {
+		var png=canvas.get();if(png==null){imgui.ImGui.textWrapped("请从资源包目录打开 PNG 文件");return;}
+		String[] names={"铅笔","画笔","橡皮","填充","取色"};
+		for(int i=0;i<names.length;i++){if(i>0)NativeUi.next("　");var tool=LuaPngLayerDocument.Tool.values()[i];if(NativeIcons.button(tool.name(),names[i],png.tool()==tool))png.setTool(tool);}
+		imgui.ImGui.textUnformatted(names[png.tool().ordinal()]);
+		int argb=png.color();float[] rgba={(argb>>16&255)/255f,(argb>>8&255)/255f,(argb&255)/255f,(argb>>>24)/255f};
+		if(imgui.ImGui.colorPicker4("##palette",rgba,imgui.flag.ImGuiColorEditFlags.AlphaBar|imgui.flag.ImGuiColorEditFlags.DisplayHex))png.setColor(Math.round(rgba[3]*255)<<24|Math.round(rgba[0]*255)<<16|Math.round(rgba[1]*255)<<8|Math.round(rgba[2]*255));
+		png.setToolSize(NativeUi.integer("笔尖大小",png.toolSize(),1,32));
+		if(!png.path().equals(selectedPngPath)){selectedPngPath=png.path();widthInput=""+png.document().width();heightInput=""+png.document().height();}
+		widthInput=NativeUi.field("宽",widthInput);heightInput=NativeUi.field("高",heightInput);NativeUi.action("调整分辨率",()->{colorInput=String.format(java.util.Locale.ROOT,"#%06X",png.color()&0xFFFFFF);applyPngInputs();});
+		NativeUi.action("添加图层",()->{png.document().addLayer();png.markDirty();});imgui.ImGui.sameLine();imgui.ImGui.beginDisabled(png.document().layers().size()<=1);NativeUi.action("删除图层",()->{png.document().deleteLayer();png.markDirty();});imgui.ImGui.endDisabled();
+		NativeUi.action("上移",()->{png.document().moveLayer(1);png.markDirty();});imgui.ImGui.sameLine();NativeUi.action("下移",()->{png.document().moveLayer(-1);png.markDirty();});
+		imgui.ImGui.beginDisabled(png.document().layers().size()>=16);NativeUi.action("复制图层",()->{png.document().duplicateLayer();png.markDirty();});imgui.ImGui.endDisabled();imgui.ImGui.sameLine();
+		imgui.ImGui.beginDisabled(png.document().selected()<=0);NativeUi.action("向下合并",()->{png.document().mergeDown();png.markDirty();});imgui.ImGui.endDisabled();
+		nativeLayerProperties(png);
+		for(int i=png.document().layers().size()-1;i>=0;i--){var layer=png.document().layers().get(i);imgui.ImGui.pushID(i);if(NativeUi.check("显示",layer.visible())!=layer.visible()){png.document().toggleVisible(i);png.markDirty();}imgui.ImGui.sameLine();if(imgui.ImGui.selectable(layer.name(),png.document().selected()==i))png.document().select(i);imgui.ImGui.popID();}
+		imgui.ImGui.beginDisabled(!png.document().canUndo());NativeUi.action("撤销",png::undo);imgui.ImGui.endDisabled();imgui.ImGui.sameLine();
+		imgui.ImGui.beginDisabled(!png.document().canRedo());NativeUi.action("重做",png::redo);imgui.ImGui.endDisabled();
+		imgui.ImGui.textDisabled(LuaUiText.text("画布：滚轮缩放 · 中键平移 · Ctrl+S 保存"));
+	}
+	private int renamingLayer=-1;private String layerNameDraft="";
+	private void nativeLayerProperties(LuaResourcePngCanvas png) {
+		var document=png.document();int index=document.selected();
+		if(index<0||index>=document.layers().size())return;
+		var layer=document.layers().get(index);
+		imgui.ImGui.separator();imgui.ImGui.textDisabled(LuaUiText.text("当前图层"));
+		imgui.ImGui.pushID("layer_props_"+index);
+		String name=NativeUi.field("图层名称",renamingLayer==index?layerNameDraft:layer.name());
+		// Commit the rename when the field loses focus so every keystroke is not an undo step.
+		if(imgui.ImGui.isItemActive()){renamingLayer=index;layerNameDraft=name;}
+		else if(renamingLayer==index){renamingLayer=-1;if(!name.equals(layer.name())){document.renameLayer(index,name);png.markDirty();}}
+		int percent=Math.round(layer.opacity()*100);int[] value={percent};
+		imgui.ImGui.textUnformatted(LuaUiText.text("不透明度"));imgui.ImGui.setNextItemWidth(-1);
+		boolean changed=imgui.ImGui.sliderInt("##opacity",value,0,100,"%d%%");
+		if(imgui.ImGui.isItemActivated()){opacityDragStart=true;}
+		if(changed){document.setOpacity(index,value[0]/100f,opacityDragStart);opacityDragStart=false;png.markDirty();}
+		if(imgui.ImGui.isItemDeactivated())opacityDragStart=false;
+		imgui.ImGui.popID();
+	}
+	private boolean opacityDragStart;	enum Kind { DIRECTORY, JSON, PNG }
 	private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().create();
 	private static final int TITLE = 26, ROW = 18, JSON_ROW = 21;
 	private static final int DIRECTORY_ROWS_OFFSET = 124;
@@ -176,6 +262,10 @@ final class LuaResourcePackToolOverlay {
 		if (old.docked() && !dock.docked()) animation.animateTo(x, y, width, height, floatingX, floatingY, floatingWidth, floatingHeight);
 	}
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			this.x = x; this.y = y; this.width = width; this.height = height; progress = 1;
+			animation.snapTo(x,y,width,height); return;
+		}
 		if (dock.docked()) animation.animateTo(this.x, this.y, this.width, this.height, x, y, width, height);
 	}
 	void undockForDrag(double mouseX, double mouseY) {

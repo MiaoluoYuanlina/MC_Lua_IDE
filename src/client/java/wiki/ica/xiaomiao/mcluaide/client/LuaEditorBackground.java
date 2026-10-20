@@ -40,6 +40,18 @@ final class LuaEditorBackground {
 	static String error() { return error; }
 
 	static void reload() { loadedFile = ""; error = ""; }
+	static void renderImGui(LuaPersonalizationSettings settings,float left,float top,float right,float bottom){
+		var client=Minecraft.getInstance();if(settings.backgroundFile.isEmpty()||settings.backgroundOpacity<=0||!ensureLoaded(client,settings.backgroundFile))return;
+		float width=right-left,height=bottom-top,w=width,h=height,u0=0,v0=0,u1=1,v1=1;
+		float horizontal=settings.backgroundAlignment.horizontal(),vertical=settings.backgroundAlignment.vertical();
+		if(settings.backgroundFit==LuaPersonalizationSettings.BackgroundFit.NONE||settings.backgroundFit==LuaPersonalizationSettings.BackgroundFit.CONTAIN){
+			float scale=settings.backgroundFit==LuaPersonalizationSettings.BackgroundFit.NONE?1:Math.min(width/imageWidth,height/imageHeight);w=imageWidth*scale;h=imageHeight*scale;left+=(width-w)*horizontal;top+=(height-h)*vertical;
+		}else if(settings.backgroundFit==LuaPersonalizationSettings.BackgroundFit.COVER){
+			float source=imageWidth/(float)imageHeight,target=width/height;if(source>target){float visible=target/source;u0=(1-visible)*horizontal;u1=u0+visible;}else{float visible=source/target;v0=(1-visible)*vertical;v1=v0+visible;}
+		}
+		var texture=client.getTextureManager().getTexture(TEXTURE).getTexture();
+		imgui.ImGui.getWindowDrawList().addImage(((com.mojang.blaze3d.opengl.GlTexture)texture).glId(),left,top,left+w,top+h,u0,v0,u1,v1,settings.backgroundOpacity*255/100<<24|0xFFFFFF);
+	}
 
 	static void render(GuiGraphicsExtractor graphics, Minecraft minecraft,
 			LuaPersonalizationSettings settings, int left, int top, int right, int bottom) {

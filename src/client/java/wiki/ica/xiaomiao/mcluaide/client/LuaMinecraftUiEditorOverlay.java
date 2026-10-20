@@ -32,6 +32,174 @@ import java.util.regex.Pattern;
 
 /** Visual editor for the vanilla Minecraft 26.1 dialog definition consumed by MC.UI. */
 final class LuaMinecraftUiEditorOverlay {
+    private int uiDrag;
+    private float dragCarryX, dragCarryY;
+    private List<String> savedTemplates = List.of();
+    private boolean templatesLoaded;
+    private static int abgr(int r, int g, int b) { return 0xFF000000 | b << 16 | g << 8 | r; }
+    private void refreshTemplates() {
+        templatesLoaded = true;
+        try (var stream = Files.isDirectory(TEMPLATE_DIRECTORY) ? Files.list(TEMPLATE_DIRECTORY) : java.util.stream.Stream.<Path>empty()) {
+            savedTemplates = stream.map(path -> path.getFileName().toString()).filter(name -> name.endsWith(".json"))
+                    .map(name -> name.substring(0, name.length() - 5)).filter(name -> SAFE_TEMPLATE.matcher(name).matches()).sorted().toList();
+        } catch (IOException ignored) { savedTemplates = List.of(); }
+    }
+    private static String partHelp(PartType type) {
+        return switch (type) {
+            case BODY -> "正文：只显示文字，不产生数据";
+            case TEXT -> "文本框：玩家可输入文字；“默认值”为初始文字";
+            case BOOLEAN -> "开关：默认值只能是 true 或 false";
+            case NUMBER -> "数值：默认值必须在最小值与最大值之间";
+            case SELECT -> "选择：用逗号分隔选项，第一项为默认";
+            case BUTTON -> "按钮：“默认值”用作鼠标悬停提示，可留空";
+        };
+    }
+    private void drawPartPreview(imgui.ImDrawList draw, UiPart p, float x, float y, float w, float h, boolean selected) {
+        int text = abgr(235, 235, 235), dim = abgr(160, 160, 160), box = abgr(24, 24, 28), line = abgr(110, 110, 120);
+        draw.pushClipRect(x, y, x + w, y + h, true);
+        float lineHeight = imgui.ImGui.getTextLineHeight(), mid = y + Math.max(0, (h - lineHeight) / 2);
+        switch (p.type) {
+            case BODY -> draw.addText(x + 2, y + 2, text, p.label);
+            case TEXT -> {
+                float labelWidth = Math.min(w * .4f, imgui.ImGui.calcTextSize(p.label).x + 8);
+                draw.addText(x + 2, mid, dim, p.label);
+                draw.addRectFilled(x + labelWidth, y, x + w, y + h, box, 2);
+                draw.addRect(x + labelWidth, y, x + w, y + h, line, 2);
+                draw.addText(x + labelWidth + 4, mid, text, p.value);
+            }
+            case BOOLEAN -> {
+                float side = Math.min(h, 18), top = y + (h - side) / 2;
+                draw.addRectFilled(x, top, x + side, top + side, box, 2); draw.addRect(x, top, x + side, top + side, line, 2);
+                if (Boolean.parseBoolean(p.value.strip())) draw.addRectFilled(x + 4, top + 4, x + side - 4, top + side - 4, abgr(90, 200, 120), 1);
+                draw.addText(x + side + 6, mid, text, p.label);
+            }
+            case NUMBER -> {
+                draw.addRectFilled(x, y, x + w, y + h, box, 2); draw.addRect(x, y, x + w, y + h, line, 2);
+                try {
+                    double min = Double.parseDouble(p.minimum), max = Double.parseDouble(p.maximum), value = Double.parseDouble(p.value);
+                    float ratio = max > min ? (float) Math.clamp((value - min) / (max - min), 0, 1) : 0;
+                    draw.addRectFilled(x + 1, y + 1, x + 1 + (w - 2) * ratio, y + h - 1, abgr(70, 120, 200), 2);
+                } catch (NumberFormatException ignored) { }
+                String shown = p.label + ": " + p.value; draw.addText(x + (w - imgui.ImGui.calcTextSize(shown).x) / 2, mid, text, shown);
+            }
+            case SELECT -> {
+                draw.addRectFilled(x, y, x + w, y + h, box, 2); draw.addRect(x, y, x + w, y + h, line, 2);
+                String first = p.value.split("[,，]", -1)[0].strip();
+                draw.addText(x + 6, mid, text, p.label + ": " + first); draw.addText(x + w - 14, mid, dim, "v");
+            }
+            case BUTTON -> {
+                draw.addRectFilled(x, y, x + w, y + h, abgr(72, 72, 82), 3); draw.addRect(x, y, x + w, y + h, line, 3);
+                draw.addText(x + (w - imgui.ImGui.calcTextSize(p.label).x) / 2, mid, text, p.label);
+            }
+        }
+        draw.popClipRect();
+        if (selected) {
+            int accent = abgr(255, 180, 60);
+            draw.addRect(x - 1, y - 1, x + w + 1, y + h + 1, accent, 0, 0, 2);
+            draw.addRectFilled(x + w - 8, y + h - 8, x + w + 3, y + h + 3, accent);
+        }
+    }
+    void renderImGui() {
+        if (!templatesLoaded) refreshTemplates();
+        // Template row: pick a saved template, or type a new name and save.
+        imgui.ImGui.setNextItemWidth(Math.max(120, imgui.ImGui.getContentRegionAvailX() * .35f));
+        if (imgui.ImGui.beginCombo("##templates", templateName)) {
+            for (String name : savedTemplates) if (imgui.ImGui.selectable(name, name.equals(templateName))) { templateName = name; loadTemplate(); }
+            imgui.ImGui.endCombo();
+        }
+        imgui.ImGui.sameLine(); NativeUi.action("刷新模板", this::refreshTemplates);
+        imgui.ImGui.sameLine(); NativeUi.action("新建", this::newBlank);
+        imgui.ImGui.sameLine(); NativeUi.action("保存模板", () -> { saveTemplate(); refreshTemplates(); });
+        imgui.ImGui.sameLine(); NativeUi.action("检查", () -> { if (generatedLuaFields() != null) feedback.accept(status); });
+        imgui.ImGui.sameLine(); NativeUi.action("插入", () -> { String lua = generatedLuaFields(); if (lua != null) insertion.accept(lua); });
+        imgui.ImGui.sameLine(); NativeUi.action("复制", () -> { String lua = generatedLuaFields(); if (lua != null) NativeUi.copy(lua); });
+        templateName = NativeUi.field("模板名（保存或读取）", templateName);
+        if (imgui.ImGui.collapsingHeader(LuaUiText.text("界面属性"), imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)) {
+            title = NativeUi.field("标题", title); uiId = NativeUi.field("UI ID", uiId);
+            dialogType = NativeUi.combo("类型", dialogType, List.of(DialogType.values()), v -> v.label);
+            canClose = NativeUi.check("允许 Esc 关闭", canClose); imgui.ImGui.sameLine(); pause = NativeUi.check("暂停游戏", pause);
+        }
+        if (imgui.ImGui.beginTable("designer", 3, imgui.flag.ImGuiTableFlags.Resizable | imgui.flag.ImGuiTableFlags.BordersInnerV)) {
+            imgui.ImGui.tableSetupColumn("palette", imgui.flag.ImGuiTableColumnFlags.WidthFixed, 110);
+            imgui.ImGui.tableSetupColumn("canvas"); imgui.ImGui.tableSetupColumn("properties", imgui.flag.ImGuiTableColumnFlags.WidthFixed, 210);
+            imgui.ImGui.tableNextColumn();
+            imgui.ImGui.textDisabled(LuaUiText.text("添加控件"));
+            for (var type : PartType.values()) { NativeUi.action(type.label, () -> addPart(type)); NativeUi.hint(partHelp(type)); }
+            imgui.ImGui.separator(); imgui.ImGui.textDisabled(LuaUiText.text("控件列表（后者在上层）"));
+            for (int i = 0; i < parts.size(); i++) {
+                imgui.ImGui.pushID(i);
+                if (imgui.ImGui.selectable(parts.get(i).id + "  [" + parts.get(i).type.label + "]", selectedPart == i)) selectPart(i);
+                imgui.ImGui.popID();
+            }
+            imgui.ImGui.tableNextColumn();
+            float x = imgui.ImGui.getCursorScreenPosX(), y = imgui.ImGui.getCursorScreenPosY(), w = Math.max(100, imgui.ImGui.getContentRegionAvailX()), h = Math.max(160, w * CANVAS_HEIGHT / CANVAS_WIDTH);
+            float sx = w / CANVAS_WIDTH, sy = h / CANVAS_HEIGHT;
+            imgui.ImGui.invisibleButton("canvas", w, h);
+            boolean hovered = imgui.ImGui.isItemHovered(), active = imgui.ImGui.isItemActive(), focused = imgui.ImGui.isItemFocused();
+            var draw = imgui.ImGui.getWindowDrawList();
+            draw.addRectFilled(x, y, x + w, y + h, abgr(40, 34, 30));
+            for (int gx = 40; gx < CANVAS_WIDTH; gx += 40) draw.addLine(x + gx * sx, y, x + gx * sx, y + h, abgr(52, 46, 42));
+            for (int gy = 40; gy < CANVAS_HEIGHT; gy += 40) draw.addLine(x, y + gy * sy, x + w, y + gy * sy, abgr(52, 46, 42));
+            draw.addRect(x, y, x + w, y + h, abgr(120, 120, 130));
+            float mouseX = (imgui.ImGui.getMousePosX() - x) / sx, mouseY = (imgui.ImGui.getMousePosY() - y) / sy;
+            if (hovered && imgui.ImGui.isMouseClicked(0)) {
+                var current = selected();
+                if (current != null && Math.abs(mouseX - (current.x + current.width)) <= 10 && Math.abs(mouseY - (current.y + current.height)) <= 10) { uiDrag = 2; dragCarryX = dragCarryY = 0; }
+                else {
+                    int hit = -1;
+                    for (int i = parts.size() - 1; i >= 0 && hit < 0; i--) { var p = parts.get(i); if (mouseX >= p.x && mouseX < p.x + p.width && mouseY >= p.y && mouseY < p.y + p.height) hit = i; }
+                    if (hit != selectedPart) selectPart(hit);
+                    uiDrag = hit >= 0 ? 1 : 0; dragCarryX = dragCarryY = 0;
+                }
+            }
+            if (!active || !imgui.ImGui.isMouseDown(0)) uiDrag = 0;
+            var dragging = selected();
+            if (uiDrag != 0 && dragging != null && imgui.ImGui.isMouseDragging(0, 0)) {
+                dragCarryX += imgui.ImGui.getIO().getMouseDeltaX() / sx; dragCarryY += imgui.ImGui.getIO().getMouseDeltaY() / sy;
+                int stepX = (int) dragCarryX, stepY = (int) dragCarryY; dragCarryX -= stepX; dragCarryY -= stepY;
+                if (uiDrag == 1) { dragging.x += stepX; dragging.y += stepY; } else { dragging.width += stepX; dragging.height += stepY; }
+                clampPart(dragging);
+            }
+            if (dragging != null && (focused || hovered) && !imgui.ImGui.getIO().getWantTextInput()) {
+                int step = imgui.ImGui.getIO().getKeyShift() ? 10 : 1;
+                if (imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.LeftArrow)) { dragging.x -= step; clampPart(dragging); }
+                if (imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.RightArrow)) { dragging.x += step; clampPart(dragging); }
+                if (imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.UpArrow)) { dragging.y -= step; clampPart(dragging); }
+                if (imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.DownArrow)) { dragging.y += step; clampPart(dragging); }
+                if (imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Delete)) removePart();
+            }
+            draw.pushClipRect(x, y, x + w, y + h, true);
+            for (int i = 0; i < parts.size(); i++) { var p = parts.get(i); drawPartPreview(draw, p, x + p.x * sx, y + p.y * sy, p.width * sx, p.height * sy, i == selectedPart); }
+            draw.popClipRect();
+            imgui.ImGui.textDisabled(LuaUiText.text("拖动移动 · 拖右下角方块调整大小 · 方向键微调（Shift ×10）· Delete 删除"));
+            imgui.ImGui.tableNextColumn();
+            var p = selected();
+            if (p == null) imgui.ImGui.textWrapped(LuaUiText.text("点击画布上的控件，或在左侧列表选择，即可编辑属性。"));
+            else {
+                imgui.ImGui.pushID(selectedPart);
+                imgui.ImGui.textColored(0xFFFFC887, LuaUiText.text(p.type.label));
+                imgui.ImGui.textWrapped(LuaUiText.text(partHelp(p.type)));
+                p.id = NativeUi.field("组件 ID", p.id);
+                p.label = NativeUi.field(p.type == PartType.BODY ? "正文" : "显示文字", p.label);
+                if (p.type != PartType.BODY) {
+                    p.value = NativeUi.field(switch (p.type) { case SELECT -> "选项（逗号分隔）"; case BUTTON -> "悬停提示"; default -> "默认值"; }, p.value);
+                    if (p.type == PartType.BOOLEAN) { boolean on = NativeUi.check("默认开启", Boolean.parseBoolean(p.value.strip())); p.value = Boolean.toString(on); }
+                }
+                if (p.type == PartType.NUMBER) { p.minimum = NativeUi.field("最小值", p.minimum); p.maximum = NativeUi.field("最大值", p.maximum); }
+                imgui.ImGui.separator();
+                int[] box = {p.x, p.y, p.width, p.height};
+                imgui.ImGui.textUnformatted("X / Y"); imgui.ImGui.setNextItemWidth(-1); imgui.ImGui.dragInt2("##xy", box, 1, 0, CANVAS_WIDTH);
+                imgui.ImGui.textUnformatted(LuaUiText.text("宽度 / 高度")); imgui.ImGui.setNextItemWidth(-1);
+                int[] size = {box[2], box[3]}; imgui.ImGui.dragInt2("##size", size, 1, 8, CANVAS_WIDTH);
+                p.x = box[0]; p.y = box[1]; p.width = size[0]; p.height = size[1]; clampPart(p);
+                NativeUi.action("复制组件", this::duplicatePart); imgui.ImGui.sameLine(); NativeUi.action("删除", this::removePart);
+                NativeUi.action("上移一层", () -> movePart(1)); imgui.ImGui.sameLine(); NativeUi.action("下移一层", () -> movePart(-1));
+                imgui.ImGui.popID();
+            }
+            imgui.ImGui.endTable();
+        }
+        NativeUi.status(status);
+    }
 	private static final int TITLE_HEIGHT = 28;
 	private static final int RESIZE_MARGIN = 6;
 	private static final int MIN_WIDTH = 580;
@@ -161,6 +329,10 @@ final class LuaMinecraftUiEditorOverlay {
 	}
 
 	void setDockBounds(int x, int y, int width, int height) {
+		if (WindowBoundsAnimation.isImmediate()) {
+			windowX = x; windowY = y; windowWidth = width; windowHeight = height; progress = 1;
+			boundsAnimation.snapTo(x,y,width,height); return;
+		}
 		if (dockSide.docked()) boundsAnimation.animateTo(windowX, windowY, windowWidth, windowHeight,
 				x, y, width, height);
 	}
