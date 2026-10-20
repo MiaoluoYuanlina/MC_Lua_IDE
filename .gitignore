@@ -35,3 +35,11 @@ logs/
 
 # local tooling config
 .claude/
+
+# JVM / crash dumps
+hs_err_pid*.log
+replay_pid*.log
+crash-reports/
+
+# temp files
+*.tmp

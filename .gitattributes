@@ -1,0 +1,7 @@
+# Normalise line endings: the repository stores LF, whatever the platform checks out.
+* text=auto eol=lf
+*.png binary
+*.ogg binary
+*.jar binary
+*.zip binary
+*.ttf binary
