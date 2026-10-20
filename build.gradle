@@ -7,6 +7,7 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
+	mavenCentral { content { includeGroup 'io.github.spair' } }
 	// Add repositories to retrieve artifacts from in here.
 	// You should only use this when depending on other mods because
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
@@ -20,7 +21,19 @@ repositories {
 
 loom {
 	splitEnvironmentSourceSets()
-	if (project.hasProperty("variableCopyProbe")) {
+	if (project.hasProperty("imGuiProbe")) {
+		runs.client {
+			runDir(project.hasProperty("imGuiAxiomJar") ? "build/imgui-axiom-probe" : "build/imgui-probe")
+			vmArg("-Dmc_lua_ide.imGuiProbe=true")
+		}
+	}
+	if (project.hasProperty("gameControlProbe")) {
+			runs.client {
+				runDir("build/game-control-probe")
+				vmArg("-Dmc_lua_ide.gameControlProbe=true")
+			}
+		}
+		if (project.hasProperty("variableCopyProbe")) {
 		runs.client {
 			runDir("build/variable-copy-probe")
 			vmArg("-Dmc_lua_ide.variableCopyProbe=true")
@@ -224,6 +237,15 @@ loom {
 	}
 }
 
+if (project.hasProperty("imGuiAxiomJar")) {
+	tasks.register("prepareImGuiAxiomFixture", Copy) {
+		from(project.property("imGuiAxiomJar").toString())
+		into(layout.buildDirectory.dir("imgui-axiom-probe/mods"))
+		rename { "axiom-compat-fixture.jar" }
+	}
+	tasks.named("runClient") { dependsOn "prepareImGuiAxiomFixture" }
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -238,6 +260,12 @@ dependencies {
 	implementation include("org.luaj:luaj-jse:3.0.1")
 	// Windows Ink pen pressure for the client PNG editor; other platforms keep mouse behavior.
 	clientImplementation include("net.java.dev.jna:jna:5.17.0")
+	// Independent, client-only editor UI. Use Minecraft's LWJGL, never bundle another copy.
+	clientImplementation include("io.github.spair:imgui-java-binding:1.92.7.1")
+	clientImplementation(include("io.github.spair:imgui-java-lwjgl3:1.92.7.1")) { transitive = false }
+	['windows', 'linux', 'macos'].each { platform ->
+		clientRuntimeOnly include("io.github.spair:imgui-java-natives-${platform}:1.92.7.1")
+	}
 }
 
 // Keep Axiom's shaded libraries out of the launcher/system classpath, just like a real mod pack.
@@ -274,6 +302,9 @@ java {
 }
 
 jar {
+	// Self-test probes and smoke tests live in the client source set for convenience (they need the game classpath);
+	// they are run from the build directories and must not ship to players.
+	exclude '**/*Probe.class', '**/*Probe$*.class', '**/*Smoke.class', '**/*Smoke$*.class'
 	def projectName = project.name
 	inputs.property "projectName", projectName
 
@@ -291,6 +322,14 @@ tasks.register("componentCodecSmoke", JavaExec) {
 }
 
 check.dependsOn componentCodecSmoke
+tasks.register("protocolStabilitySmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Freezes the numbering of network protocol actions (append-only)."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.LuaProtocolStabilitySmoke"
+}
+check.dependsOn protocolStabilitySmoke
 tasks.register("scriptModuleSmoke", JavaExec) {
 	dependsOn testClasses
 	group = "verification"

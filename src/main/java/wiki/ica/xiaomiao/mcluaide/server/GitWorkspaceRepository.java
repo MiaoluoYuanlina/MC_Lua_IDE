@@ -284,10 +284,12 @@ final class GitWorkspaceRepository {
 	}
 	private static String clip(String value) { return value.length() > 80_000 ? value.substring(0, 80_000) + "\n…（预览已截断，恢复使用完整内容）" : value; }
 
+	/** An empty attributes file on the current platform (Windows has no /dev/null). */
+	private static final String NULL_DEVICE = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "NUL" : "/dev/null";
 	private Result git(int limit, String... args) throws Exception { return git(limit, false, args); }
 	private Result git(int limit, boolean truncate, String... args) throws Exception {
 		List<String> command = new ArrayList<>(List.of("git", "-c", "core.hooksPath=" + hooks,
-				"-c", "core.quotePath=false", "-c", "core.autocrlf=false", "-c", "core.attributesFile=NUL"));
+				"-c", "core.quotePath=false", "-c", "core.autocrlf=false", "-c", "core.attributesFile=" + NULL_DEVICE));
 		command.addAll(List.of(args));
 		ProcessBuilder builder = new ProcessBuilder(command).directory(repository.toFile());
 		// Inherited Git environment must not redirect this operation to some unrelated repository/index.
@@ -309,7 +311,11 @@ final class GitWorkspaceRepository {
 		}
 		Path output = Files.createTempFile(hooks, "output-", ".tmp"), error = Files.createTempFile(hooks, "error-", ".tmp");
 		try {
-			Process process = builder.redirectOutput(output.toFile()).redirectError(error.toFile()).start();
+			Process process;
+			try { process = builder.redirectOutput(output.toFile()).redirectError(error.toFile()).start(); }
+			catch (IOException missing) {
+				throw new IOException("无法运行 git：服务器没有安装 Git，或它不在 PATH 中。版本管理功能需要服务器安装 Git（" + missing.getMessage() + "）", missing);
+			}
 			process.getOutputStream().close();
 			if (!process.waitFor(90, TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IOException("Git 操作超时（90 秒）"); }
 			byte[] bytes;

@@ -347,7 +347,7 @@ public final class LuaServerNetworking {
 			if (server.getPlayerList().getPlayer(player.getUUID()) != player) return;
 			if (!isAdministrator(server, player)) { GitHubWorkspaceService.disconnected(player.getUUID()); return; }
 			if (error == null) {
-				if (request.actionId() == LuaProtocol.Action.GIT_RESTORE.ordinal()) notifyCatalogChanged(server);
+				if (request.actionId() == LuaProtocol.Action.GIT_RESTORE.id()) notifyCatalogChanged(server);
 				sendSuccess(player, request, result);
 			}
 			else send(player, new LuaProtocol.Response(request.requestId(), request.actionId(), false, safeMessage(error)));

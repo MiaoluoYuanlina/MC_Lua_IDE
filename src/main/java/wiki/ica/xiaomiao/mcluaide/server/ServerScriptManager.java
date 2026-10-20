@@ -15,7 +15,6 @@ import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.LuaThread;
 import org.luaj.vm2.Varargs;
 import org.luaj.vm2.lib.VarArgFunction;
-import org.luaj.vm2.lib.jse.JsePlatform;
 import wiki.ica.xiaomiao.mcluaide.McLuaIdeMod;
 import wiki.ica.xiaomiao.mcluaide.network.LuaLimits;
 import wiki.ica.xiaomiao.mcluaide.network.LuaProtocol;
@@ -289,7 +288,7 @@ public final class ServerScriptManager {
 			Consumer<String> output, Consumer<ExecutionResult> completion) {
 		ExecutionResult result = new ExecutionResult(false, null);
 		try {
-			Globals globals = JsePlatform.debugGlobals();
+			Globals globals = LuaSandbox.create(execution.limits());
 			execution.globals = globals;
 			execution.warnings = new LuaRuntimeWarnings(output, execution.limits.maxOutputLines(),
 					execution.limits.maxOutputCharsPerLine());
@@ -376,7 +375,7 @@ public final class ServerScriptManager {
 
 	public static String validate(String name, String source) {
 		try {
-			JsePlatform.standardGlobals().load(source, name + ".lua");
+			LuaSandbox.syntaxOnly().load(source, name + ".lua");
 			return null;
 		} catch (LuaError error) {
 			return error.getMessage();

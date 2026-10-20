@@ -130,6 +130,12 @@ public final class LuaProtocol {
 		CLEAR_MCP_SERVER_LOGS,
 		MCP_TOOL;
 
+		/**
+		 * The number sent on the wire. It is the declaration position, so NEVER reorder or insert constants in the middle:
+		 * append new actions at the end only. LuaProtocolStabilitySmoke freezes the current order and fails the build otherwise.
+		 */
+		public int id() { return ordinal(); }
+
 		public static Action byId(int id) {
 			if (id < 0 || id >= values().length) {
 				throw new IllegalArgumentException("未知请求类型：" + id);
@@ -193,7 +199,7 @@ public final class LuaProtocol {
 				Request::write, Request::read);
 
 		public Request(long requestId, Action action, String name, String body) {
-			this(requestId, action.ordinal(), name == null ? "" : name, body == null ? "" : body);
+			this(requestId, action.id(), name == null ? "" : name, body == null ? "" : body);
 		}
 
 		private static Request read(RegistryFriendlyByteBuf buffer) {
@@ -222,7 +228,7 @@ public final class LuaProtocol {
 				Response::write, Response::read);
 
 		public Response(long requestId, Action action, boolean success, String data) {
-			this(requestId, action.ordinal(), success, data == null ? "" : data);
+			this(requestId, action.id(), success, data == null ? "" : data);
 		}
 
 		private static Response read(RegistryFriendlyByteBuf buffer) {
