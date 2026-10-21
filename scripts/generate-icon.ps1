@@ -44,7 +44,14 @@ for ($i = 0; $i -lt $drip.Count; $i++) {
     for ($k = 1; $k -le $drip[$i]; $k++) { Px $x (7 + $k) ($(if ($k -eq $drip[$i]) { $grassDark } else { $grass })) }
 }
 
-# Window buttons on the grass (the IDE title bar), each with a small dark rim below.
+# A Creeper face on the right of the grass: the speckled green doubles as its skin.
+$face = '#13210d'
+Box 20 3 27 7 $grass
+foreach ($s in @(@(20,3),@(27,5),@(20,6))) { Px $s[0] $s[1] $grassLight }
+Box 21 3 22 4 $face; Box 25 3 26 4 $face                       # eyes
+Box 23 5 24 5 $face; Box 22 6 25 6 $face; Px 22 7 $face; Px 25 7 $face   # mouth
+
+# Window buttons on the grass (the IDE title bar).
 Box 3 3 4 4 '#ff5f57'; Box 6 3 7 4 '#febc2e'; Box 9 3 10 4 '#28c840'
 
 # The Lua moon: an outlined blue disc with the white moon inside, overlapping the face.
