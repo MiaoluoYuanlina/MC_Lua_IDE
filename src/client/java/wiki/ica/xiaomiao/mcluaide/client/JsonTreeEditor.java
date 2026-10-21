@@ -52,10 +52,10 @@ final class JsonTreeEditor {
 			if(translation!=null)NativeUi.hint(translation.description(pathSegments(row.path()),rawKey(row.path()),row.value()));
 			if(imgui.ImGui.beginPopupContextItem("node_actions")) {
 				selected=row.path();
-				if(imgui.ImGui.menuItem("添加字段 / 元素"))beginAdd();
-				if(imgui.ImGui.menuItem("编辑值"))beginEdit();
-				if(imgui.ImGui.menuItem("启用 / 添加默认值")&&!present){materialize(selected);discovered.add(selected);changed();}
-				if(imgui.ImGui.menuItem("删除"))deleteSelected();
+				if(imgui.ImGui.menuItem(LuaUiText.text("添加字段 / 元素")))beginAdd();
+				if(imgui.ImGui.menuItem(LuaUiText.text("编辑值")))beginEdit();
+				if(imgui.ImGui.menuItem(LuaUiText.text("启用 / 添加默认值"))&&!present){materialize(selected);discovered.add(selected);changed();}
+				if(imgui.ImGui.menuItem(LuaUiText.text("删除")))deleteSelected();
 				imgui.ImGui.endPopup();
 			}
 			if(!present)imgui.ImGui.popStyleColor();
@@ -87,8 +87,8 @@ final class JsonTreeEditor {
 				for(int i=0;i<suggestions.size();i++)if(imgui.ImGui.selectable(suggestions.get(i).label(),i==suggestionRow)){suggestionRow=i;applySelectedSuggestion();}
 				imgui.ImGui.endChild();
 			}
-			if(imgui.ImGui.button("确定")){if(registryPickerOpen)applySelectedRegistryType();else confirmPopup();if(popupMode==PopupMode.NONE)imgui.ImGui.closeCurrentPopup();}
-			imgui.ImGui.sameLine(); if(imgui.ImGui.button("取消")){popupMode=PopupMode.NONE;registryPickerOpen=false;imgui.ImGui.closeCurrentPopup();}
+			if(imgui.ImGui.button(LuaUiText.text("确定"))){if(registryPickerOpen)applySelectedRegistryType();else confirmPopup();if(popupMode==PopupMode.NONE)imgui.ImGui.closeCurrentPopup();}
+			imgui.ImGui.sameLine(); if(imgui.ImGui.button(LuaUiText.text("取消"))){popupMode=PopupMode.NONE;registryPickerOpen=false;imgui.ImGui.closeCurrentPopup();}
 			imgui.ImGui.endPopup();
 		}
 		imgui.ImGui.popID();

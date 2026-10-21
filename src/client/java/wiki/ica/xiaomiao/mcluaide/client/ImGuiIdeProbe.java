@@ -256,6 +256,16 @@ final class ImGuiIdeProbe {
             require(client.screen == screen, "Esc inside the terminal must not close the IDE");
             TerminalPanel.closeTab(TerminalPanel.current());
             screen.probeWorkspace().close("NATIVE_TERMINAL");
+            if (WindowChrome.defaultEnabled()) require(WindowChrome.active(), "the integrated title bar should be active by default where it is supported");
+            // The personalization switch must hand the system title bar back, and take it over again.
+            screen.probeWorkspace().controller.nativePersonalization().integratedTitleBar = false;
+            nextFrame=screen.renderedFrames()+6; stage=63;
+        } else if (stage == 63 && screen.renderedFrames() > nextFrame) {
+            require(!WindowChrome.active(), "switching the setting off should restore the system title bar");
+            screen.probeWorkspace().controller.nativePersonalization().integratedTitleBar = WindowChrome.defaultEnabled();
+            nextFrame=screen.renderedFrames()+6; stage=64;
+        } else if (stage == 64 && screen.renderedFrames() > nextFrame) {
+            require(WindowChrome.active() == WindowChrome.defaultEnabled(), "switching the setting back on should take the title bar over again");
             screen.probeScale(10); nextFrame=screen.renderedFrames()+15; stage=12;
         } else if (stage == 12&& screen.renderedFrames() > nextFrame) {
             require(client.screen==screen && ImGuiIdeRuntime.available(),"10% UI scale failed");

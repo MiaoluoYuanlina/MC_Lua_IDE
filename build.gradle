@@ -348,6 +348,14 @@ tasks.register("extensionApiSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.client.ExtensionApiSmoke"
 }
 check.dependsOn extensionApiSmoke
+tasks.register("windowChromeSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks the integrated title bar setting (default, persistence) without opening a window."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.WindowChromeSmoke"
+}
+check.dependsOn windowChromeSmoke
 tasks.register("ptySmoke", JavaExec) {
 	dependsOn testClasses
 	group = "verification"

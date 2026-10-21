@@ -184,6 +184,8 @@ Terminal: open it from View → Terminal or Ctrl+`. The + button starts a shell 
 
 Extensions: snippets and simple commands can be added without Java through JSON files in `config/mc_lua_ide/extensions`; use Reload extension manifests in the command palette after editing. See docs/extensions in the project for the manifest format and the editor API.
 
+Title bar: Personalization → Window → "Merge menus into the title bar" puts the menus and the minimize/maximize/close buttons into the window's title bar row. It is on by default on Windows (native frame, snapping and shadow are kept); on macOS and Linux (X11) it is off by default and untested on real machines. Wayland keeps the normal title bar.
+
 ## Datapacks and resource packs
 
 Open their separate directories from File. Right-click for contextual creation templates, namespace/folder creation, rename and other supported actions. JSON files open in the main editor, while Datapack JSON / Resource Pack JSON are helper windows for templates, game examples and structured editing. `Ctrl+I` uses the current JSON or function-command argument context.

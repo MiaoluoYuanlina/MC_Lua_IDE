@@ -13,6 +13,13 @@ The IDE front end is a standalone Dear ImGui interface. It is not an Axiom plugi
 
 *File* opens the three workspaces (Lua, datapacks, resource packs); *UI & windows → View* opens every editor and tool. Drag a window title to dock, split or merge into tabs; layout and open files are saved. Editor colours, fonts, background image and cursor come from the personalization settings; the menus offer font size and UI scale. **F12** opens the debug page, per-feature shortcut settings, and the drag-and-drop HUD layout editor (right-click for UI settings).
 
+**Menus in the title bar** (*Personalization → Window → Merge menus into the title bar*): the File / Edit / UI & windows / Run menus and the window buttons share the window's title bar row instead of sitting under it.
+
+- **Windows** (on by default): the window keeps its native frame, shadow, resize borders, Aero Snap, dragging and double-click to maximise; only the system caption is replaced by the IDE's own strip with minimize / maximize / close buttons. The empty part of the strip drags the window.
+- **macOS** (off by default): the native traffic-light buttons stay, the title bar becomes transparent and the menus start to their right. Written for NSWindow through Java's foreign-function API but **not tested on a Mac**.
+- **Linux, X11** (off by default): the window manager's title bar is replaced by the IDE's strip with the same buttons, dragging, double-click to maximise and edge resizing. **Not tested on real Linux desktops.** On Wayland a client cannot move its own window, so the normal title bar is kept and the option is disabled.
+- Fullscreen, switching the option off, closing the IDE, or any failure while switching restores the normal title bar. The close button of the strip closes the game window, like the system one.
+
 Common shortcuts: Ctrl+S save, Ctrl+N new, Ctrl+I insert, Tab accept completion, Ctrl+/ comment, Ctrl+Enter run/stop, Ctrl+P quick open, Ctrl+Shift+P command palette, Ctrl+\` terminal. Debug keys (F5 …) follow the presets or custom bindings in F12.
 
 Third-party windows implement `McLuaIdeWindowApi.NativeContent`. Legacy `Content` windows still work through a compatibility layer and show a warning; see the [extension docs](../extensions/overview.md).

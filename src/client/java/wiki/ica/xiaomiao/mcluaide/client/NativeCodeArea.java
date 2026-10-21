@@ -465,8 +465,8 @@ final class NativeCodeArea {
 			if (api != null) {
 				ImGui.beginTooltip(); ImGui.pushTextWrapPos(520);
 				ImGui.textUnformatted(api.signature()); ImGui.separator();
-				ImGui.textWrapped("作用：" + api.summary()); ImGui.textWrapped("返回：" + api.returns());
-				for (int i = 0; i < api.parameters().size(); i++) ImGui.textWrapped("参数" + (i + 1) + "：" + api.describe(api.parameters().get(i)));
+				ImGui.textWrapped(LuaUiText.text("作用：") + api.summary()); ImGui.textWrapped(LuaUiText.text("返回：") + api.returns());
+				for (int i = 0; i < api.parameters().size(); i++) ImGui.textWrapped(LuaUiText.text("参数") + (i + 1) + LuaUiText.text("：") + api.describe(api.parameters().get(i)));
 				ImGui.popTextWrapPos(); ImGui.endTooltip();
 			}
 			for (var diagnostic : errors) if (hoverOffset >= diagnostic.start() && hoverOffset < diagnostic.end()) ImGui.setTooltip(diagnostic.message());

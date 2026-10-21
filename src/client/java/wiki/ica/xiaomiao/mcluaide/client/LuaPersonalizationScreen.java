@@ -41,7 +41,14 @@ final class LuaPersonalizationScreen extends Screen {
                 draft.backgroundFit=NativeUi.combo("背景图像拉伸模式",draft.backgroundFit,LuaPersonalizationSettings.BackgroundFit.values());
                 draft.backgroundAlignment=NativeUi.combo("背景图像对齐",draft.backgroundAlignment,List.of(LuaPersonalizationSettings.BackgroundAlignment.values()),v->LuaUiText.text(v.label));
             }
-            case WINDOW -> draft.resizeDockWhenLocked=NativeUi.check("固定布局后仍可调整边框",draft.resizeDockWhenLocked);
+            case WINDOW -> {
+                draft.resizeDockWhenLocked=NativeUi.check("固定布局后仍可调整边框",draft.resizeDockWhenLocked);
+                imgui.ImGui.beginDisabled(!WindowChrome.supported());
+                boolean merged=NativeUi.check("标题栏与菜单合并",draft.integratedTitleBar);
+                if(WindowChrome.supported())draft.integratedTitleBar=merged;
+                imgui.ImGui.endDisabled();
+                imgui.ImGui.textDisabled(WindowChrome.supportNote());
+            }
             case SYNTAX -> {
                 for(var role:LuaSyntaxHighlighter.ColorRole.values()) {
                     int before=draft.syntaxColor(role),after=NativeUi.color(role.name(),0xFF000000|before);

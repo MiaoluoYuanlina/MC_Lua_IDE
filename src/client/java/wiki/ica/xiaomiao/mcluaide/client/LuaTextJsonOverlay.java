@@ -35,24 +35,24 @@ final class LuaTextJsonOverlay {
 				case KEYBIND->segment.keybind=NativeUi.field("按键 ID",segment.keybind);
 				case LUA_VARIABLE->segment.luaVariable=NativeUi.field("Lua 变量 / 表达式",segment.luaVariable);
 			}
-			if(imgui.ImGui.collapsingHeader("颜色",imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
+			if(imgui.ImGui.collapsingHeader(LuaUiText.text("颜色"),imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
 				segment.gradient=NativeUi.check("启用渐变",segment.gradient);
 				String stops=NativeUi.field("十六进制色标（逗号分隔）",segment.gradientStops);
 				if(!stops.equals(segment.gradientStops)){segment.gradientStops=stops;String first=stops.split("[,，;；\\s]+",2)[0];if(first.matches("#?[0-9a-fA-F]{6}"))segment.color=first.startsWith("#")?first:"#"+first;}
 				int picked=NativeUi.color("插入颜色",0xff000000|safeRgb(segment.color));String hex=String.format("#%06X",picked&0xffffff);
 				if(!hex.equalsIgnoreCase(segment.color)){segment.color=hex;String[] parts=segment.gradientStops.split(",",2);segment.gradientStops=hex+(parts.length>1?","+parts[1]:"");}
-				if(imgui.ImGui.button("添加色标"))segment.gradientStops+=", "+hex;
+				if(imgui.ImGui.button(LuaUiText.text("添加色标")))segment.gradientStops+=", "+hex;
 			}
-			if(imgui.ImGui.collapsingHeader("样式",imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
+			if(imgui.ImGui.collapsingHeader(LuaUiText.text("样式"),imgui.flag.ImGuiTreeNodeFlags.DefaultOpen)){
 				String color=NativeUi.field("颜色 ID",segment.color);if(!color.equals(segment.color)){segment.color=color;String[] parts=segment.gradientStops.split(",",2);segment.gradientStops=color+(parts.length>1?","+parts[1]:"");}
 				segment.fontId=NativeUi.field("字体 ID",segment.fontId);segment.bold=NativeUi.check("粗体",segment.bold);imgui.ImGui.sameLine();segment.italic=NativeUi.check("斜体",segment.italic);
 				segment.underlined=NativeUi.check("下划线",segment.underlined);imgui.ImGui.sameLine();segment.strikethrough=NativeUi.check("删除线",segment.strikethrough);segment.obfuscated=NativeUi.check("随机字符",segment.obfuscated);
 			}
-			if(imgui.ImGui.collapsingHeader("悬浮显示")){
+			if(imgui.ImGui.collapsingHeader(LuaUiText.text("悬浮显示"))){
 				segment.hover=NativeUi.combo("悬浮类型",segment.hover,List.of(LuaTextJsonDocument.Hover.values()),v->LuaUiText.text(v.label));
 				switch(segment.hover){case TEXT->segment.hoverText=NativeUi.field("悬浮文字",segment.hoverText);case ITEM->{segment.hoverItem=NativeUi.field("物品 ID",segment.hoverItem);segment.hoverCount=NativeUi.field("数量",segment.hoverCount);}case ENTITY->{segment.hoverEntityType=NativeUi.field("实体类型",segment.hoverEntityType);segment.hoverEntityUuid=NativeUi.field("实体 UUID",segment.hoverEntityUuid);segment.hoverEntityName=NativeUi.field("实体名称",segment.hoverEntityName);}default->{}}
 			}
-			if(imgui.ImGui.collapsingHeader("点击事件")){segment.click=NativeUi.combo("点击动作",segment.click,List.of(LuaTextJsonDocument.Click.values()),v->LuaUiText.text(v.label));segment.clickValue=NativeUi.field("点击参数",segment.clickValue);}
+			if(imgui.ImGui.collapsingHeader(LuaUiText.text("点击事件"))){segment.click=NativeUi.combo("点击动作",segment.click,List.of(LuaTextJsonDocument.Click.values()),v->LuaUiText.text(v.label));segment.clickValue=NativeUi.field("点击参数",segment.clickValue);}
 			imgui.ImGui.endTable();
 		}
 		imgui.ImGui.separatorText("分段预览");

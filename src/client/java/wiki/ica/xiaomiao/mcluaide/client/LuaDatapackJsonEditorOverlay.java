@@ -26,7 +26,7 @@ import wiki.ica.xiaomiao.mcluaide.editor.DatapackScaffoldCatalog;
 /** A dockable data-pack JSON editor backed by examples from the active server packs. */
 final class LuaDatapackJsonEditorOverlay {
 	void renderImGui() {
-		if(imgui.ImGui.button("类型"))showSources=false; imgui.ImGui.sameLine();if(imgui.ImGui.button("游戏示例"))showSources=true;
+		if(imgui.ImGui.button(LuaUiText.text("类型")))showSources=false; imgui.ImGui.sameLine();if(imgui.ImGui.button(LuaUiText.text("游戏示例")))showSources=true;
 		imgui.ImGui.sameLine();NativeUi.action("刷新",this::refreshOptions);
 		String next=NativeUi.input("##filter",query);if(!next.equals(query)){query=next;listScroll=0;}
         boolean narrow=imgui.ImGui.getContentRegionAvailX()<480;

@@ -42,7 +42,7 @@ final class LuaResourcePackToolOverlay {
 		imgui.ImGui.sameLine();NativeUi.action("刷新",this::refresh);
 		imgui.ImGui.beginChild("resource_tree",0,Math.max(80,imgui.ImGui.getContentRegionAvailY()-60),true);nativeChildren("");
 		if(imgui.ImGui.beginPopupContextWindow("root",1|imgui.flag.ImGuiPopupFlags.NoOpenOverItems)){contextEntry=null;nativeContext();imgui.ImGui.endPopup();}imgui.ImGui.endChild();
-		if(assetImportPrompt()){imgui.ImGui.textWrapped("为导入文件填写 ID / 名称，然后确认");}
+		if(assetImportPrompt()){imgui.ImGui.textWrapped(LuaUiText.text("为导入文件填写 ID / 名称，然后确认"));}
 	}
 	private void nativeChildren(String parent) {
 		for(var entry:entries){int slash=entry.path().lastIndexOf('/');if(!parent.equals(slash<0?"":entry.path().substring(0,slash)))continue;
@@ -56,13 +56,13 @@ final class LuaResourcePackToolOverlay {
 	}
 	private void nativeContext() {
 		for(var action:contextActions()){
-			if(action==ContextAction.QUICK_ADD){if(imgui.ImGui.beginMenu("快速添加")){if(imgui.ImGui.menuItem("OGG 音效"))chooseAsset(contextDirectory(),false);if(imgui.ImGui.menuItem("PNG 物品材质"))chooseAsset(contextDirectory(),true);imgui.ImGui.endMenu();}}
-			else if(action==ContextAction.QUICK_CATEGORY){if(imgui.ImGui.beginMenu("快捷创建资源类型")){for(var option:availableCategories(contextDirectory())){if(imgui.ImGui.menuItem(option.label()+" · "+option.path())){String target=namespaceRoot(contextDirectory())+"/"+option.path();action(()->LuaResourcePackWorkspace.createDirectory(target),"已创建："+target);revealPath(target);}NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}}
+			if(action==ContextAction.QUICK_ADD){if(imgui.ImGui.beginMenu(LuaUiText.text("快速添加"))){if(imgui.ImGui.menuItem(LuaUiText.text("OGG 音效")))chooseAsset(contextDirectory(),false);if(imgui.ImGui.menuItem(LuaUiText.text("PNG 物品材质")))chooseAsset(contextDirectory(),true);imgui.ImGui.endMenu();}}
+			else if(action==ContextAction.QUICK_CATEGORY){if(imgui.ImGui.beginMenu(LuaUiText.text("快捷创建资源类型"))){for(var option:availableCategories(contextDirectory())){if(imgui.ImGui.menuItem(option.label()+" · "+option.path())){String target=namespaceRoot(contextDirectory())+"/"+option.path();action(()->LuaResourcePackWorkspace.createDirectory(target),"已创建："+target);revealPath(target);}NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}}
 			else if(imgui.ImGui.menuItem(contextLabel(action)))runDirectoryContextAction(action);
 		}
 	}
 	private void nativeJson() {
-		if(imgui.ImGui.button("类型"))jsonShowExamples=false;imgui.ImGui.sameLine();if(imgui.ImGui.button("游戏示例"))jsonShowExamples=true;
+		if(imgui.ImGui.button(LuaUiText.text("类型")))jsonShowExamples=false;imgui.ImGui.sameLine();if(imgui.ImGui.button(LuaUiText.text("游戏示例")))jsonShowExamples=true;
 		imgui.ImGui.sameLine();NativeUi.action("刷新",this::loadJsonExamples);jsonQuery=NativeUi.field("搜索",jsonQuery);
         boolean narrow=imgui.ImGui.getContentRegionAvailX()<480;
         if(narrow){String choice=NativeUi.combo("类别 / 示例",jsonShowExamples?selectedExample:category,visibleJsonEntries(),entry->entry);if(!choice.equals(jsonShowExamples?selectedExample:category))activateJsonEntry(choice);tree.renderImGui();}
@@ -76,7 +76,7 @@ final class LuaResourcePackToolOverlay {
 		imgui.ImGui.sameLine();NativeUi.action("读取当前文件",()->message.accept("resource-json-refresh"));
 	}
 	private void nativePng() {
-		var png=canvas.get();if(png==null){imgui.ImGui.textWrapped("请从资源包目录打开 PNG 文件");return;}
+		var png=canvas.get();if(png==null){imgui.ImGui.textWrapped(LuaUiText.text("请从资源包目录打开 PNG 文件"));return;}
 		String[] names={"铅笔","画笔","橡皮","填充","取色"};
 		for(int i=0;i<names.length;i++){if(i>0)NativeUi.next("　");var tool=LuaPngLayerDocument.Tool.values()[i];if(NativeIcons.button(tool.name(),names[i],png.tool()==tool))png.setTool(tool);}
 		imgui.ImGui.textUnformatted(names[png.tool().ordinal()]);

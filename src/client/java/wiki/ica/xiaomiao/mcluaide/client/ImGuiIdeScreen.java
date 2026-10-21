@@ -318,6 +318,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         ImGuiIdeRuntime.setTheme(tools.controller.nativePersonalization().theme, !themeSeen); themeSeen = true;
         ImGuiIdeRuntime.animateTheme();
         tools.beginFrame();
+        WindowChrome.update(tools.controller.nativePersonalization().integratedTitleBar);
         menuBar();
         int dock = ImGui.dockSpaceOverViewport(0, ImGui.getMainViewport(), lockLayout.get() && !tools.controller.nativeResizeLocked() ? ImGuiDockNodeFlags.NoResize : 0);
         if (resetLayout || !preferences.getProperty("workspace.version", "").equals("2") && frameCount == 0) {
@@ -336,6 +337,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
 
     private void menuBar() {
         if (!ImGui.beginMainMenuBar()) return;
+        if (WindowChrome.active()) ImGui.setCursorPosX(ImGui.getCursorPosX() + WindowChrome.leftInset());
         if (ImGui.beginMenu(tr("文件", "File"))) {
             tools.menu("FILES"); tools.menu("DATAPACK_FILES"); tools.menu("RESOURCE_FILES"); ImGui.separator();
             if (ImGui.menuItem(tr("新建 Lua 文件…", "New Lua file…"), "Ctrl+N")) createDialog(ImGuiIdeDocument.Kind.LUA, "file", "");
@@ -426,6 +428,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (running) { float pulse = (float) (.5 + .5 * Math.sin(System.nanoTime() / 1.0e9 * 5)); ImGui.textColored(.4f, .85f, .55f, .35f + .65f * pulse, "●"); ImGui.sameLine(); }
         if (GameControl.active()) { ImGui.textColored(1f, .55f, .3f, 1f, "● " + tr("游戏控制中 · Esc 返回 IDE", "Controlling game · Esc returns to IDE")); ImGui.sameLine(); }
         ImGui.textDisabled("Dear ImGui · " + (running ? tr("运行中", "Running") : tr("就绪", "Ready")));
+        WindowChrome.finishBar(ImGui.getItemRectMaxX());
         ImGui.endMainMenuBar();
     }
     private void createLayout(int dock) {
@@ -1012,6 +1015,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         else ImGuiIdeRuntime.scroll(horizontal, vertical); return true;
     }
     @Override public void removed() {
+        if (!suspended) WindowChrome.release();
         if (suspended) { ImGuiIdeRuntime.clearInput(); return; }
         if (disposed) return;
         ImGuiIdeRuntime.inContext(() -> documents.values().forEach(ImGuiIdeDocument::capture));

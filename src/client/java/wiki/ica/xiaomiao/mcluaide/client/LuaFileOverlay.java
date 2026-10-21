@@ -36,7 +36,7 @@ final class LuaFileOverlay {
 		if(imgui.ImGui.beginPopup("categories")) {
 			paletteQuery=NativeUi.input("##query",paletteQuery);imgui.ImGui.beginChild("types",480,300,true);
 			for(var option:filteredCategories()){if(imgui.ImGui.selectable(option.label()+" · "+option.path())){createScaffoldDirectory(option);imgui.ImGui.closeCurrentPopup();}NativeUi.hint(option.purpose());}
-			imgui.ImGui.endChild();if(imgui.ImGui.button("关闭")){paletteOpen=false;imgui.ImGui.closeCurrentPopup();}imgui.ImGui.endPopup();
+			imgui.ImGui.endChild();if(imgui.ImGui.button(LuaUiText.text("关闭"))){paletteOpen=false;imgui.ImGui.closeCurrentPopup();}imgui.ImGui.endPopup();
 		}
 		NativeUi.status(status);
 	}
@@ -55,7 +55,7 @@ final class LuaFileOverlay {
 	private void nativeContext() {
 		for(var action:contextActions(contextEntry)) {
 			if(action==ContextAction.QUICK_CATEGORY) {
-				if(imgui.ImGui.beginMenu("快捷创建")){paletteParent=contextEntry.path();for(var option:filteredCategories()){if(imgui.ImGui.menuItem(option.label()+" · "+leaf(option.path())))createScaffoldDirectory(option);NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}
+				if(imgui.ImGui.beginMenu(LuaUiText.text("快捷创建"))){paletteParent=contextEntry.path();for(var option:filteredCategories()){if(imgui.ImGui.menuItem(option.label()+" · "+leaf(option.path())))createScaffoldDirectory(option);NativeUi.hint(option.purpose());}imgui.ImGui.endMenu();}
 			} else if(imgui.ImGui.menuItem(contextLabel(action)))runContextAction(action);
 		}
 	}

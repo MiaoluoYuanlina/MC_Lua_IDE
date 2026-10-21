@@ -58,6 +58,8 @@ public final class LuaPersonalizationSettings {
 	BackgroundFit backgroundFit = BackgroundFit.COVER;
 	BackgroundAlignment backgroundAlignment = BackgroundAlignment.CENTER;
 	boolean resizeDockWhenLocked;
+	/** Menus and window buttons share the window's title bar row (see WindowChrome); on by default only where it has been verified. */
+	boolean integratedTitleBar = WindowChrome.defaultEnabled();
 	LuaWindowShortcuts windowShortcuts = new LuaWindowShortcuts();
 	final EnumMap<LuaSyntaxHighlighter.ColorRole, Integer> syntaxColors =
 			new EnumMap<>(LuaSyntaxHighlighter.ColorRole.class);
@@ -72,7 +74,7 @@ public final class LuaPersonalizationSettings {
 		copy.cursorWidth = cursorWidth; copy.cursorColor = cursorColor;
 		copy.backgroundFile = backgroundFile; copy.backgroundOpacity = backgroundOpacity;
 		copy.backgroundFit = backgroundFit; copy.backgroundAlignment = backgroundAlignment;
-		copy.resizeDockWhenLocked = resizeDockWhenLocked;
+		copy.resizeDockWhenLocked = resizeDockWhenLocked; copy.integratedTitleBar = integratedTitleBar;
 		copy.windowShortcuts = windowShortcuts.copy();
 		copy.syntaxColors.putAll(syntaxColors);
 		return copy;
@@ -116,6 +118,7 @@ public final class LuaPersonalizationSettings {
 			value.backgroundAlignment = enumValue(BackgroundAlignment.class,
 					properties.getProperty("backgroundAlignment"), value.backgroundAlignment);
 			value.resizeDockWhenLocked = Boolean.parseBoolean(properties.getProperty("resizeDockWhenLocked", "false"));
+			value.integratedTitleBar = Boolean.parseBoolean(properties.getProperty("integratedTitleBar", Boolean.toString(WindowChrome.defaultEnabled())));
 			value.windowShortcuts.read(properties);
 			for (LuaSyntaxHighlighter.ColorRole role : LuaSyntaxHighlighter.ColorRole.values()) {
 				Integer color = rgbValue(properties.getProperty("syntaxColor." + role.name()));
@@ -148,6 +151,7 @@ public final class LuaPersonalizationSettings {
 		properties.setProperty("backgroundFit", backgroundFit.name());
 		properties.setProperty("backgroundAlignment", backgroundAlignment.name());
 		properties.setProperty("resizeDockWhenLocked", Boolean.toString(resizeDockWhenLocked));
+		properties.setProperty("integratedTitleBar", Boolean.toString(integratedTitleBar));
 		windowShortcuts.write(properties);
 		for (var entry : syntaxColors.entrySet())
 			properties.setProperty("syntaxColor." + entry.getKey().name(),

@@ -2127,6 +2127,8 @@ McLuaIdeWindowApi.window("test_mod", "script_tools")
 
 扩展：无需 Java，通过 `config/mc_lua_ide/extensions` 中的 JSON 文件即可添加代码片段和简单命令；修改后在命令面板执行「重新加载扩展清单」。清单格式和编辑器 API 见项目中的 docs/extensions。
 
+标题栏：「个性化 → 窗口 → 标题栏与菜单合并」会把菜单和最小化/最大化/关闭按钮放进窗口的标题栏一行。Windows 默认开启（保留系统边框、吸附和阴影）；macOS 与 Linux（X11）默认关闭，且未在真实机器上测试；Wayland 保留系统标题栏。
+
 ## 常见问题
 
 ### 为什么脚本能通过语法检查，运行时仍然报错？
