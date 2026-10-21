@@ -6,7 +6,13 @@ import java.security.MessageDigest;
 import java.util.*;
 
 /** Bounded, immutable debugger configuration; contains metadata, never Lua source. */
-public record LuaBreakpoints(Map<String, File> files) {
+/**
+ * @param exceptions when the debugger pauses on a Lua error: never, only when no pcall/xpcall will catch it, or always
+ */
+public record LuaBreakpoints(Map<String, File> files, ExceptionMode exceptions) {
+	public enum ExceptionMode { OFF, UNCAUGHT, ALL }
+	/** Stored next to the file entries under a key no script name can have. */
+	private static final String EXCEPTIONS_KEY = "#exceptions";
 	public static final int MAX_FILES = 128, MAX_POINTS = 1024, MAX_LINE = 100_001;
 	/** The encoded configuration must fit the control packet (100,000 characters) with room to spare. */
 	public static final int MAX_ENCODED_CHARS = 96_000;
@@ -41,8 +47,10 @@ public record LuaBreakpoints(Map<String, File> files) {
 		public File(String hash, Set<Integer> lines) { this(hash, lines, Map.of()); }
 		public Option option(int line) { return options.getOrDefault(line, Option.NONE); }
 	}
-	public LuaBreakpoints { files = Map.copyOf(files); }
+	public LuaBreakpoints { files = Map.copyOf(files); exceptions = exceptions == null ? ExceptionMode.OFF : exceptions; }
+	public LuaBreakpoints(Map<String, File> files) { this(files, ExceptionMode.OFF); }
 	public static LuaBreakpoints empty() { return new LuaBreakpoints(Map.of()); }
+	public LuaBreakpoints withExceptions(ExceptionMode mode) { return new LuaBreakpoints(files, mode); }
 
 	public String encode() {
 		JsonObject root = new JsonObject();
@@ -65,6 +73,7 @@ public record LuaBreakpoints(Map<String, File> files) {
 			}
 			root.add(name, entry);
 		});
+		if (exceptions != ExceptionMode.OFF) root.addProperty(EXCEPTIONS_KEY, exceptions.name().toLowerCase(java.util.Locale.ROOT));
 		return root.toString();
 	}
 
@@ -72,10 +81,12 @@ public record LuaBreakpoints(Map<String, File> files) {
 		try {
 			if (json == null || json.length() > MAX_ENCODED_CHARS) throw new IllegalArgumentException();
 			JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-			if (root.size() > MAX_FILES) throw new IllegalArgumentException();
+			if (root.size() > MAX_FILES + 1) throw new IllegalArgumentException();
+			ExceptionMode exceptions = ExceptionMode.OFF;
 			Map<String, File> files = new LinkedHashMap<>();
 			int count = 0;
 			for (var entry : root.entrySet()) {
+				if (entry.getKey().equals(EXCEPTIONS_KEY)) { exceptions = ExceptionMode.valueOf(entry.getValue().getAsString().toUpperCase(java.util.Locale.ROOT)); continue; }
 				LuaScriptNames.requireValid(entry.getKey());
 				JsonObject data = entry.getValue().getAsJsonObject();
 				String hash = data.get("hash").getAsString();
@@ -97,7 +108,8 @@ public record LuaBreakpoints(Map<String, File> files) {
 				}
 				if (!lines.isEmpty()) files.put(entry.getKey(), new File(hash, lines, options));
 			}
-			return new LuaBreakpoints(files);
+			if (files.size() > MAX_FILES) throw new IllegalArgumentException();
+			return new LuaBreakpoints(files, exceptions);
 		} catch (RuntimeException error) {
 			throw new IllegalArgumentException("断点配置无效（最多 128 个文件、1024 个断点）", error);
 		}

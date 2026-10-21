@@ -7,7 +7,9 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import wiki.ica.xiaomiao.mcluaide.network.LuaDebuggerState;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -200,11 +202,42 @@ final class LuaBreakpointClient {
 		}));
 	}
 
+	/** A coroutine of the paused script: number in creation order, status, current position and where its function is defined. */
+	record Coroutine(int number, String status, String where, String defined) { }
+	private static List<Coroutine> coroutines = List.of();
+	private static String coroutinesKey = "";
+	private static boolean coroutinesPending;
+
+	/** The coroutine list of the current pause; empty until {@link #refreshCoroutines()} has an answer. */
+	static List<Coroutine> coroutines() { return coroutinesKey.equals(state.id() + ":" + state.sequence()) ? coroutines : List.of(); }
+
+	/** Asks the server for the coroutine list once per pause. */
+	static void refreshCoroutines() {
+		String key = state.id() + ":" + state.sequence();
+		if (!canEvaluate() || !ScriptManager.isServerAvailable() || coroutinesPending || key.equals(coroutinesKey)) return;
+		coroutinesPending = true;
+		int epoch = connection;
+		com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+		body.addProperty("frame", selectedFrame); body.add("exprs", new com.google.gson.JsonArray()); body.addProperty("coroutines", true);
+		ScriptManager.evaluateDebugger(state.id(), body.toString()).whenComplete((data, error) -> Minecraft.getInstance().execute(() -> {
+			if (epoch != connection) return;
+			coroutinesPending = false; coroutinesKey = key;
+			List<Coroutine> list = new ArrayList<>();
+			if (error == null) try {
+				for (var element : com.google.gson.JsonParser.parseString(data).getAsJsonObject().getAsJsonArray("coroutines")) {
+					var item = element.getAsJsonObject();
+					list.add(new Coroutine(item.get("number").getAsInt(), item.get("status").getAsString(), item.get("where").getAsString(), item.get("defined").getAsString()));
+				}
+			} catch (RuntimeException invalid) { list.clear(); }
+			coroutines = List.copyOf(list);
+		}));
+	}
+
 	/** Runs to a line without a permanent breakpoint (the script must be paused). */
 	static void runTo(String script, int line) { control("run_to:" + script + ":" + line); }
 
 	static void disconnected() {
-		evaluated.clear(); evaluating.clear(); selectedFrame = 0;
+		evaluated.clear(); evaluating.clear(); selectedFrame = 0; coroutines = List.of(); coroutinesKey = ""; coroutinesPending = false;
 		LuaDebuggerCamera.disconnected();
 		LuaDebugKeyBindings.disconnected();
 		connection++; state = LuaDebuggerState.inactive(); store = null; sessionPath = null;

@@ -24,7 +24,9 @@ final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
         NativeUi.action(LuaBreakpointClient.movementLabel(),()->LuaBreakpointClient.setAllowPlayerMovement(!LuaBreakpointClient.state().allowPlayerMovement()));
         NativeUi.action(LuaDebuggerCamera.label(),()->LuaDebuggerCamera.setEnabled(!LuaDebuggerCamera.enabled()));
         imgui.ImGui.separator();
+        exceptionMode();
         callStack();
+        coroutineList();
         watches();
         breakpointList();
         imgui.ImGui.separator();
@@ -49,6 +51,49 @@ final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
                 if(LuaScriptNames.isValid(frame.source())&&frame.line()>0)navigate.accept(frame.source(),frame.line());
             }
         }
+    }
+
+    /** Pause on Lua errors: never, only uncaught ones (no pcall/xpcall around them), or every error. */
+    private void exceptionMode() {
+        var store=LuaBreakpointClient.store();
+        if(store==null)return;
+        var modes=wiki.ica.xiaomiao.mcluaide.network.LuaBreakpoints.ExceptionMode.values();
+        String[] labels={LuaUiText.text("不在错误处暂停","Don't pause on errors"),LuaUiText.text("在未捕获的错误处暂停","Pause on uncaught errors"),LuaUiText.text("在所有错误处暂停","Pause on all errors")};
+        var current=store.exceptions();
+        imgui.ImGui.setNextItemWidth(Math.max(120,imgui.ImGui.getContentRegionAvailX()));
+        if(imgui.ImGui.beginCombo("##exception_mode",labels[current.ordinal()])){
+            for(var mode:modes)if(imgui.ImGui.selectable(labels[mode.ordinal()],mode==current)&&mode!=current){store.setExceptions(mode);store.save();LuaBreakpointClient.changed();}
+            imgui.ImGui.endCombo();
+        }
+        if(imgui.ImGui.isItemHovered())imgui.ImGui.setTooltip(LuaUiText.text("未捕获：没有 pcall / xpcall 接住的错误。仅在调试运行时生效。","Uncaught: errors no pcall / xpcall will catch. Applies to debug runs only."));
+    }
+
+    private void coroutineList() {
+        if(!LuaBreakpointClient.canEvaluate())return;
+        LuaBreakpointClient.refreshCoroutines();
+        var list=LuaBreakpointClient.coroutines();
+        if(list.isEmpty())return;
+        imgui.ImGui.textColored(.6f,.78f,1f,1f,LuaUiText.text("协程","Coroutines")+" · "+list.size());
+        for(var co:list){
+            String place=!co.where().isEmpty()?co.where():co.defined();
+            String label="#"+co.number()+"  "+statusLabel(co.status())+(place.isEmpty()?"":"  · "+place)+"##coroutine"+co.number();
+            if(imgui.ImGui.selectable(label)&&!place.isEmpty()){
+                int colon=place.lastIndexOf(':');String file=place.endsWith(".lua")?place.substring(0,place.length()-4):colon>0?place.substring(0,colon).replaceFirst("\\.lua$",""):"";
+                int line=0;try{line=colon>0?Integer.parseInt(place.substring(colon+1)):0;}catch(NumberFormatException ignored){}
+                if(LuaScriptNames.isValid(file)&&line>0)navigate.accept(file,line);
+            }
+            if(imgui.ImGui.isItemHovered()&&!co.defined().isEmpty())imgui.ImGui.setTooltip(LuaUiText.text("函数定义于 ","Function defined at ")+co.defined());
+        }
+    }
+
+    private static String statusLabel(String status){
+        return switch(status){
+            case "suspended"->LuaUiText.text("已挂起","suspended");
+            case "running"->LuaUiText.text("运行中","running");
+            case "normal"->LuaUiText.text("等待子协程","waiting (resumed another)");
+            case "dead"->LuaUiText.text("已结束","finished");
+            default->status;
+        };
     }
 
     private void watches() {

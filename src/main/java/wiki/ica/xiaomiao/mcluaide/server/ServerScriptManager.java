@@ -258,15 +258,17 @@ public final class ServerScriptManager {
 		synchronized (ServerScriptManager.class) { execution = activeExecution; }
 		if (execution == null || !execution.isRunning())
 			return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("当前没有正在运行的 Lua 脚本"));
-		int frame; List<String> expressions = new java.util.ArrayList<>();
+		int frame; boolean coroutines; List<String> expressions = new java.util.ArrayList<>();
 		try {
 			com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
 			frame = request.get("frame").getAsInt();
+			coroutines = request.has("coroutines") && request.get("coroutines").getAsBoolean();
 			for (var element : request.getAsJsonArray("exprs")) expressions.add(element.getAsString());
 		} catch (RuntimeException error) {
 			return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("求值请求无效"));
 		}
-		return execution.debugger.evaluate(executionId, frame, expressions).thenApply(results -> {
+		return execution.debugger.evaluate(executionId, frame, expressions, coroutines).thenApply(evaluation -> {
+			var results = evaluation.results();
 			com.google.gson.JsonArray array = new com.google.gson.JsonArray();
 			for (var result : results) {
 				com.google.gson.JsonObject item = new com.google.gson.JsonObject();
@@ -277,6 +279,16 @@ public final class ServerScriptManager {
 			}
 			com.google.gson.JsonObject root = new com.google.gson.JsonObject();
 			root.add("results", array);
+			if (coroutines) {
+				com.google.gson.JsonArray list = new com.google.gson.JsonArray();
+				for (var coroutine : evaluation.coroutines()) {
+					com.google.gson.JsonObject item = new com.google.gson.JsonObject();
+					item.addProperty("number", coroutine.number()); item.addProperty("status", coroutine.status());
+					item.addProperty("where", coroutine.where()); item.addProperty("defined", coroutine.defined());
+					list.add(item);
+				}
+				root.add("coroutines", list);
+			}
 			return root.toString();
 		});
 	}
@@ -345,6 +357,11 @@ public final class ServerScriptManager {
 					() -> execution.sleepMilliseconds(1), () -> execution.runtime.currentFlow());
 			Map<String, LuaValue> baseline = execution.debugEnabled
 					? LuaDebugSnapshot.baseline(globals) : Map.of();
+			LuaErrorDebugLib errorHook = LuaErrorDebugLib.of(globals);
+			if (execution.debugEnabled && errorHook != null) errorHook.onError(() -> {
+				// Stopping unwinds with an error too; that must not look like an exception of the script.
+				if (!execution.cancelled.get()) execution.debugger.error(debugLibrary, () -> execution.captureDebugVariablesNow(globals, debugLibrary, baseline));
+			});
 			LuaValue stopHook = new VarArgFunction() {
 				@Override
 				public Varargs invoke(Varargs arguments) {
@@ -371,6 +388,7 @@ public final class ServerScriptManager {
 						execution.lastDebugFunction = LuaValue.NIL;
 						execution.forcedDebugLines = 0;
 					});
+			if (execution.debugEnabled) execution.runtime.onCoroutineCreated(execution.debugger::trackCoroutine);
 			execution.runtime.submit(null, () -> {
 				main.call();
 				if (execution.debugEnabled)

@@ -172,6 +172,10 @@ final class LuaCooperativeRuntime implements AutoCloseable {
 		thread.state.hookcount = hookInterval;
 	}
 
+	private volatile java.util.function.Consumer<LuaThread> coroutineCreated = thread -> { };
+	/** Told about every coroutine the script creates (the debugger lists them while paused). */
+	void onCoroutineCreated(java.util.function.Consumer<LuaThread> listener) { coroutineCreated = listener; }
+
 	private void installCoroutineHooks() {
 		LuaValue coroutine = globals.get("coroutine");
 		if (!coroutine.istable()) return; // Internal flows do not enable the sandboxed library.
@@ -180,6 +184,7 @@ final class LuaCooperativeRuntime implements AutoCloseable {
 			@Override public Varargs invoke(Varargs args) {
 				LuaThread thread = create.call(args.checkfunction(1)).checkthread();
 				attachHook(thread);
+				coroutineCreated.accept(thread);
 				return thread;
 			}
 		});
@@ -187,6 +192,7 @@ final class LuaCooperativeRuntime implements AutoCloseable {
 			@Override public Varargs invoke(Varargs args) {
 				LuaThread thread = create.call(args.checkfunction(1)).checkthread();
 				attachHook(thread);
+				coroutineCreated.accept(thread);
 				return new VarArgFunction() {
 					@Override public Varargs invoke(Varargs values) {
 						Varargs result = thread.resume(values);

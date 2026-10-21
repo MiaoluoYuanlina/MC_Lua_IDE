@@ -4,7 +4,9 @@ import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.LuaThread;
 import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.VarArgFunction;
 
 /**
  * Evaluates a Lua expression in the context of a paused stack frame: the frame's local variables and upvalues are visible, then
@@ -30,7 +32,11 @@ final class LuaDebugEvaluator {
 		if (expr.length() > MAX_EXPRESSION_CHARS) return Result.failure("表达式过长（最多 " + MAX_EXPRESSION_CHARS + " 个字符）");
 		if (globals == null || debug == null || debug.isnil()) return Result.failure("调试环境不可用");
 		try {
-			LuaTable environment = new LuaTable();
+			// LuaJ runs hooks only for closures whose environment is a Globals, so the frame's view is a Globals that shares the
+			// script's debug library and running thread: otherwise the budget hook below could never interrupt the expression.
+			Globals environment = new Globals();
+			environment.debuglib = globals.debuglib;
+			environment.running = globals.running;
 			LuaValue getLocal = debug.get("getlocal"), getUpvalue = debug.get("getupvalue"), getInfo = debug.get("getinfo");
 			for (int index = 1; index <= MAX_LOCALS; index++) {
 				Varargs local = getLocal.invoke(LuaValue.varargsOf(LuaValue.valueOf(level), LuaValue.valueOf(index)));
@@ -53,12 +59,51 @@ final class LuaDebugEvaluator {
 			meta.set("__index", fallback);
 			environment.setmetatable(meta);
 			LuaValue chunk = globals.load("return " + expr, "=eval", environment);
-			LuaValue value = chunk.invoke().arg1();
+			LuaValue value = budgeted(globals, chunk);
 			return new Result(true, LuaDebugSnapshot.describeValue(value), value.typename(), "", value);
 		} catch (LuaError error) {
 			return Result.failure(clean(error.getMessage()));
 		} catch (RuntimeException error) {
 			return Result.failure(clean(error.getMessage()));
+		}
+	}
+
+	/** Instructions and wall time one expression may use: plenty for reading values, small enough that a mistake cannot hang the script. */
+	static final int BUDGET_INSTRUCTIONS = 200_000;
+	static final long BUDGET_NANOS = 250_000_000L;
+	static final String BUDGET_MESSAGE = "表达式超出执行预算（可能是死循环或过重的计算）";
+	private static final int BUDGET_STEP = 100;
+	private static final ThreadLocal<Boolean> EVALUATING = new ThreadLocal<>();
+
+	/** True while this thread is evaluating an expression; errors raised by the expression are not "exceptions" of the script. */
+	static boolean evaluating() { return Boolean.TRUE.equals(EVALUATING.get()); }
+
+	/**
+	 * Runs the expression with a temporary count hook. Evaluation happens inside the debugger's own hook, where LuaJ normally
+	 * suppresses every hook (so the script's stop hook could not interrupt an endless expression); this swaps in a budget hook for
+	 * the duration and restores the thread's hook state afterwards.
+	 */
+	private static LuaValue budgeted(Globals globals, LuaValue chunk) {
+		LuaThread.State state = globals.running.state;
+		LuaValue hook = state.hookfunc;
+		boolean line = state.hookline, call = state.hookcall, ret = state.hookrtrn, inHook = state.inhook;
+		int count = state.hookcount;
+		long deadline = System.nanoTime() + BUDGET_NANOS;
+		int[] steps = {0};
+		state.hookfunc = new VarArgFunction() {
+			@Override public Varargs invoke(Varargs args) {
+				if (++steps[0] * BUDGET_STEP > BUDGET_INSTRUCTIONS || System.nanoTime() > deadline) throw new LuaError(BUDGET_MESSAGE);
+				return LuaValue.NONE;
+			}
+		};
+		state.hookcount = BUDGET_STEP; state.hookline = false; state.hookcall = false; state.hookrtrn = false; state.inhook = false;
+		Boolean outer = EVALUATING.get();
+		EVALUATING.set(Boolean.TRUE);
+		try {
+			return chunk.invoke().arg1();
+		} finally {
+			state.hookfunc = hook; state.hookcount = count; state.hookline = line; state.hookcall = call; state.hookrtrn = ret; state.inhook = inHook;
+			if (outer == null) EVALUATING.remove(); else EVALUATING.set(outer);
 		}
 	}
 

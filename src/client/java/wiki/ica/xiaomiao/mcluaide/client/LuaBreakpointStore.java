@@ -16,6 +16,7 @@ final class LuaBreakpointStore {
 	private final Map<String, LuaBreakpoints.File> files = new LinkedHashMap<>();
 	private final Map<String, String> hashes = new HashMap<>();
 	private final List<String> watches = new ArrayList<>();
+	private LuaBreakpoints.ExceptionMode exceptions = LuaBreakpoints.ExceptionMode.OFF;
 	LuaBreakpointStore(Path sessionFile) {
 		file = sessionFile.resolveSibling(sessionFile.getFileName() + "-breakpoints.properties");
 		Properties saved = LuaIdeSession.readProperties(file);
@@ -26,6 +27,7 @@ final class LuaBreakpointStore {
 			for (var element : JsonParser.parseString(saved.getProperty("watches", "[]")).getAsJsonArray())
 				if (watches.size() < MAX_WATCHES && !element.getAsString().isBlank() && element.getAsString().length() <= 512) watches.add(element.getAsString().strip());
 		} catch (RuntimeException ignored) { }
+		try { exceptions = LuaBreakpoints.ExceptionMode.valueOf(saved.getProperty("exceptions", "OFF")); } catch (IllegalArgumentException ignored) { }
 	}
 	Set<Integer> lines(String name) {
 		LuaBreakpoints.File entry = files.get(name);
@@ -40,7 +42,10 @@ final class LuaBreakpointStore {
 		return entry == null ? LuaBreakpoints.Option.NONE : entry.option(line);
 	}
 	String hash(String name) { return hashes.getOrDefault(name, ""); }
-	LuaBreakpoints config() { return new LuaBreakpoints(files); }
+	LuaBreakpoints config() { return new LuaBreakpoints(files, exceptions); }
+	/** When the debugger pauses on a Lua error (sent to the server with the breakpoints). */
+	LuaBreakpoints.ExceptionMode exceptions() { return exceptions; }
+	void setExceptions(LuaBreakpoints.ExceptionMode mode) { exceptions = mode == null ? LuaBreakpoints.ExceptionMode.OFF : mode; }
 	List<String> watches() { return List.copyOf(watches); }
 	boolean addWatch(String expression) {
 		String text = expression == null ? "" : expression.strip();
@@ -52,6 +57,7 @@ final class LuaBreakpointStore {
 		Properties data = new Properties(); data.setProperty("breakpoints", config().encode());
 		JsonArray array = new JsonArray(); watches.forEach(array::add);
 		data.setProperty("watches", array.toString());
+		data.setProperty("exceptions", exceptions.name());
 		LuaIdeSession.writeProperties(file, data);
 	}
 	private void requireRoom(String name) {

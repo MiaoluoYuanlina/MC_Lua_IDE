@@ -32,14 +32,35 @@ final class LuaBreakpointController {
 	private LuaValue pausedDebug;
 	private List<Integer> pausedLevels = List.of();
 	private final Deque<EvaluationRequest> evaluations = new ArrayDeque<>();
-	private record EvaluationRequest(int frame, List<String> expressions, CompletableFuture<List<LuaDebugEvaluator.Result>> future) { }
+	private record EvaluationRequest(int frame, List<String> expressions, boolean coroutines, CompletableFuture<Evaluation> future) { }
+	/** One coroutine of the script: its number in creation order, status, where it is now and where its function is defined. */
+	record CoroutineInfo(int number, String status, String where, String defined) { }
+	record Evaluation(List<LuaDebugEvaluator.Result> results, List<CoroutineInfo> coroutines) { }
+	// Exception breakpoints: pcall / xpcall as the script started with them, to tell a caught error from an uncaught one.
+	private LuaValue pcall = LuaValue.NIL, xpcall = LuaValue.NIL;
+	// Coroutines created by the script, oldest first; dead and collected ones are dropped.
+	private static final int MAX_COROUTINES = 200;
+	private final List<java.lang.ref.WeakReference<org.luaj.vm2.LuaThread>> coroutines = new ArrayList<>();
+	private int coroutinesCreated;
+	private final Map<org.luaj.vm2.LuaThread, Integer> coroutineNumbers = new WeakHashMap<>();
 
 	LuaBreakpointController(String script, boolean enabled, LuaBreakpoints breakpoints) {
 		this.script = script; this.enabled = enabled; this.breakpoints = breakpoints;
 		state = new LuaDebuggerState(id, script, true, enabled, false, "", 0, "", "", 0, List.of(), count(), "", false, false, true);
 	}
 	/** Gives the controller what it needs to evaluate expressions: the script's globals and where logpoint output goes. */
-	synchronized void attach(Globals globals, Consumer<String> logSink) { this.globals = globals; this.logSink = logSink; }
+	synchronized void attach(Globals globals, Consumer<String> logSink) {
+		this.globals = globals; this.logSink = logSink;
+		pcall = globals.get("pcall"); xpcall = globals.get("xpcall");
+	}
+
+	/** Remembers a coroutine the script created, for the coroutine list shown while paused. */
+	synchronized void trackCoroutine(org.luaj.vm2.LuaThread thread) {
+		coroutines.removeIf(reference -> reference.get() == null || "dead".equals(reference.get().getStatus()));
+		if (coroutines.size() >= MAX_COROUTINES) coroutines.removeFirst();
+		coroutines.add(new java.lang.ref.WeakReference<>(thread));
+		coroutineNumbers.put(thread, ++coroutinesCreated);
+	}
 	synchronized void source(String name, String source) {
 		sources.put(name, LuaBreakpoints.hash(source)); sourceText.put(name, source);
 	}
@@ -94,11 +115,16 @@ final class LuaBreakpointController {
 	 * it waits in the pause; the future fails when the script is not paused or has moved on.
 	 */
 	synchronized CompletableFuture<List<LuaDebugEvaluator.Result>> evaluate(String executionId, int frame, List<String> expressions) {
+		return evaluate(executionId, frame, expressions, false).thenApply(Evaluation::results);
+	}
+
+	/** As above; with {@code coroutines} the reply also lists the script's coroutines (read on the Lua worker too). */
+	synchronized CompletableFuture<Evaluation> evaluate(String executionId, int frame, List<String> expressions, boolean coroutines) {
 		if (stopped || !enabled) return CompletableFuture.failedFuture(new IllegalStateException("当前没有可调试的 Lua 脚本"));
 		if (!id.equals(executionId)) return CompletableFuture.failedFuture(new IllegalStateException("脚本已切换，请重新读取断点信息"));
 		if (!paused) return CompletableFuture.failedFuture(new IllegalStateException("请先暂停脚本再求值"));
 		if (expressions.size() > 40) return CompletableFuture.failedFuture(new IllegalArgumentException("一次最多求值 40 个表达式"));
-		var request = new EvaluationRequest(frame, List.copyOf(expressions), new CompletableFuture<>());
+		var request = new EvaluationRequest(frame, List.copyOf(expressions), coroutines, new CompletableFuture<>());
 		evaluations.add(request); notifyAll();
 		return request.future();
 	}
@@ -144,9 +170,28 @@ final class LuaBreakpointController {
 			hit = true; reason = "运行到光标";
 			synchronized (this) { runToFile = ""; }
 		}
+		synchronized (this) { if (!hit && !pauseRequested && step.isEmpty()) return; }
+		Stack frames = stack(debug);
+		synchronized (this) {
+			boolean stepped = switch (step) {
+				case "step_into" -> true;
+				case "step_over" -> frames.depth() <= stepDepth;
+				case "step_out" -> frames.depth() < stepDepth;
+				default -> false;
+			};
+			if (!hit && !pauseRequested && !stepped) return;
+			captureVariables.run();
+			pausedDebug = debug; pausedLevels = List.copyOf(frames.levels());
+			awaitPause(name, line, hash, hit ? reason : pauseRequested ? "手动暂停" : "单步执行", frames.depth(), frames.frames());
+		}
+	}
+
+	private record Stack(List<LuaDebuggerState.Frame> frames, List<Integer> levels, int depth) { }
+
+	/** The script's frames from the innermost outwards (at most 24 shown), with their debug.getinfo levels and the Lua call depth. */
+	private static Stack stack(LuaValue debug) {
 		List<LuaDebuggerState.Frame> stack = new ArrayList<>();
 		List<Integer> levels = new ArrayList<>();
-		synchronized (this) { if (!hit && !pauseRequested && step.isEmpty()) return; }
 		int depth = 0;
 		for (int level = 1; level <= 128; level++) {
 			LuaValue frame = debug.get("getinfo").invoke(LuaValue.varargsOf(
@@ -161,18 +206,41 @@ final class LuaBreakpointController {
 				levels.add(level);
 			}
 		}
+		return new Stack(stack, levels, depth);
+	}
+
+	/**
+	 * A Lua error is starting to unwind on this (the Lua) thread; its frames are still there. Pauses when exception breakpoints ask
+	 * for it: always, or only when no pcall / xpcall on the stack will catch the error. Errors raised by the debugger's own
+	 * expressions and the stop signal never pause.
+	 */
+	void error(LuaValue debug, Runnable captureVariables) {
+		LuaBreakpoints.ExceptionMode mode;
+		synchronized (this) { mode = breakpoints.exceptions(); if (!enabled || stopped || paused) return; }
+		if (mode == LuaBreakpoints.ExceptionMode.OFF || LuaDebugEvaluator.evaluating() || debug == null || !debug.istable()) return;
+		if (mode == LuaBreakpoints.ExceptionMode.UNCAUGHT && caught(debug)) return;
+		Stack frames = stack(debug);
+		if (frames.frames().isEmpty()) return;
+		var top = frames.frames().getFirst();
 		synchronized (this) {
-			boolean stepped = switch (step) {
-				case "step_into" -> true;
-				case "step_over" -> depth <= stepDepth;
-				case "step_out" -> depth < stepDepth;
-				default -> false;
-			};
-			if (!hit && !pauseRequested && !stepped) return;
+			if (stopped || paused) return;
 			captureVariables.run();
-			pausedDebug = debug; pausedLevels = List.copyOf(levels);
-			awaitPause(name, line, hash, hit ? reason : pauseRequested ? "手动暂停" : "单步执行", depth, stack);
+			pausedDebug = debug; pausedLevels = List.copyOf(frames.levels());
+			awaitPause(top.source(), top.line(), sources.getOrDefault(top.source(), ""),
+					mode == LuaBreakpoints.ExceptionMode.ALL ? "发生错误（异常断点）" : "未捕获的错误（异常断点）", frames.depth(), frames.frames());
 		}
+	}
+
+	/** Whether pcall or xpcall is on the stack, i.e. whether the error will be caught instead of ending the script. */
+	private boolean caught(LuaValue debug) {
+		LuaValue getInfo = debug.get("getinfo");
+		for (int level = 1; level <= 200; level++) {
+			LuaValue frame = getInfo.invoke(LuaValue.varargsOf(LuaValue.valueOf(level), LuaValue.valueOf("f"))).arg1();
+			if (frame.isnil()) return false;
+			LuaValue function = frame.get("func");
+			if (function.raweq(pcall) || function.raweq(xpcall)) return true;
+		}
+		return false;
 	}
 
 	private synchronized boolean needsHook() {
@@ -220,11 +288,39 @@ final class LuaBreakpointController {
 					results.add(LuaDebugEvaluator.evaluate(globals, pausedDebug, level, expression));
 				}
 			}
-			request.future().complete(results);
+			request.future().complete(new Evaluation(results, request.coroutines() ? coroutineList() : List.of()));
 		} catch (Throwable error) {
 			request.future().completeExceptionally(error);
 		}
 	}
+	/** Status and position of every live coroutine; runs on the Lua worker because it reads the coroutines' stacks. */
+	private List<CoroutineInfo> coroutineList() {
+		List<CoroutineInfo> list = new ArrayList<>();
+		LuaValue getInfo = pausedDebug == null ? LuaValue.NIL : pausedDebug.get("getinfo");
+		for (var reference : coroutines) {
+			org.luaj.vm2.LuaThread thread = reference.get();
+			if (thread == null) continue;
+			String status = thread.getStatus();
+			String where = "", defined = "";
+			if (getInfo.isfunction()) {
+				try {
+					LuaValue now = getInfo.invoke(LuaValue.varargsOf(thread, LuaValue.valueOf(1), LuaValue.valueOf("Sl"))).arg1();
+					if (now.istable()) where = location(now.get("source"), now.get("currentline").optint(0));
+				} catch (RuntimeException unavailable) { }
+				try {
+					LuaValue body = getInfo.invoke(LuaValue.varargsOf(thread.state.function, LuaValue.valueOf("S"))).arg1();
+					if (body.istable()) defined = location(body.get("source"), body.get("linedefined").optint(0));
+				} catch (RuntimeException unavailable) { }
+			}
+			list.add(new CoroutineInfo(coroutineNumbers.getOrDefault(thread, 0), status, where, defined));
+		}
+		return list;
+	}
+	private static String location(LuaValue source, int line) {
+		String name = LuaBreakpoints.scriptName(source.optjstring(""));
+		return name.isEmpty() ? "" : name + ".lua" + (line > 0 ? ":" + line : "");
+	}
+
 	private void failPendingEvaluations() {
 		for (EvaluationRequest request; (request = evaluations.poll()) != null; )
 			request.future().completeExceptionally(new IllegalStateException("脚本已继续运行，无法再求值"));

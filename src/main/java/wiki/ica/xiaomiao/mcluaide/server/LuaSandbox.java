@@ -5,7 +5,6 @@ import org.luaj.vm2.LoadState;
 import org.luaj.vm2.compiler.LuaC;
 import org.luaj.vm2.lib.Bit32Lib;
 import org.luaj.vm2.lib.CoroutineLib;
-import org.luaj.vm2.lib.DebugLib;
 import org.luaj.vm2.lib.PackageLib;
 import org.luaj.vm2.lib.StringLib;
 import org.luaj.vm2.lib.TableLib;
@@ -44,7 +43,7 @@ public final class LuaSandbox {
 		if (limits.allowUnrestrictedFileIo()) globals.load(new JseIoLib());
 		if (limits.allowOperatingSystem()) globals.load(new JseOsLib());
 		if (limits.allowJavaInterop()) globals.load(new LuajavaLib());
-		globals.load(new DebugLib());
+		globals.load(new LuaErrorDebugLib());
 		LoadState.install(globals);
 		LuaC.install(globals);
 		return globals;

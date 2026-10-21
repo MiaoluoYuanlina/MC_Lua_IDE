@@ -67,7 +67,7 @@ public final class LuaBreakpointSmoke {
 			f.await(6, 0); f.debugger.finish(); f.thread.interrupt(); f.thread.join(2000);
 			require(!f.thread.isAlive(), "Stopped worker stayed blocked on breakpoint");
 		}
-		checkIdleAndPause(); checkCodec(); checkFreezeLease(); checkCodePreview(); checkAdvancedBreakpoints();
+		checkIdleAndPause(); checkCodec(); checkFreezeLease(); checkCodePreview(); checkAdvancedBreakpoints(); checkDebuggerExtras();
 		System.out.println("Lua breakpoint smoke passed: real hooks, locals, call stack, into/over/out, modules, callbacks, normal run, stale source/control, stop and idle pause");
 	}
 	private static void checkIdleAndPause() throws Exception {
@@ -108,6 +108,100 @@ public final class LuaBreakpointSmoke {
 	private static LuaBreakpoints withOption(String name, String source, int line, LuaBreakpoints.Option option) {
 		return new LuaBreakpoints(Map.of(name, new LuaBreakpoints.File(LuaBreakpoints.hash(source), Set.of(line), Map.of(line, option))));
 	}
+	private static final String ERRORS = "local function risky(n)\n"
+			+ "    if n > 2 then\n"
+			+ "        error(\"too big\")\n"
+			+ "    end\n"
+			+ "    return n\n"
+			+ "end\n"
+			+ "local ok = pcall(risky, 5)\n"
+			+ "local value = 1\n"
+			+ "risky(9)\n";
+	private static final String COROUTINES = "local co = coroutine.create(function(a)\n"
+			+ "    local x = a + 1\n"
+			+ "    coroutine.yield(x)\n"
+			+ "    return x\n"
+			+ "end)\n"
+			+ "coroutine.resume(co, 1)\n"
+			+ "local finished = coroutine.create(function() return 1 end)\n"
+			+ "coroutine.resume(finished)\n"
+			+ "local marker = 1\n";
+
+	/** Evaluation budget, exception breakpoints (uncaught / all) and the coroutine list. */
+	private static void checkDebuggerExtras() throws Exception {
+		// Codec: the exception mode travels with the breakpoints; configurations without it mean "off".
+		var withMode = config("loop", LOOP, 3).withExceptions(LuaBreakpoints.ExceptionMode.UNCAUGHT);
+		require(LuaBreakpoints.decode(withMode.encode()).equals(withMode), "exception mode changed in the codec");
+		require(LuaBreakpoints.decode(config("loop", LOOP, 3).encode()).exceptions() == LuaBreakpoints.ExceptionMode.OFF, "missing exception mode should mean off");
+		boolean rejected = false;
+		try { LuaBreakpoints.decode("{\"#exceptions\":\"sometimes\"}"); } catch (IllegalArgumentException expected) { rejected = true; }
+		require(rejected, "an unknown exception mode was accepted");
+
+		// Budget: an endless condition stops with an explanation instead of hanging the script; so does an endless watch.
+		try (Fixture f = new Fixture("loop", LOOP, withOption("loop", LOOP, 3, new LuaBreakpoints.Option("(function() while true do end end)()", 0, "")), true, false)) {
+			var stop = f.await(3, 0);
+			require(stop.reason().contains("执行预算"), "an endless condition should pause with a budget error, got " + stop.reason());
+			long started = System.nanoTime();
+			var endless = f.evaluate(0, "(function() local n = 0 while true do n = n + 1 end end)()", "i");
+			require(!endless.get(0).ok() && endless.get(0).error().contains("执行预算"), "an endless watch should fail with the budget error: " + endless.get(0).error());
+			require(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(2), "the budget should end an endless watch quickly");
+			require(endless.get(1).ok() && endless.get(1).text().equals("1"), "evaluation still works after a budget error");
+			f.control("continue");
+			f.await(3, stop.sequence());
+			f.control("continue");
+		}
+
+		// Exceptions off: the uncaught error ends the script without pausing.
+		try (Fixture f = new Fixture("errors", ERRORS, LuaBreakpoints.empty(), true, false)) {
+			try { f.complete(); throw new AssertionError("the error should end the script"); } catch (ExecutionException expected) { }
+			require(!f.debugger.state().paused(), "exceptions off should not pause");
+		}
+		// Uncaught only: the pcall'd error passes, the uncaught one stops at the line that raised it, with its locals.
+		try (Fixture f = new Fixture("errors", ERRORS, LuaBreakpoints.empty().withExceptions(LuaBreakpoints.ExceptionMode.UNCAUGHT), true, false)) {
+			var stop = f.await(3, 0);
+			require(stop.reason().contains("未捕获"), "reason should say the error is uncaught: " + stop.reason());
+			require(f.evaluate(0, "n").get(0).text().equals("9"), "the uncaught error is the risky(9) call");
+			require(stop.stack().size() >= 2 && stop.stack().get(1).line() == 9, "the caller frame should be line 9: " + stop.stack());
+			f.control("continue");
+			try { f.complete(); throw new AssertionError("continuing should let the error end the script"); } catch (ExecutionException expected) { }
+		}
+		// All errors: the caught one stops too.
+		try (Fixture f = new Fixture("errors", ERRORS, LuaBreakpoints.empty().withExceptions(LuaBreakpoints.ExceptionMode.ALL), true, false)) {
+			var first = f.await(3, 0);
+			require(f.evaluate(0, "n").get(0).text().equals("5"), "the caught pcall error should pause first in mode all");
+			f.control("continue");
+			f.await(3, first.sequence());
+			require(f.evaluate(0, "n").get(0).text().equals("9"), "then the uncaught one");
+			f.control("continue");
+			try { f.complete(); } catch (ExecutionException expected) { }
+		}
+		// A failing expression while paused is not an exception of the script.
+		try (Fixture f = new Fixture("errors", ERRORS, config("errors", ERRORS, 8).withExceptions(LuaBreakpoints.ExceptionMode.ALL), true, false)) {
+			var first = f.await(3, 0);
+			f.control("continue");
+			var atLine = f.await(8, first.sequence());
+			require(!f.evaluate(0, "nope.field").get(0).ok(), "a broken expression just fails");
+			require(f.debugger.state().sequence() == atLine.sequence(), "a failing watch should not cause another pause");
+			f.control("continue");
+			f.await(3, atLine.sequence());
+			f.control("continue");
+			try { f.complete(); } catch (ExecutionException expected) { }
+		}
+
+		// Coroutines: listed with their status and where their function is defined.
+		try (Fixture f = new Fixture("co", COROUTINES, config("co", COROUTINES, 9), true, false)) {
+			f.await(9, 0);
+			var evaluation = f.debugger.evaluate(f.debugger.state().id(), 0, List.of("marker"), true).get(4, TimeUnit.SECONDS);
+			var list = evaluation.coroutines();
+			require(list.size() == 2, "two coroutines were created: " + list);
+			require(list.get(0).number() == 1 && list.get(0).status().equals("suspended") && list.get(0).defined().equals("co.lua:1"), "first coroutine: " + list.get(0));
+			require(list.get(1).status().equals("dead"), "second coroutine finished: " + list.get(1));
+			System.out.println("Coroutine position as reported by LuaJ: '" + list.get(0).where() + "'");
+			f.control("continue"); f.complete();
+		}
+		System.out.println("Debugger extras smoke passed: evaluation budget, exception breakpoints (off / uncaught / all), coroutine list");
+	}
+
 	/** Conditions, hit counts, logpoints, expression evaluation in any frame, run to cursor: all against real LuaJ hooks. */
 	private static void checkAdvancedBreakpoints() throws Exception {
 		// Codec: options survive the network encoding, and an old configuration without options still decodes.
@@ -244,9 +338,15 @@ public final class LuaBreakpointSmoke {
 			this(name, source, config, enabled, callbacks, Map.of());
 		}
 		Fixture(String name, String source, LuaBreakpoints config, boolean enabled, boolean callbacks, Map<String, String> modules) {
+			globals.load(new LuaErrorDebugLib()); // as in the server sandbox: errors are reported for exception breakpoints
 			debugger = new LuaBreakpointController(name, enabled, config); debugger.source(name, source);
 			debugger.attach(globals, logs::add);
+			LuaValue coroutineLib = globals.get("coroutine"), create = coroutineLib.get("create");
+			coroutineLib.set("create", new VarArgFunction() {
+				@Override public Varargs invoke(Varargs args) { LuaThread t = create.call(args.arg1()).checkthread(); debugger.trackCoroutine(t); return t; }
+			});
 			LuaValue debug = globals.get("debug"); Map<String, LuaValue> baseline = LuaDebugSnapshot.baseline(globals);
+			LuaErrorDebugLib.of(globals).onError(() -> debugger.error(debug, () -> { }));
 			LuaScriptModuleLoader.install(globals, module -> {
 				String text = modules.get(module); if (text == null) throw new java.io.IOException("Missing module");
 				debugger.source(module, text); return text;
@@ -279,7 +379,9 @@ public final class LuaBreakpointSmoke {
 				if (done.isDone()) { done.join(); throw new AssertionError("Script ended without pausing at " + line); }
 				Thread.sleep(5);
 			}
-			throw new AssertionError("Timeout awaiting breakpoint " + line + ": " + debugger.state().encode());
+			StringBuilder where = new StringBuilder();
+			for (var frame : thread.getStackTrace()) { if (where.length() > 4000) break; where.append("\n\tat ").append(frame); }
+			throw new AssertionError("Timeout awaiting breakpoint " + line + ": " + debugger.state().encode() + "\nScript thread:" + where);
 		}
 		LuaDebuggerState awaitAny() throws Exception {
 			long limit = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
