@@ -1,8 +1,8 @@
 # MC Lua IDE 第三方扩展 API 手册
 
-[English](THIRD_PARTY_API.md) · 简体中文
+[English](third-party-api.md) · 简体中文
 
-本手册面向想为 MC Lua IDE 增加功能的其他 Fabric 模组作者。API 分为四组，**安装位置不同**，开始前先看下表：
+本手册面向想为 MC Lua IDE 增加功能的其他 Fabric 模组作者。请先阅读[扩展概览](overview.zh_cn.md)，在扩展清单、[编辑器 API](editor-api.zh_cn.md) 和下面的内容之间做选择。本手册涵盖的 API 分为四组，**安装位置不同**，开始前先看下表：
 
 | 你想做什么 | 使用的入口 | 谁需要安装你的模组 |
 | --- | --- | --- |
@@ -55,6 +55,7 @@ dependencies {
 | --- | --- |
 | `McLuaIdeApi` / `McLuaIdeDocsApi` / `McLuaIdeRegistryApi` | 公共 `ModInitializer#onInitialize` |
 | `McLuaIdeWindowApi` | `ClientModInitializer#onInitializeClient`，且要在第一次打开 IDE 之前完成 |
+| `McLuaIdeEditorApi` | `ClientModInitializer#onInitializeClient`；见[编辑器 API](editor-api.zh_cn.md) |
 
 `McLuaIdeWindowApi` 只存在于客户端源码集。不要在公共初始化器、服务端类或 Lua 脚本中直接引用它，否则服务端会因找不到类而崩溃。
 

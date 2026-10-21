@@ -1,5 +1,9 @@
 # 独立 ImGui IDE 界面
 
+[English](ide-guide.md) · 简体中文
+
+扩展 IDE（代码片段、命令、补全、终端 shell）请阅读[扩展概览](../extensions/overview.zh_cn.md)。
+
 这是独立的 Dear ImGui 前端，不是 Axiom 插件，不要求安装 Axiom。窗口、按钮、输入、菜单、目录树、JSON 树、颜色面板和代码画布均使用新版原生绘制；复用现有控制器的数据与动作，但不绘制 Minecraft 的按钮、输入框或整页工具截图。
 
 ## 打开和切换
@@ -33,7 +37,7 @@
 
 只有游戏内容素材（物品/方块/实体/皮肤图标、结构预览、实际 Minecraft 文本组件预览）保留游戏渲染。它们不是按钮或输入控件；所有交互、标题与设置均为新版。服务器配置和 F12 设置也使用新版控件，包括从 Mod Menu 或游戏内直接打开的页面。逻辑 tick 不随 UI 帧率加速。
 
-第三方窗口请实现 `McLuaIdeWindowApi.NativeContent.renderImGui()`；扩展接口版本为 2。旧 `Content.render(GuiGraphicsExtractor,...)` 仍可使用：它被绘制到离屏纹理后显示在窗口内，鼠标与键盘事件会换算回旧接口，同时发出警告（日志、聊天提示一次、窗口内橙色横幅）。兼容层只是过渡，请更新为 `NativeContent`。详见 [第三方 API 手册](THIRD_PARTY_API.zh_cn.md)。
+第三方窗口请实现 `McLuaIdeWindowApi.NativeContent.renderImGui()`；扩展接口版本为 2。旧 `Content.render(GuiGraphicsExtractor,...)` 仍可使用：它被绘制到离屏纹理后显示在窗口内，鼠标与键盘事件会换算回旧接口，同时发出警告（日志、聊天提示一次、窗口内橙色横幅）。兼容层只是过渡，请更新为 `NativeContent`。详见 [第三方 API 手册](../extensions/third-party-api.zh_cn.md)。
 
 新版布局和会话元数据独立保存，不覆盖历史旧版布局。较窄的 JSON 窗口会将类型导航改为下拉选择，控件不再整体缩成旧界面截图；没有测试所有操作系统、显卡和渲染模组组合。
 

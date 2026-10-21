@@ -174,6 +174,16 @@ The Variables window supports drag selection, double-click selection of a row, C
 
 AI error analysis is disabled by default. When enabled, relevant runtime errors and code are sent to the configured provider and may incur charges. It does not continuously analyze code while typing. MCP access is disabled by default and uses the configured authentication and permissions. Changes from MCP are highlighted in the IDE; hover and press Esc to dismiss those marks.
 
+## Editor tools, advanced debugging and the terminal
+
+Editor: Ctrl+F / Ctrl+H find and replace (case, whole word, regex), bracket matching and auto-close, minimap, indent guides, Ctrl+G go to line, Ctrl+B go to definition, Ctrl+Shift+B find references, F2 rename (current file), outline, Ctrl+D / Alt+click multiple carets, snippets (type `fn`, `for`, `if`… then Tab), file compare, Ctrl+Shift+F find in files, Ctrl+P quick open and Ctrl+Shift+P command palette.
+
+Breakpoints: right-click the gutter to add a condition, a hit count or a log message (logpoint). While paused, click a call-stack frame to inspect it, add expressions to the Watch list, hover a variable to see its value, or choose Run to cursor from the editor menu.
+
+Terminal: open it from View → Terminal or Ctrl+`. The + button starts a shell on your computer, or a server terminal. A server terminal is a shell on the server machine; it is disabled until the server operator sets `enabled=true` in `config/mc_lua_ide/terminal.properties`, and only operator level 4 can use it.
+
+Extensions: snippets and simple commands can be added without Java through JSON files in `config/mc_lua_ide/extensions`; use Reload extension manifests in the command palette after editing. See docs/extensions in the project for the manifest format and the editor API.
+
 ## Datapacks and resource packs
 
 Open their separate directories from File. Right-click for contextual creation templates, namespace/folder creation, rename and other supported actions. JSON files open in the main editor, while Datapack JSON / Resource Pack JSON are helper windows for templates, game examples and structured editing. `Ctrl+I` uses the current JSON or function-command argument context.

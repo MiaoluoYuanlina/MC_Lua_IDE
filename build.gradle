@@ -279,6 +279,8 @@ if (project.hasProperty("blockBreakAxiomJar")) {
 }
 
 processResources {
+	// The in-game manual is edited under docs/ (one place for all documentation) and packaged where the IDE loads it from.
+	from("docs/manual") { into "assets/mc_lua_ide/manual" }
 	def version = project.version
 	inputs.property "version", version
 
@@ -338,6 +340,14 @@ tasks.register("terminalSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.client.TerminalSmoke"
 }
 check.dependsOn terminalSmoke
+tasks.register("extensionApiSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks the editor extension API (commands, snippets, completion, shells) and the data-only extension manifests."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.ExtensionApiSmoke"
+}
+check.dependsOn extensionApiSmoke
 tasks.register("ptySmoke", JavaExec) {
 	dependsOn testClasses
 	group = "verification"

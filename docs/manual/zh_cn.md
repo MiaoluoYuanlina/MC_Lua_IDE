@@ -651,7 +651,7 @@ GitHub 模式现在提供浏览器登录引导：选择“GitHub”或点击“G
 - 物品堆的两种形式都能识别：例如 `use_remainder = "minecraft:glass_bottle"`，以及 `{id="minecraft:glass_bottle", count=1}`。收纳袋、容器和弩弹药中的简写 ID 也有搜索选项。组件多层嵌套时，按最内层 `components` 的实际组件识别，避免把内部的效果或附魔 ID 误当成外层物品 ID
 - 树中的字符串节点单击即可编辑或搜索。弹窗独立于停靠区域的宽度，窄编辑窗口也能显示候选列表；点击“值”输入搜索内容，`Ctrl+A` 清空当前搜索。没有匹配时会显示提示，可换关键词或手动选择 ID 类型
 - 目录也包含当前服务端的配方、进度、已加载维度、可重载注册表（例如战利品表）。对于支持标签的字段，输入 `#` 可切换搜索当前类型的全部标签，例如方块条件中的 `#minecraft:logs`；只接受单个物品/实体 ID 的字段不能使用标签，导出仍由服务端校验
-- 其他 Mod 可以通过公开的 `McLuaIdeRegistryApi` 添加注册表类型说明、条目名称/用途翻译，以及自己数据组件字段的 ID 类型提示；详见发行包中的 `docs/THIRD_PARTY_API.zh_cn.md`
+- 其他 Mod 可以通过公开的 `McLuaIdeRegistryApi` 添加注册表类型说明、条目名称/用途翻译，以及自己数据组件字段的 ID 类型提示；详见发行包中的 `docs/extensions/third-party-api.zh_cn.md`
 - ID 候选支持完整 ID、路径、命名空间、本地化名称、中文和拼音首字母搜索。使用 `↑` / `↓` 循环选择，按 `Tab` 或 `Enter` 填入，也可以直接单击候选；选择后再次按 `Enter` 保存树节点
 - 树形编辑器右上角的“源码”仍支持粘贴或修改完整 JSON，确认后会重新生成整棵树，适合复制已有复杂组件或编辑特别大的结构
 - “全部组件 / 建议组件”可在完整注册表与当前选项的常用组件间切换
@@ -2057,7 +2057,7 @@ print(posted.status)
 
 ## 第三方模组扩展开发（进阶）
 
-服务端上的其他 Fabric 模组既可以注册 `MC.<模组命名空间>.*`，也可以创建 `TestMod.*` 这样的独立顶级 API 大类，并为每个方法提供参数类型、用法模板和多语言说明。管理员打开 IDE 时会从服务端同步这些元数据；扩展函数会自动加入 Tab 补全、语法配色、悬浮提示、实时参数检查和“API 文档”，详情中会标出来源模组。扩展模组还可声明函数需要客户端 Mod，使其自动进入“客户端 Mod 专用 API”大类。普通玩家不能读取扩展 API 文档。完整接入说明见项目中的 `docs/THIRD_PARTY_API.zh_cn.md`。
+服务端上的其他 Fabric 模组既可以注册 `MC.<模组命名空间>.*`，也可以创建 `TestMod.*` 这样的独立顶级 API 大类，并为每个方法提供参数类型、用法模板和多语言说明。管理员打开 IDE 时会从服务端同步这些元数据；扩展函数会自动加入 Tab 补全、语法配色、悬浮提示、实时参数检查和“API 文档”，详情中会标出来源模组。扩展模组还可声明函数需要客户端 Mod，使其自动进入“客户端 Mod 专用 API”大类。普通玩家不能读取扩展 API 文档。完整接入说明见项目中的 `docs/extensions/third-party-api.zh_cn.md`。
 
 ### 创建独立 API 大类
 
@@ -2115,7 +2115,17 @@ McLuaIdeWindowApi.window("test_mod", "script_tools")
     .register();
 ```
 
-`MyWindowContent` 实现 `McLuaIdeWindowApi.Content`。IDE 管理外框与焦点；内容绘制、输入框和按钮使用内容区局部坐标，并可通过 `context.insertText(...)` 插入主代码框、`context.copyText(...)` 复制。完整接口、生命周期、客户端入口配置和可编译示例见项目的 `docs/THIRD_PARTY_API.zh_cn.md` 与 `examples/third_party_windows/TestModClient.java`。
+`MyWindowContent` 实现 `McLuaIdeWindowApi.Content`。IDE 管理外框与焦点；内容绘制、输入框和按钮使用内容区局部坐标，并可通过 `context.insertText(...)` 插入主代码框、`context.copyText(...)` 复制。完整接口、生命周期、客户端入口配置和可编译示例见项目的 `docs/extensions/third-party-api.zh_cn.md` 与 `examples/third_party_windows/TestModClient.java`。
+
+## 编辑器工具、高级调试与终端
+
+编辑器：Ctrl+F / Ctrl+H 查找与替换（区分大小写、全词、正则），括号匹配与自动补全括号，小地图，缩进参考线，Ctrl+G 转到行，Ctrl+B 转到定义，Ctrl+Shift+B 查找引用，F2 重命名（仅当前文件），大纲，Ctrl+D / Alt+点击多光标，代码片段（输入 `fn`、`for`、`if` 等后按 Tab），文件对比，Ctrl+Shift+F 在文件中查找，Ctrl+P 快速打开，Ctrl+Shift+P 命令面板。
+
+断点：右键行号栏可设置条件、命中次数或日志消息（日志点）。暂停后，点击调用栈中的帧查看该帧，把表达式加入「监视」，鼠标悬停变量查看值，或在编辑器右键菜单中选择「运行到光标」。
+
+终端：通过「视图 → 终端」或 Ctrl+` 打开。「+」可启动本机 shell 或服务器终端。服务器终端是服务端机器上的 shell，默认关闭，需要服务器管理员在 `config/mc_lua_ide/terminal.properties` 中设置 `enabled=true`，且只有 OP 等级 4 可以使用。
+
+扩展：无需 Java，通过 `config/mc_lua_ide/extensions` 中的 JSON 文件即可添加代码片段和简单命令；修改后在命令面板执行「重新加载扩展清单」。清单格式和编辑器 API 见项目中的 docs/extensions。
 
 ## 常见问题
 

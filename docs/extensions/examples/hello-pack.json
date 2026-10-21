@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "id": "hello_pack",
+  "name": "Hello Pack",
+  "version": "1.0.0",
+  "snippets": [
+    {
+      "trigger": "giveitem",
+      "description": "Give an item to a player",
+      "body": [
+        "MC.Item.give(${1:playerUuid}, \"${2:minecraft:stone}\", ${3:1})",
+        "$0"
+      ]
+    },
+    {
+      "trigger": "onjoin",
+      "description": "Run code for every joining player",
+      "body": "MC.Event.on(\"player_join\", function(event)\n\t$0\nend)"
+    }
+  ],
+  "commands": [
+    {
+      "id": "comment_selection",
+      "title": { "zh_cn": "用注释包住选中内容", "en_us": "Wrap selection in a comment block" },
+      "context_menu": true,
+      "action": { "type": "insert", "text": "--[[ ${selection} ]]" }
+    },
+    {
+      "id": "where_am_i",
+      "title": { "zh_cn": "显示当前位置", "en_us": "Show where I am" },
+      "action": { "type": "notice", "text": "${file}:${line}" }
+    },
+    {
+      "id": "copy_header",
+      "title": "Copy file header",
+      "hint": "demo",
+      "action": { "type": "copy", "text": "-- Script: ${file}" }
+    }
+  ]
+}

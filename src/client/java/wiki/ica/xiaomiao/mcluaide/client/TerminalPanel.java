@@ -11,6 +11,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import org.lwjgl.glfw.GLFW;
+import wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi;
 import wiki.ica.xiaomiao.mcluaide.terminal.PtyProcess;
 import wiki.ica.xiaomiao.mcluaide.terminal.TerminalShells;
 
@@ -45,8 +46,19 @@ final class TerminalPanel {
 	static TerminalTab current() { return TABS.isEmpty() ? null : TABS.get(Math.clamp(active, 0, TABS.size() - 1)); }
 	static List<TerminalTab> tabs() { return List.copyOf(TABS); }
 
+	/** System shells first, then programs registered through McLuaIdeEditorApi or an extension manifest. */
 	static List<String> localShellNames() {
-		return TerminalShells.detect(directory()).stream().map(PtyProcess.Shell::name).toList();
+		List<String> names = new java.util.ArrayList<>(TerminalShells.detect(directory()).stream().map(PtyProcess.Shell::name).toList());
+		for (var profile : McLuaIdeEditorApi.shells()) if (!names.contains(profile.name())) names.add(profile.name());
+		return names;
+	}
+
+	private static PtyProcess.Shell resolveShell(String name) {
+		if (name != null && !name.isBlank())
+			for (var profile : McLuaIdeEditorApi.shells())
+				if (profile.name().equalsIgnoreCase(name.strip()) && TerminalShells.detect(directory()).stream().noneMatch(s -> s.name().equalsIgnoreCase(profile.name())))
+					return new PtyProcess.Shell(profile.name(), profile.command(), directory());
+		return TerminalShells.find(name, directory());
 	}
 	private static Path directory() { return Minecraft.getInstance().gameDirectory.toPath(); }
 
@@ -54,7 +66,7 @@ final class TerminalPanel {
 	static TerminalTab openLocal(String shellName) {
 		if (TABS.size() >= MAX_TABS) throw new IllegalStateException(LuaUiText.text("终端标签页已达上限", "Too many terminal tabs"));
 		PtyProcess.Shell shell;
-		try { shell = TerminalShells.find(shellName, directory()); }
+		try { shell = resolveShell(shellName); }
 		catch (RuntimeException error) { return failed(shellName, false, error.getMessage()); }
 		TerminalTab tab = new TerminalTab(shell.name(), false, 100, 30);
 		try {

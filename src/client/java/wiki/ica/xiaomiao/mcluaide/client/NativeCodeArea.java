@@ -676,7 +676,17 @@ final class NativeCodeArea {
 		if (ImGui.menuItem(LuaUiText.text("转到行…", "Go to line…"), "Ctrl+G")) goToLine();
 		if (ImGui.menuItem(LuaUiText.text("选中下一处相同内容", "Add next occurrence"), "Ctrl+D")) addNextOccurrence();
 		if (ImGui.menuItem(LuaUiText.text("显示小地图", "Show minimap"), "", minimap)) minimap = !minimap;
+		boolean separated = false;
+		for (var command : wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.commands()) {
+			if (!command.contextMenu() || extensionRunner == null) continue;
+			if (!separated) { ImGui.separator(); separated = true; }
+			if (ImGui.menuItem(command.title().getString(), command.shortcutHint())) extensionRunner.accept(command);
+		}
 	}
+
+	private java.util.function.Consumer<wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.Command> extensionRunner;
+	/** The IDE runs extension commands (it owns the editor context and error handling); the area only lists them in its menu. */
+	void onExtensionCommand(java.util.function.Consumer<wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.Command> runner) { extensionRunner = runner; }
 
 	private void drawPopups() {
 		if (!popupRequest.isEmpty()) { ImGui.openPopup(popupRequest + "##editor_popup"); popupRequest = ""; }

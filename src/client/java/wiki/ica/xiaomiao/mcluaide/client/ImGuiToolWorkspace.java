@@ -125,6 +125,21 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     boolean mouseReleased(MouseButtonEvent event){return false;}
     boolean mouseDragged(MouseButtonEvent event,double x,double y){return false;}
     boolean scroll(double x,double y,double h,double v){return terminal.scroll(v)||codeArea.scroll(h,v);}
+    /** What extension commands see and may change: the active editor tab. Valid only while the command runs. */
+    wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.EditorContext editorContext(){
+        return new wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.EditorContext(){
+            private String text(){if(bound==null||bound.binary())return "";bound.capture();return bound.source;}
+            public String documentName(){return bound==null?"":bound.path;}
+            public String source(){return text();}
+            public String selectedText(){String s=text();int a=Math.clamp(controller.nativeAnchor(),0,s.length()),b=Math.clamp(controller.nativeCursor(),0,s.length());return s.substring(Math.min(a,b),Math.max(a,b));}
+            public int caretOffset(){return Math.clamp(controller.nativeCursor(),0,text().length());}
+            public int caretLine(){String s=text();int caret=caretOffset(),line=1;for(int i=0;i<caret;i++)if(s.charAt(i)=='\n')line++;return line;}
+            public boolean insertText(String s){if(bound==null||bound.binary()||s==null)return false;bind(bound);controller.nativeInsert(s);pull();return true;}
+            public void copyText(String s){Minecraft.getInstance().keyboardHandler.setClipboard(s==null?"":s);}
+            public void notice(String message){owner.notice(message);}
+            public boolean openWindow(String id){return owner.setExtensionWindowOpen(id,true);}
+        };
+    }
     boolean terminalCharacter(CharacterEvent event){return terminal.character(event);}
     boolean terminalKey(KeyEvent event){return terminal.key(event);}
     /** The focused extension pane when it still uses the legacy Content API (it expects raw keyboard events). */

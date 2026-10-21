@@ -34,12 +34,23 @@ final class LuaSnippets {
 		add("pcall", "protected call", "local ${1:ok}, ${2:err} = pcall(function()\n\t$0\nend)");
 		add("tbl", "table", "local ${1:name} = {\n\t$0\n}");
 		add("print", "print", "print(${1:value})$0");
+		wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.BuiltInSnippets.set(BUILT_IN.keySet());
 	}
 
 	private LuaSnippets() { }
 
-	static List<Snippet> all() { return new ArrayList<>(BUILT_IN.values()); }
-	static Snippet find(String trigger) { return BUILT_IN.get(trigger); }
+	/** Built-in templates first, then the ones contributed by extensions and manifests. */
+	static List<Snippet> all() {
+		List<Snippet> list = new ArrayList<>(BUILT_IN.values());
+		for (var extra : wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.snippets()) list.add(new Snippet(extra.trigger(), extra.description(), extra.body()));
+		return list;
+	}
+	static Snippet find(String trigger) {
+		Snippet builtIn = BUILT_IN.get(trigger);
+		if (builtIn != null) return builtIn;
+		var extra = wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi.snippet(trigger);
+		return extra == null ? null : new Snippet(extra.trigger(), extra.description(), extra.body());
+	}
 
 	/** The identifier immediately before {@code caret} (the possible trigger), or "". */
 	static String wordBefore(String source, int caret) {

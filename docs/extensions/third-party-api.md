@@ -1,8 +1,8 @@
 # MC Lua IDE Third-Party Extension API
 
-English · [简体中文](THIRD_PARTY_API.zh_cn.md)
+English · [简体中文](third-party-api.zh_cn.md)
 
-This manual is for Fabric mod authors who want to extend MC Lua IDE. The API has four parts that **install in different places**:
+This manual is for Fabric mod authors who want to extend MC Lua IDE. Start with the [extension overview](overview.md) to choose between manifests, the [editor API](editor-api.md) and the parts below. This manual covers four parts that **install in different places**:
 
 | You want to… | Entry point | Who must install your mod |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ Where to register:
 | --- | --- |
 | `McLuaIdeApi` / `McLuaIdeDocsApi` / `McLuaIdeRegistryApi` | common `ModInitializer#onInitialize` |
 | `McLuaIdeWindowApi` | `ClientModInitializer#onInitializeClient`, before the IDE is first opened |
+| `McLuaIdeEditorApi` | `ClientModInitializer#onInitializeClient`; see the [editor API](editor-api.md) |
 
 `McLuaIdeWindowApi` exists only in the client source set. Never reference it from common initializers, server classes or Lua, or a dedicated server will crash with a missing class.
 

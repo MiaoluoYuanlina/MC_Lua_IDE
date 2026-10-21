@@ -5,6 +5,8 @@ import imgui.ImGuiListClipper;
 import imgui.flag.*;
 import imgui.type.*;
 import net.fabricmc.loader.api.FabricLoader;
+import wiki.ica.xiaomiao.mcluaide.McLuaIdeMod;
+import wiki.ica.xiaomiao.mcluaide.api.client.McLuaIdeEditorApi;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
@@ -151,11 +153,28 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         add.accept(new String[]{"高对比度配色", "High contrast theme", ""}, () -> tools.command("theme:HIGH_CONTRAST"));
         add.accept(new String[]{"固定 / 解除窗口布局", "Lock / unlock layout", ""}, () -> lockLayout.set(!lockLayout.get()));
         add.accept(new String[]{"恢复默认布局", "Reset layout", ""}, () -> resetLayout = true);
+        add.accept(new String[]{"重新加载扩展清单", "Reload extension manifests", ""}, () -> notice(ExtensionManifests.reload().summary()));
+        add.accept(new String[]{"显示扩展状态", "Show extension status", ""}, () -> notice(ExtensionManifests.last().summary()));
+        for (var command : McLuaIdeEditorApi.commands())
+            list.add(new CommandPalette.Entry(command.title().getString(), command.shortcutHint().isEmpty() ? command.ownerModId() : command.ownerModId() + " · " + command.shortcutHint(), () -> runExtension(command)));
         if (tools != null) for (String id : tools.ids()) {
             String title = tools.title(id);
             list.add(new CommandPalette.Entry(tr("打开窗口：", "Open window: ") + title, "", () -> tools.open(id)));
         }
         return list;
+    }
+
+    /** Runs an extension command; a failing command never takes the IDE down. */
+    void runExtension(McLuaIdeEditorApi.Command command) {
+        if (tools == null) return;
+        var context = tools.editorContext();
+        try {
+            if (!command.enabled().test(context)) { notice(tr("此命令现在不可用：", "Command is not available now: ") + command.title().getString()); return; }
+            command.action().accept(context);
+        } catch (Throwable error) {
+            McLuaIdeMod.LOGGER.error("Editor command {} failed", command.id(), error);
+            notice(tr("扩展命令失败：", "Extension command failed: ") + command.id());
+        }
     }
     public boolean setExtensionWindowOpen(String id, boolean open) {
         if (tools != null) {
@@ -286,7 +305,11 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             } catch (Exception error) { notice = ScriptManager.message(error); }
         }
         ImGui.pushFont(ImGui.getIO().getFontDefault(), fontSize[0] * uiScale());
-        if (tools == null) tools = new ImGuiToolWorkspace(this, preferences);
+        if (tools == null) {
+            tools = new ImGuiToolWorkspace(this, preferences);
+            tools.codeArea.onExtensionCommand(this::runExtension);
+            if (ExtensionManifests.loadOnce() && (!ExtensionManifests.last().loaded().isEmpty() || !ExtensionManifests.last().problems().isEmpty())) notice(ExtensionManifests.last().summary());
+        }
         if (!pendingTools.isEmpty()) {
             pendingTools.forEach((id, open) -> { if (open) tools.open(id); else tools.close(id); }); pendingTools.clear();
         }
@@ -682,13 +705,33 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         }
     }
 
+    private final Map<String, McLuaIdeEditorApi.CompletionItem> extensionCompletions = new HashMap<>();
+    private int extensionCompletionStart;
+
+    /** Items from McLuaIdeEditorApi completion providers, appended after the built-in ones (never replacing them). */
+    private void addExtensionCompletions(ImGuiIdeDocument doc, boolean explicit, List<String> into) {
+        int caret = doc.cursorOffset(), start = caret;
+        while (start > 0 && (LuaLexer.isNamePart(doc.source.charAt(start - 1)) || doc.source.charAt(start - 1) == '.')) start--;
+        String prefix = doc.source.substring(start, caret);
+        if (prefix.isEmpty() || !explicit && prefix.length() < 2) return;
+        extensionCompletionStart = start;
+        for (var item : McLuaIdeEditorApi.complete(new McLuaIdeEditorApi.CompletionRequest(doc.path, doc.source, caret, prefix, explicit))) {
+            if (completionDetails.containsKey(item.insertion())) continue;
+            extensionCompletions.put(item.insertion(), item);
+            completionDetails.put(item.insertion(), new LuaArgumentCompletion.Choice(item.insertion(), item.label(), item.tooltip(), 0));
+            into.add(item.insertion());
+        }
+    }
+
     private void updateCompletions(ImGuiIdeDocument doc) {
         if(tools!=null){
             doc.capture();String key=doc.key()+":"+doc.revision+":"+doc.cursorOffset();
-            if(!key.equals(completionKey)||completionRequested){completionRequested=false;completionKey=key;completionIndex=0;completionDetails.clear();
+            if(!key.equals(completionKey)||completionRequested){boolean explicit=completionRequested;completionRequested=false;completionKey=key;completionIndex=0;completionDetails.clear();extensionCompletions.clear();
                 var choices=tools.controller.nativeCompletions();
-                completions=choices.stream().map(LuaIdeScreen.NativeCompletion::insertion).toList();
+                var merged=new ArrayList<>(choices.stream().map(LuaIdeScreen.NativeCompletion::insertion).toList());
                 for(var choice:choices)completionDetails.put(choice.insertion(),new LuaArgumentCompletion.Choice(choice.insertion(),choice.label(),choice.tooltip(),0));
+                addExtensionCompletions(doc,explicit,merged);
+                completions=merged;
                 completionOpen=!completions.isEmpty();
             }return;
         }
@@ -790,6 +833,10 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     }
     private void acceptCompletion() {
         if (current == null || completions.isEmpty()) return;
+        if(tools!=null&&extensionCompletions.containsKey(completions.get(Math.clamp(completionIndex,0,completions.size()-1)))){
+            tools.controller.nativeReplace(extensionCompletionStart,tools.controller.nativeCursor(),completions.get(Math.clamp(completionIndex,0,completions.size()-1)));
+            tools.pull();completionOpen=false;tools.focusCode();return;
+        }
         if(tools!=null){tools.controller.nativeAcceptCompletion(completions.get(Math.clamp(completionIndex,0,completions.size()-1)));tools.pull();completionOpen=false;tools.focusCode();return;}
         var editor = current.widget();
         current.replace(completionStart, completionEnd, completions.get(Math.clamp(completionIndex, 0, completions.size() - 1)));
