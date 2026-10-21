@@ -6,6 +6,7 @@ All project documentation lives in this directory.
 
 | Section | Read it if you… | English | 简体中文 |
 | --- | --- | --- | --- |
+| **README** | want an overview and usage in English, Chinese or Japanese | [README.md](../README.md) | [README.zh_cn.md](../README.zh_cn.md) · [README.ja_jp.md](../README.ja_jp.md) (日本語) |
 | **IDE guide** | use the IDE: windows, editor tools, debugging, terminal | [ide-guide.md](guide/ide-guide.md) | [ide-guide.zh_cn.md](guide/ide-guide.zh_cn.md) |
 | **In-game manual** | want the full Lua/API manual (also shown inside the IDE) | [en_us.md](manual/en_us.md) | [zh_cn.md](manual/zh_cn.md) · [ja_jp.md](manual/ja_jp.md) (日本語) |
 | **Extending the IDE** | want to add snippets, commands, completion, windows or Lua APIs | [overview.md](extensions/overview.md) | [overview.zh_cn.md](extensions/overview.zh_cn.md) |

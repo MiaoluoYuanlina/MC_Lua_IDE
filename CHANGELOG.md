@@ -2,7 +2,7 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-10-21
 
 First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.155.2+, Java 25).
 
