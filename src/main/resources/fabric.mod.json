@@ -9,7 +9,8 @@
 	],
 	"contact": {
 		"homepage": "https://xiaomiao.ica.wiki",
-		"sources": "https://xiaomiao.ica.wiki"
+		"sources": "https://github.com/MiaoluoYuanlina/MC_Lua_IDE",
+		"issues": "https://github.com/MiaoluoYuanlina/MC_Lua_IDE/issues"
 	},
 	"license": "MIT",
 	"icon": "assets/mc_lua_ide/icon.png",
@@ -36,6 +37,9 @@
 		"fabricloader": ">=0.19.3",
 		"minecraft": "~26.1.2",
 		"java": ">=25",
-		"fabric-api": "*"
+		"fabric-api": ">=0.155.2"
+	},
+	"suggests": {
+		"modmenu": ">=18.0.0"
 	}
 }

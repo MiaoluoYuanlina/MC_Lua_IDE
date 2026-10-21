@@ -5,3 +5,5 @@
 *.jar binary
 *.zip binary
 *.ttf binary
+*.bat text eol=crlf
+*.cmd text eol=crlf
