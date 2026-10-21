@@ -17,7 +17,14 @@ final class LuaPackIdCatalog {
 	static synchronized Map<String, Map<String, String>> snapshot(MinecraftServer server) {
 		return CACHE.computeIfAbsent(server, LuaPackIdCatalog::scan);
 	}
-	private static Map<String, Map<String, String>> scan(MinecraftServer server) {
+	/** Every datapack directory that can hold registry entries or tags. Listing the pack root ("") is not allowed by the game, so callers list these. */
+	static Set<String> directories(MinecraftServer server) {
+		Set<String> directories = new LinkedHashSet<>();
+		for (Spec spec : specs(server)) directories.add(spec.directory());
+		return directories;
+	}
+
+	private static List<Spec> specs(MinecraftServer server) {
 		List<Spec> specs = new ArrayList<>();
 		Set<Identifier> registries = new LinkedHashSet<>(BuiltInRegistries.REGISTRY.keySet());
 		server.registryAccess().listRegistryKeys().forEach(key -> registries.add(key.identifier()));
@@ -33,12 +40,21 @@ final class LuaPackIdCatalog {
 			specs.add(new Spec("minecraft:" + type, "tags/" + type, ".json", true));
 		}
 		specs.add(new Spec("minecraft:structure_template", "structure", ".nbt", false));
+		return specs;
+	}
+
+	private static Map<String, Map<String, String>> scan(MinecraftServer server) {
+		List<Spec> specs = specs(server);
 		Map<String, Map<String, String>> result = new LinkedHashMap<>();
-		try {
-			server.getResourceManager().listResources("", id -> id.getPath().endsWith(".json")
-					|| id.getPath().endsWith(".mcfunction") || id.getPath().endsWith(".nbt"))
-					.keySet().forEach(file -> add(result, specs, file, "已加载数据包资源"));
-		} catch (RuntimeException error) { McLuaIdeMod.LOGGER.warn("Could not index active datapack resource IDs", error); }
+		Set<String> seen = new HashSet<>();
+		for (Spec spec : specs) {
+			if (!seen.add(spec.directory())) continue;
+			try {
+				server.getResourceManager().listResources(spec.directory(), id -> id.getPath().endsWith(".json")
+						|| id.getPath().endsWith(".mcfunction") || id.getPath().endsWith(".nbt"))
+						.keySet().forEach(file -> add(result, specs, file, "已加载数据包资源"));
+			} catch (RuntimeException error) { McLuaIdeMod.LOGGER.warn("Could not index active datapack resource IDs in {}", spec.directory(), error); }
+		}
 		try {
 			for (String entry : DatapackWorkspaceManager.list(server)) {
 				if (!entry.startsWith("F:")) continue;

@@ -42,19 +42,22 @@ final class DatapackJsonEditorData {
 
 	static String categories(MinecraftServer server) {
 		Set<String> paths = new TreeSet<>();
-		try {
-			server.getResourceManager().listResources("", id -> id.getPath().endsWith(".json"))
-					.keySet().forEach(id -> {
-						String path = id.getPath();
-						int slash = path.lastIndexOf('/');
-						if (slash < 1) return;
-						String directory = path.substring(0, slash);
-						String category = DatapackScaffoldCatalog.jsonType(directory);
-						if (category.matches("[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*") && paths.size() < 256)
-							paths.add(category);
-					});
-		} catch (RuntimeException ignored) {
-			// Some resource managers may not permit a root scan; built-in categories remain available.
+		// The game does not allow listing the pack root (it logs "Invalid path ''"), so list the known datapack directories instead.
+		for (String root : LuaPackIdCatalog.directories(server)) {
+			try {
+				server.getResourceManager().listResources(root, id -> id.getPath().endsWith(".json"))
+						.keySet().forEach(id -> {
+							String path = id.getPath();
+							int slash = path.lastIndexOf('/');
+							if (slash < 1) return;
+							String directory = path.substring(0, slash);
+							String category = DatapackScaffoldCatalog.jsonType(directory);
+							if (category.matches("[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*") && paths.size() < 256)
+								paths.add(category);
+						});
+			} catch (RuntimeException ignored) {
+				// A directory that cannot be listed only means fewer discovered categories; the built-in ones remain.
+			}
 		}
 		try {
 			for (String file : DatapackWorkspaceManager.list(server)) {
