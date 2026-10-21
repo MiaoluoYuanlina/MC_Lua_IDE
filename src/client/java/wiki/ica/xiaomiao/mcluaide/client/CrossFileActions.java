@@ -172,6 +172,7 @@ final class CrossFileActions implements NativeCodeArea.CrossFile {
 			saved++;
 		}
 		notice.accept(LuaUiText.text("已重命名：" + edited + " 个打开的文件（未保存），" + saved + " 个文件已保存",
-				"Renamed: " + edited + " open file(s) changed (not saved), " + saved + " file(s) saved"));
+				"Renamed: " + edited + " open file(s) changed (not saved), " + saved + " file(s) saved",
+				"名前変更: 開いているファイル " + edited + " 個を変更（未保存）、" + saved + " 個のファイルを保存"));
 	}
 }

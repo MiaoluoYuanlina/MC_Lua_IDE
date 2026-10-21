@@ -45,6 +45,8 @@ final class LuaUiText {
 		return japanese() ? JAPANESE.getOrDefault(chinese, JAPANESE.getOrDefault(english, english)) : english;
 	}
 
+	/** For text built at runtime (counts, paths), which the dictionaries cannot match: all three languages given directly. */
+	static String text(String chinese, String english, String japanese) { return chinese() ? chinese : japanese() ? japanese : english; }
 	static String text(String chinese, String english) { return chinese() ? chinese : japanese() ? JAPANESE.getOrDefault(chinese, JAPANESE.getOrDefault(english, english)) : english; }
 	static String localizeEnglish(String english) { return japanese() ? JAPANESE.getOrDefault(english, english) : english; }
 	static String manualLocale() { return chinese() ? "zh_cn" : japanese() ? "ja_jp" : "en_us"; }

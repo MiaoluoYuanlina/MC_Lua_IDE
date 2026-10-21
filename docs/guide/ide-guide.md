@@ -30,19 +30,35 @@ Third-party windows implement `McLuaIdeWindowApi.NativeContent`. Legacy `Content
 - **Brackets and strings:** matching highlight, unmatched bracket underline, auto-close and step-over, wrapping a selection.
 - **Highlights and guides:** current line, other occurrences of the symbol under the caret, indent guides, a minimap you can click or drag.
 - **Navigation:** go to line (Ctrl+G, `line:column` works), go to definition (Ctrl+B or Ctrl+click), find references (Ctrl+Shift+B), outline, quick open (Ctrl+P), symbols (Ctrl+Shift+O), find in files (Ctrl+Shift+F).
-- **Rename** (F2): renames the symbol and its references **in the current file** only.
+- **Across files:** go to definition, find references and rename also work for globals shared between scripts and for members of required modules (`local util = require("lib.util")` then `util.format`). Rename shows every affected file first; open files are changed in their tabs (unsaved), closed files are saved with the conflict check below.
+- **Rename** (F2): locals are renamed in the current file; for a global or a module member, tick *Also change other scripts* to preview and rename everywhere.
 - **Snippets:** type a trigger such as `fn`, `for`, `if`, `pcall` and press Tab. Extensions can add more (see [extensions](../extensions/overview.md)).
 - **Multiple carets:** Ctrl+D adds the next occurrence, Alt+click adds a caret; Esc clears them.
-- **Compare:** a side-by-side diff of two files.
-- The symbol analysis is lexical and scope based. It is not full type inference, and rename/references do not cross files.
+- **Compare:** a side-by-side diff of two files, or of your file and the server's version after a save conflict.
+- **Split editor** (command palette → *Split editor*): a second editable view to dock beside the main editor, of another file or of the same file at another place. Each view keeps its own caret and undo; Ctrl+S saves the file of the view that has the keyboard.
+- The symbol analysis is lexical and scope based. It is not full type inference: it does not follow values through tables, metatables or function calls.
 
 ## Debugging
 
 - Click the gutter to toggle a breakpoint. **Right-click the gutter** (or the editor menu → *Breakpoint options…*) to set a **condition** (Lua expression), a **hit count** (from the Nth hit onward) or a **log message** (`{expression}` interpolation, printed to the script output without pausing). Orange dot = conditional, blue diamond = logpoint.
 - While paused: click a **call-stack frame** to select it and jump there; expressions are evaluated in that frame. The **Watch** list evaluates your expressions at every pause and is saved with the world/server metadata. Hover a variable name (`a`, `a.b.c`) to see its value. Right-click → *Run to cursor* / *Add to watch*.
 - Conditions, watches and hover values are expressions of at most 512 characters, evaluated on the script's Lua thread in the sandbox. Hover only evaluates variable chains, never function calls.
-- Known limits: a single evaluation has no instruction budget, and LuaJ's one hook cannot interrupt an endless loop inside it (for example a condition that calls a function that never returns); restart the script in that case. Not implemented: exception breakpoints, coroutine view, split editor.
-- The protocol only gained `DEBUG_EVALUATE`; old action numbers are unchanged (`protocolStabilitySmoke` freezes them).
+- Every condition, watch and hover value runs with a budget (200,000 Lua instructions or 250 ms). An endless expression fails with a message instead of hanging the script.
+- **Exception breakpoints** (selector at the top of the debugger window): *Pause on uncaught errors* stops at the line that raised an error no `pcall` / `xpcall` will catch; *Pause on all errors* stops at every error. The script's locals are inspectable as at a breakpoint; continuing lets the error carry on.
+- **Coroutines:** while paused, the debugger lists the script's coroutines with their status (suspended, running, waiting, finished), where they are, and where their function is defined; click one to jump there.
+- New debugger features were added as new protocol actions at the end; old action numbers are unchanged (`protocolStabilitySmoke` freezes them).
+
+## Several administrators, audit log and backups
+
+- **Who else is editing:** the IDE reports its open files every few seconds; when another administrator has the same file open, a line above the editor says so, marked `*` when they have unsaved changes.
+- **Save conflicts:** saving a Lua script is refused when someone else (another administrator, MCP) changed it since your editor loaded it. The dialog offers to compare with the server's version, overwrite it, or discard yours and load theirs.
+- **Audit log** (command palette → *Show audit log*): the server writes who saved, deleted, ran, stopped or reconfigured what (IDE and `/lua` commands) to `config/mc_lua_ide/audit.log` (one JSON object per line, rotated at 1 MB, three old files kept). The pane shows the newest 300 entries with a filter. Keystrokes in terminals are not logged.
+- **Script snapshots** (*Backups* pane): the server zips `config/mc_lua_ide/scripts` into `config/mc_lua_ide/snapshots` every 30 minutes when something changed, keeps the newest 20, and takes one on request. Restoring a snapshot first snapshots the current scripts, so it can be undone. Settings: `config/mc_lua_ide/snapshots.properties`. Datapacks are not included.
+- **IDE settings export / import** (*Backups* pane): a zip of your appearance, shortcuts, layouts, per-server sessions, UI templates, background images and extension manifests, never scripts, server settings or tokens. An import saves your previous settings first.
+
+## First start
+
+The first time the IDE opens on a computer it shows a **Welcome** page with the essential shortcuts and a button that creates a sample project under `examples/` on the server (hello world, a countdown to try the debugger on, a join greeting, and a module with a script that uses it). Existing files are never overwritten. Reopen it from the command palette (*Welcome*).
 
 ## Terminal
 

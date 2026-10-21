@@ -102,6 +102,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     void beginFrame(){codeArea.beginFrame();if(split!=null)split.beginFrame();activePane="";}
     private SplitEditorPane split;
     private WelcomePanel welcome;
+    SplitEditorPane probeSplit(){return split;}
     /** The split view when it is open and focused, so keys and characters go to it instead of the main editor. */
     SplitEditorPane focusedSplit(){return split!=null&&isOpen(SplitEditorPane.ID)&&split.focused()?split:null;}
     private String windowTitle(Pane pane){return pane.title+"###tool_"+pane.id;}

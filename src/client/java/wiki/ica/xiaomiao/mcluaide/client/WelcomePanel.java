@@ -127,7 +127,7 @@ final class WelcomePanel {
 			creating = false;
 			if (error != null) { status = ScriptManager.message(error); return; }
 			status = created[0] == 0 ? LuaUiText.text("示例文件已存在（examples/）。", "The sample files already exist (examples/).")
-					: LuaUiText.text("已创建 " + created[0] + " 个示例脚本（examples/）。", "Created " + created[0] + " sample scripts (examples/).");
+					: LuaUiText.text("已创建 " + created[0] + " 个示例脚本（examples/）。", "Created " + created[0] + " sample scripts (examples/).", created[0] + " 個のサンプルスクリプトを作成しました（examples/）。");
 			owner.refreshTreesFromTool();
 			owner.openAt(ImGuiIdeDocument.Kind.LUA, "examples/hello", 0, 0);
 		}));

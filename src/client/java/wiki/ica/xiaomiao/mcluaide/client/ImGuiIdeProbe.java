@@ -266,6 +266,30 @@ final class ImGuiIdeProbe {
             nextFrame=screen.renderedFrames()+6; stage=64;
         } else if (stage == 64 && screen.renderedFrames() > nextFrame) {
             require(WindowChrome.active() == WindowChrome.defaultEnabled(), "switching the setting back on should take the title bar over again");
+            // New panes: they must draw without a server (the probe has none) and the split view must edit the shared document.
+            var workspace = screen.probeWorkspace();
+            workspace.open(SplitEditorPane.ID); workspace.open(WelcomePanel.ID); workspace.open(AuditLogPanel.ID); workspace.open(BackupPanel.ID);
+            nextFrame=screen.renderedFrames()+30; stage=65;
+        } else if (stage == 65 && screen.renderedFrames() > nextFrame) {
+            var split = screen.probeWorkspace().probeSplit();
+            require(split != null && split.document() != null, "the split editor shows an open document");
+            split.area().focus();
+            screen.probeWorkspace().focus(SplitEditorPane.ID);
+            nextFrame=screen.renderedFrames()+8; screenshotName="imgui-split-panes.png"; stage=66;
+        } else if (stage == 66 && screen.renderedFrames() > nextFrame) {
+            var workspace = screen.probeWorkspace();
+            var split = workspace.probeSplit();
+            require(workspace.focusedSplit() == split, "the focused split view takes the keyboard");
+            var doc = split.document();
+            for (char c : "--split".toCharArray()) screen.charTyped(new CharacterEvent(c));
+            require(doc.source.contains("--split"), "typing in the split view changes the shared document");
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=67;
+        } else if (stage == 67 && screen.renderedFrames() > nextFrame) {
+            var workspace = screen.probeWorkspace();
+            var doc = workspace.probeSplit().document();
+            workspace.bind(doc);
+            require(workspace.controller.nativeSnapshot().source().contains("--split"), "the main editor sees the split view's edit");
+            workspace.close(SplitEditorPane.ID); workspace.close(WelcomePanel.ID); workspace.close(AuditLogPanel.ID); workspace.close(BackupPanel.ID);
             screen.probeScale(10); nextFrame=screen.renderedFrames()+15; stage=12;
         } else if (stage == 12&& screen.renderedFrames() > nextFrame) {
             require(client.screen==screen && ImGuiIdeRuntime.available(),"10% UI scale failed");

@@ -20,10 +20,11 @@ end
 ## Features
 
 - **In-game IDE** (press **U**): dockable windows, tabs, themes, Chinese / English / Japanese interface.
-- **Editor**: syntax highlighting and diagnostics, completion for APIs, variables and resource IDs, find & replace (regex), go to definition, find references, rename, outline, snippets, multiple carets, minimap, file compare, find in files, command palette.
-- **Debugger**: breakpoints with conditions, hit counts and log messages, call stack, watches, hover values, step into / over / out, run to cursor, optional world freeze.
+- **Editor**: syntax highlighting and diagnostics, completion for APIs, variables and resource IDs, find & replace (regex), go to definition, find references and rename (across files), outline, snippets, multiple carets, minimap, file compare, find in files, command palette.
+- **Debugger**: breakpoints with conditions, hit counts and log messages, exception breakpoints, call stack, watches, hover values, coroutine list, step into / over / out, run to cursor, optional world freeze.
 - **Minecraft API**: players, items, blocks, events, timers, chat and JSON text, virtual menus, sounds and more, with an API reference built into the IDE.
 - **Datapacks and resource packs**: edit both alongside your scripts, with JSON helpers, a PNG painter, sound and structure previews, and reload buttons.
+- **Teams and safety**: who-is-editing hints, conflict-checked saves, an audit log, automatic script snapshots with restore, settings export/import, and a split editor.
 - **Built-in terminal**: local shells, plus an optional server shell (off by default, owner-only).
 - **Integrations**: Git history, MCP for AI tools (off by default), and APIs for other mods to add Lua functions, IDE windows, commands, snippets and completion.
 
@@ -65,7 +66,7 @@ The jar is written to `build/libs/`. `build` also runs the smoke tests; Git must
 ## Status and known limits
 
 - Tested on Windows. The local terminal and the integrated title bar on **macOS and Linux** have not been tested on real machines yet.
-- Rename and references work within one file; there is no cross-file analysis yet.
+- Code navigation is lexical: it follows globals and required modules across files, but not values passed through tables or function calls.
 - Bug reports and suggestions: [GitHub issues](https://github.com/MiaoluoYuanlina/MC_Lua_IDE/issues).
 
 ## License

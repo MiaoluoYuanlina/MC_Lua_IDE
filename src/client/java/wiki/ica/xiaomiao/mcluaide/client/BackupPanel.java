@@ -114,7 +114,8 @@ final class BackupPanel {
 				snapshots = List.copyOf(list);
 				settingsLine = root.get("enabled").getAsBoolean()
 						? LuaUiText.text("自动：脚本有改动时每 " + root.get("intervalMinutes").getAsInt() + " 分钟一次，保留 " + root.get("keep").getAsInt() + " 个（config/mc_lua_ide/snapshots.properties）",
-								"Automatic: every " + root.get("intervalMinutes").getAsInt() + " minutes when scripts changed, keeping " + root.get("keep").getAsInt() + " (config/mc_lua_ide/snapshots.properties)")
+								"Automatic: every " + root.get("intervalMinutes").getAsInt() + " minutes when scripts changed, keeping " + root.get("keep").getAsInt() + " (config/mc_lua_ide/snapshots.properties)",
+								"自動: スクリプトに変更があるとき " + root.get("intervalMinutes").getAsInt() + " 分ごと、" + root.get("keep").getAsInt() + " 個保持（config/mc_lua_ide/snapshots.properties）")
 						: LuaUiText.text("自动快照已关闭（config/mc_lua_ide/snapshots.properties）", "Automatic snapshots are off (config/mc_lua_ide/snapshots.properties)");
 			} catch (RuntimeException invalid) { status = LuaUiText.text("快照列表格式无效", "Invalid snapshot list"); }
 		}));
@@ -126,7 +127,7 @@ final class BackupPanel {
 		Path target = Minecraft.getInstance().gameDirectory.toPath().resolve("mc_lua_ide-settings-" + LuaSettingsBackup.stamp() + ".zip");
 		try {
 			int count = LuaSettingsBackup.export(settingsRoot(), target);
-			status = LuaUiText.text("已导出 " + count + " 个文件到：", "Exported " + count + " files to: ") + target;
+			status = LuaUiText.text("已导出 " + count + " 个文件到：", "Exported " + count + " files to: ", count + " 個のファイルをエクスポートしました: ") + target;
 			net.minecraft.util.Util.getPlatform().openPath(target.getParent());
 		} catch (Exception error) { status = ScriptManager.message(error); }
 	}
@@ -139,7 +140,8 @@ final class BackupPanel {
 			try {
 				int count = LuaSettingsBackup.restore(settingsRoot(), file, undo);
 				status = LuaUiText.text("已导入 " + count + " 个文件。关闭并重新打开 IDE 后生效（部分设置需要重启游戏）。导入前的设置已保存到：",
-						"Imported " + count + " files. Close and reopen the IDE to apply them (some need a game restart). Your previous settings were saved to: ") + undo;
+						"Imported " + count + " files. Close and reopen the IDE to apply them (some need a game restart). Your previous settings were saved to: ",
+						count + " 個のファイルをインポートしました。IDE を閉じて開き直すと反映されます（一部はゲームの再起動が必要）。インポート前の設定の保存先: ") + undo;
 			} catch (Exception failure) { status = ScriptManager.message(failure); }
 		}));
 	}

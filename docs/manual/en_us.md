@@ -186,6 +186,8 @@ Extensions: snippets and simple commands can be added without Java through JSON 
 
 Title bar: Personalization → Window → "Merge menus into the title bar" puts the menus and the minimize/maximize/close buttons into the window's title bar row. It is on by default on Windows (native frame, snapping and shadow are kept); on macOS and Linux (X11) it is off by default and untested on real machines. Wayland keeps the normal title bar.
 
+More tools: exception breakpoints and a coroutine list in the debugger (conditions and watches can no longer hang a script); go to definition, references and rename across files for globals and required modules; a split editor; a Backups pane with server script snapshots and settings export/import; an Audit log pane; and, when several administrators edit, who-is-editing hints and conflict-checked saves. All of them are in the command palette (Ctrl+Shift+P).
+
 ## Datapacks and resource packs
 
 Open their separate directories from File. Right-click for contextual creation templates, namespace/folder creation, rename and other supported actions. JSON files open in the main editor, while Datapack JSON / Resource Pack JSON are helper windows for templates, game examples and structured editing. `Ctrl+I` uses the current JSON or function-command argument context.
