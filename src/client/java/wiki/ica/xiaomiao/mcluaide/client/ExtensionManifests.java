@@ -36,6 +36,7 @@ final class ExtensionManifests {
 	record Report(List<Loaded> loaded, List<String> problems) {
 		String summary() {
 			int snippets = loaded.stream().mapToInt(Loaded::snippets).sum(), commands = loaded.stream().mapToInt(Loaded::commands).sum(), shells = loaded.stream().mapToInt(Loaded::shells).sum();
+			if (LuaUiText.japanese()) return "拡張マニフェスト: " + loaded.size() + " 件、スニペット " + snippets + "、コマンド " + commands + "、シェル " + shells + (problems.isEmpty() ? "" : "；問題 " + problems.size() + " 件（ログを参照）");
 			return LuaUiText.text("扩展清单：" + loaded.size() + " 个，片段 " + snippets + "，命令 " + commands + "，终端 " + shells + (problems.isEmpty() ? "" : "；问题 " + problems.size() + " 个（见日志）"),
 					"Extension manifests: " + loaded.size() + ", snippets " + snippets + ", commands " + commands + ", shells " + shells + (problems.isEmpty() ? "" : "; " + problems.size() + " problem(s) (see the log)"));
 		}

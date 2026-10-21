@@ -39,7 +39,7 @@ final class RemoteTerminalSession implements TerminalTab.Session {
 				synchronized (session.lock) { session.id = reply.get("id").getAsString(); }
 				tab.receive(("\u001b[2J\u001b[H").getBytes(StandardCharsets.UTF_8));
 				session.schedule(0);
-			} catch (RuntimeException invalid) { session.fail("服务器返回了无效的终端响应"); }
+			} catch (RuntimeException invalid) { session.fail(LuaUiText.text("服务器返回了无效的终端响应", "The server sent an invalid terminal response")); }
 		});
 	}
 
@@ -71,7 +71,7 @@ final class RemoteTerminalSession implements TerminalTab.Session {
 				JsonObject reply = JsonParser.parseString(data).getAsJsonObject();
 				byte[] output = Base64.getDecoder().decode(reply.get("data").getAsString());
 				if (output.length > 0) { tab.receive(output); lastActivity = System.currentTimeMillis(); }
-				if (reply.get("dropped").getAsBoolean()) tab.receive("\r\n\u001b[2m[output was dropped]\u001b[0m\r\n".getBytes(StandardCharsets.UTF_8));
+				if (reply.get("dropped").getAsBoolean()) tab.receive(("\r\n\u001b[2m[" + LuaUiText.text("输出已丢弃", "Output was dropped") + "]\u001b[0m\r\n").getBytes(StandardCharsets.UTF_8));
 				if (!reply.get("alive").getAsBoolean()) {
 					synchronized (lock) { alive = false; closed = true; exitCode = reply.get("exit").getAsInt(); }
 					tab.markExited();
@@ -81,7 +81,7 @@ final class RemoteTerminalSession implements TerminalTab.Session {
 				next = more || System.currentTimeMillis() - lastActivity < IDLE_AFTER_MS ? FAST_MS : SLOW_MS;
 				if (more) next = 0;
 			} catch (RuntimeException invalid) {
-				fail("服务器返回了无效的终端响应"); return;
+				fail(LuaUiText.text("服务器返回了无效的终端响应", "The server sent an invalid terminal response")); return;
 			} finally {
 				synchronized (lock) { polling = false; }
 			}
