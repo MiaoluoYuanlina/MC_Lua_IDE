@@ -254,6 +254,9 @@ final class LuaDebugSnapshot {
 		private TreeBudget(int remaining) { this.remaining = remaining; }
 	}
 
+	/** The debugger value format (quoted strings, nested tables up to two levels) for a single value. */
+	static String describeValue(LuaValue value) { return describe(value, 0, new IdentityHashMap<>()); }
+
 	private static String describe(LuaValue value, int depth, IdentityHashMap<LuaValue, Boolean> seen) {
 		if (value.isnil()) return "nil";
 		if (value.type() == LuaValue.TSTRING) return quote(value.tojstring());

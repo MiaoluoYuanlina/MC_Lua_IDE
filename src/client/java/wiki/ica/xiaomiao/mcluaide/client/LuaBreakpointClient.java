@@ -7,7 +7,11 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.input.KeyEvent;
 import wiki.ica.xiaomiao.mcluaide.network.LuaDebuggerState;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /** Administrator-only transport and non-interactive breakpoint HUD. */
@@ -103,6 +107,7 @@ final class LuaBreakpointClient {
 			}));
 		}
 		if (!pollPending && System.nanoTime() >= nextPoll) poll();
+		if (canEvaluate()) evaluate(store().watches());
 	}
 	private static void poll() {
 		pollPending = true; nextPoll = System.nanoTime() + 200_000_000L;
@@ -120,6 +125,7 @@ final class LuaBreakpointClient {
 			if (value == null || value.stack() == null || value.stack().size() > 24 || value.code() == null || value.code().length() > 8192) throw new IllegalArgumentException();
 			if (value.paused() && (!state.paused() || value.sequence() != state.sequence() || !value.id().equals(state.id())))
 				LuaDebugHud.refresh();
+			if (value.paused() && (!state.paused() || value.sequence() != state.sequence() || !value.id().equals(state.id()))) selectedFrame = 0;
 			state = value; notice = ""; LuaDebuggerCamera.stateUpdated();
 		} catch (RuntimeException invalid) { notice = "调试状态格式无效"; }
 	}
@@ -147,7 +153,58 @@ final class LuaBreakpointClient {
 		if (action == null || action.editorOnly) return false;
 		control(action.command); return true;
 	}
+	// ---- watches, hover values and the selected call-stack frame ------------------------------------------------------------
+
+	/** Result of evaluating one expression in the paused script. */
+	record Value(boolean ok, String text, String type, String error) { }
+	private static final Map<String, Value> evaluated = new LinkedHashMap<>();
+	private static final Set<String> evaluating = new HashSet<>();
+	private static int selectedFrame;
+	static int selectedFrame() { return selectedFrame; }
+	/** Frame 0 is where the script stopped; watches and hover values are then evaluated in the chosen frame. */
+	static void selectFrame(int index) { selectedFrame = Math.clamp(index, 0, Math.max(0, state.stack().size() - 1)); }
+	static boolean canEvaluate() { return state.running() && state.enabled() && state.paused() && !state.stack().isEmpty(); }
+	private static String cacheKey(String expression) { return state.id() + ":" + state.sequence() + ":" + selectedFrame + ":" + expression; }
+	/** The last result for an expression in the current pause and frame, or null when it has not been evaluated (yet). */
+	static Value value(String expression) { return evaluated.get(cacheKey(expression)); }
+
+	/** Asks the server to evaluate the expressions that have no result yet; results show up through {@link #value}. */
+	static void evaluate(java.util.List<String> expressions) {
+		if (!canEvaluate() || !ScriptManager.isServerAvailable()) return;
+		java.util.List<String> wanted = new java.util.ArrayList<>();
+		for (String expression : expressions) {
+			String key = cacheKey(expression);
+			if (!evaluated.containsKey(key) && !evaluating.contains(key) && wanted.size() < 40) wanted.add(expression);
+		}
+		if (wanted.isEmpty()) return;
+		if (evaluated.size() > 400) evaluated.clear();
+		String id = state.id();
+		int frame = selectedFrame, epoch = connection;
+		java.util.List<String> keys = new java.util.ArrayList<>();
+		for (String expression : wanted) { String key = cacheKey(expression); keys.add(key); evaluating.add(key); }
+		com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+		body.addProperty("frame", frame);
+		com.google.gson.JsonArray array = new com.google.gson.JsonArray(); wanted.forEach(array::add); body.add("exprs", array);
+		ScriptManager.evaluateDebugger(id, body.toString()).whenComplete((data, error) -> Minecraft.getInstance().execute(() -> {
+			if (epoch != connection) return;
+			keys.forEach(evaluating::remove);
+			for (int i = 0; i < keys.size(); i++) {
+				if (error != null) { evaluated.put(keys.get(i), new Value(false, "", "", ScriptManager.message(error))); continue; }
+				try {
+					var item = com.google.gson.JsonParser.parseString(data).getAsJsonObject().getAsJsonArray("results").get(i).getAsJsonObject();
+					evaluated.put(keys.get(i), item.get("ok").getAsBoolean()
+							? new Value(true, item.get("text").getAsString(), item.get("type").getAsString(), "")
+							: new Value(false, "", "", item.get("error").getAsString()));
+				} catch (RuntimeException invalid) { evaluated.put(keys.get(i), new Value(false, "", "", "求值结果格式无效")); }
+			}
+		}));
+	}
+
+	/** Runs to a line without a permanent breakpoint (the script must be paused). */
+	static void runTo(String script, int line) { control("run_to:" + script + ":" + line); }
+
 	static void disconnected() {
+		evaluated.clear(); evaluating.clear(); selectedFrame = 0;
 		LuaDebuggerCamera.disconnected();
 		LuaDebugKeyBindings.disconnected();
 		connection++; state = LuaDebuggerState.inactive(); store = null; sessionPath = null;

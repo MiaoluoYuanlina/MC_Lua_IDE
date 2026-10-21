@@ -28,6 +28,8 @@ final class NativePanelScreen extends Screen implements NativeUiScreen {
         }));
     }
     @Override public void drawUi(){
+        // While the drag-and-drop HUD editor is open it replaces the page; Esc (handled by the panels) returns to the page.
+        if(panels.layoutEditing()){panels.overlay();return;}
         var viewport=ImGui.getMainViewport();ImGui.setNextWindowPos(viewport.getCenterX(),viewport.getCenterY(),ImGuiCond.Appearing,.5f,.5f);
         ImGui.setNextWindowSize(690,580,ImGuiCond.FirstUseEver);ImGui.setNextWindowSizeConstraints(260,180,Float.MAX_VALUE,Float.MAX_VALUE);
         if(ImGui.begin(title.getString()+"###native_configuration",open,ImGuiWindowFlags.NoCollapse|ImGuiWindowFlags.NoDocking)){

@@ -203,8 +203,61 @@ final class ImGuiIdeProbe {
         } else if (stage == 30 && screen.renderedFrames() > nextFrame) {
             screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_A,0,0)); screen.charTyped(new CharacterEvent('a'));
             require(legacyKeys > 0 && legacyChars > 0, "keyboard input did not reach the focused legacy window (keys=" + legacyKeys + ", chars=" + legacyChars + ")");
-            screen.probeWorkspace().close("EXT:ui_probe:legacy"); screen.probeScale(10); nextFrame=screen.renderedFrames()+15; stage=12;
-        } else if (stage == 12 && screen.renderedFrames() > nextFrame) {
+            screen.probeWorkspace().close("EXT:ui_probe:legacy");
+            screen.probeWorkspace().open("NATIVE_DEBUG"); screenshotName="imgui-f12.png"; nextFrame=screen.renderedFrames()+25; stage=40;
+        } else if (stage == 40 && screen.renderedFrames() > nextFrame) {
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=41;
+        } else if (stage == 41 && screen.renderedFrames() > nextFrame) {
+            // The drag-and-drop HUD editor must open, cover the screen and leave again with Esc.
+            screen.probeWorkspace().beginLayoutEditing(); screenshotName="imgui-f12-layout.png"; nextFrame=screen.renderedFrames()+20; stage=42;
+        } else if (stage == 42 && screen.renderedFrames() > nextFrame) {
+            require(screen.probeWorkspace().endLayoutEditingProbe(false), "layout editor did not open");
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=43;
+        } else if (stage == 43 && screen.renderedFrames() > nextFrame) {
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE,0,0));
+            require(!screen.probeWorkspace().endLayoutEditingProbe(false), "Esc did not leave the layout editor");
+            require(client.screen == screen, "Esc closed the IDE instead of the layout editor");
+            screen.probeWorkspace().close("NATIVE_DEBUG");
+            var editorDoc = new ImGuiIdeDocument(ImGuiIdeDocument.Kind.LUA, "editor_tools", "local function greet(name)\n    local message = \"hi \" .. name\n    print(message)\nend\nlocal x = 1\nprint(x)\n");
+            screen.probeDocument(editorDoc); screen.probeWorkspace().bind(editorDoc);
+            nextFrame=screen.renderedFrames()+15; stage=50;
+        } else if (stage == 50 && screen.renderedFrames() > nextFrame) {
+            editorToolChecks();
+            nextFrame=screen.renderedFrames()+15; screenshotName="imgui-editor.png"; stage=51;
+        } else if (stage == 51 && screen.renderedFrames() > nextFrame) {
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=52;
+        } else if (stage == 52 && screen.renderedFrames() > nextFrame) {
+            screen.probeWorkspace().open("NATIVE_OUTLINE"); screen.probeWorkspace().open("NATIVE_DIFF"); screen.probePalette(">");
+            screenshotName="imgui-editor-panels.png"; nextFrame=screen.renderedFrames()+25; stage=53;
+        } else if (stage == 53 && screen.renderedFrames() > nextFrame) {
+            require(screen.probePaletteOpen(), "command palette did not stay open");
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=54;
+        } else if (stage == 54 && screen.renderedFrames() > nextFrame) {
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE,0,0));
+            require(!screen.probePaletteOpen() && client.screen == screen, "Esc should close only the palette");
+            screen.probeWorkspace().close("NATIVE_OUTLINE"); screen.probeWorkspace().close("NATIVE_DIFF");
+            screen.probeWorkspace().open("NATIVE_TERMINAL"); nextFrame=screen.renderedFrames()+40; stage=60;
+        } else if (stage == 60 && screen.renderedFrames() > nextFrame) {
+            // A real shell through the IDE's own input path: characters and Enter go through the screen, not through the model.
+            var tab = TerminalPanel.current();
+            require(tab != null && tab.session != null, "the terminal pane starts a local shell");
+            require(screen.probeWorkspace().terminalCaptures(), "the focused terminal pane owns the keyboard");
+            for (char c : "echo probe-term-ok".toCharArray()) screen.charTyped(new CharacterEvent(c));
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ENTER, 0, 0));
+            nextFrame=screen.renderedFrames()+80; screenshotName="imgui-terminal.png"; stage=61;
+        } else if (stage == 61 && screen.renderedFrames() > nextFrame) {
+            var tab = TerminalPanel.current();
+            String all = tab.emulator.text(0, 0, tab.emulator.totalLines() - 1, tab.emulator.cols() - 1);
+            require(all.contains("probe-term-ok"), "typed command output reached the terminal screen, got: " + all);
+            require(tab.emulator.cols() > 20 && tab.emulator.rows() > 3, "the terminal grid follows the pane size");
+            capture=true; nextFrame=screen.renderedFrames()+12; stage=62;
+        } else if (stage == 62 && screen.renderedFrames() > nextFrame) {
+            screen.keyPressed(new KeyEvent(GLFW.GLFW_KEY_ESCAPE, 0, 0));
+            require(client.screen == screen, "Esc inside the terminal must not close the IDE");
+            TerminalPanel.closeTab(TerminalPanel.current());
+            screen.probeWorkspace().close("NATIVE_TERMINAL");
+            screen.probeScale(10); nextFrame=screen.renderedFrames()+15; stage=12;
+        } else if (stage == 12&& screen.renderedFrames() > nextFrame) {
             require(client.screen==screen && ImGuiIdeRuntime.available(),"10% UI scale failed");
             screen.probeScale(300); nextFrame=screen.renderedFrames()+15; stage=13;
         } else if (stage == 13 && screen.renderedFrames() > nextFrame) {
@@ -244,6 +297,75 @@ final class ImGuiIdeProbe {
             org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER, oldDraw);
             org.lwjgl.opengl.GL30.glDeleteFramebuffers(fbo);
         }
+    }
+    /** Functional checks of the editor tools against the live editor model (rename, replace, auto-close, multi-caret, snippets). */
+    private static void editorToolChecks() {
+        var workspace = screen.probeWorkspace();
+        var area = workspace.codeArea;
+        var controller = workspace.controller;
+        ImGuiIdeRuntime.inContext(() -> {
+            var doc = screen.probeCurrent();
+            require(area.symbolIndex() != null, "the symbol index is built once the editor has been drawn");
+            require(area.symbolIndex().outline().size() == 1 && area.symbolIndex().outline().get(0).name().equals("greet"), "outline lists greet");
+            // Rename: the caret on the parameter renames its declaration and its use.
+            int caret = doc.source.indexOf("name)") + 1;
+            controller.nativeSelect(caret, caret);
+            require(area.renameTo("who"), "rename accepted");
+            workspace.pull(); doc.capture();
+            require(doc.source.contains("greet(who)") && doc.source.contains("\"hi \" .. who"), "rename changed both references, got: " + doc.source);
+            require(!area.renameTo("end"), "a keyword is not a valid name");
+            // Replace all through the find bar model.
+            area.setSearch("message", "text", false); area.replaceEverything();
+            workspace.pull(); doc.capture();
+            require(doc.source.contains("local text =") && doc.source.contains("print(text)") && !doc.source.contains("message"), "replace all");
+            // Go to line.
+            area.goToLineNumber(5);
+            require(controller.nativeCursor() == doc.source.indexOf("local x"), "go to line 5");
+            // Auto-closing brackets: typing '(' adds ')' and ')' steps over it.
+            int end = doc.source.length();
+            controller.nativeSelect(end, end);
+            require(area.preCharacter('('), "auto-close consumed '('");
+            workspace.pull(); doc.capture();
+            require(doc.source.endsWith("()") && controller.nativeCursor() == doc.source.length() - 1, "caret sits between the pair");
+            int before = doc.source.length();
+            require(area.preCharacter(')'), "closing bracket steps over");
+            workspace.pull(); doc.capture();
+            require(doc.source.length() == before && controller.nativeCursor() == before, "stepping over adds nothing");
+            // Wrapping a selection.
+            int start = doc.source.indexOf("x = 1") + 4;
+            controller.nativeSelect(start, start + 1);
+            require(area.preCharacter('"'), "quote wraps the selection");
+            workspace.pull(); doc.capture();
+            require(doc.source.contains("x = \"1\""), "selection wrapped in quotes, got " + doc.source);
+
+            // Multiple carets: three identical lines edited at once.
+            var lines = new ImGuiIdeDocument(ImGuiIdeDocument.Kind.LUA, "multi_caret", "a\na\na\n");
+            screen.probeDocument(lines); workspace.bind(lines);
+            controller.nativeSelect(0, 1);
+            area.addNextOccurrence(); area.addNextOccurrence();
+            require(area.extraCaretCount() == 2, "two extra carets, got " + area.extraCaretCount());
+            require(area.preCharacter('b'), "typing is handled for every caret");
+            workspace.pull(); lines.capture();
+            require(lines.source.equals("b\nb\nb\n"), "all three lines changed, got " + lines.source.replace("\n", "|"));
+
+            require(area.dismissMarks() && area.extraCaretCount() == 0, "Esc collapses the extra carets");
+            // Snippets: "for" + Tab expands and selects the first placeholder, Tab moves on.
+            var snippet = new ImGuiIdeDocument(ImGuiIdeDocument.Kind.LUA, "snippet", "for");
+            screen.probeDocument(snippet); workspace.bind(snippet);
+            controller.nativeSelect(3, 3);
+            require(area.tab(false), "Tab expanded the snippet");
+            workspace.pull(); snippet.capture();
+            require(snippet.source.startsWith("for i = 1, 10 do"), "snippet text, got " + snippet.source);
+            require(selected(controller, snippet).equals("i"), "first placeholder selected");
+            require(area.tab(false) && selected(controller, snippet).equals("1"), "Tab moves to the second placeholder");
+
+            screen.probeDocument(doc); workspace.bind(doc);
+            area.setSearch("print", "", false);
+        });
+    }
+    private static String selected(LuaIdeScreen controller, ImGuiIdeDocument doc) {
+        int a = controller.nativeAnchor(), b = controller.nativeCursor();
+        return doc.source.substring(Math.min(a, b), Math.max(a, b));
     }
     static void screenshot(Minecraft client) {
         if (!capture) return; capture = false;

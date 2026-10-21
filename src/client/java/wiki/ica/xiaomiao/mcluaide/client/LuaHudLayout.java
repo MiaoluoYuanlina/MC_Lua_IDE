@@ -103,6 +103,8 @@ final class LuaHudLayout {
 		return percent == null ? base : Math.round(255 * (100 - percent) / 100F) << 24 | base & 0xFFFFFF;
 	}
 	void reset() { positions.clear(); transparencies.clear(); }
+	/** Back to the built-in position, size and background of a single panel. */
+	void resetPanel(Panel panel) { positions.remove(panel); transparencies.remove(panel); }
 	void read(Properties properties) {
 		positions.clear();
 		transparencies.clear();

@@ -128,7 +128,13 @@ public final class LuaProtocol {
 		GET_MCP_SERVER,
 		SET_MCP_SERVER,
 		CLEAR_MCP_SERVER_LOGS,
-		MCP_TOOL;
+		MCP_TOOL,
+		/** Evaluates expressions in a paused stack frame. Appended last: the wire number is the position. */
+		DEBUG_EVALUATE,
+		/** Server terminal (off unless the server's terminal.properties enables it). Appended: wire numbers are positions. */
+		TERMINAL_OPEN,
+		TERMINAL_IO,
+		TERMINAL_CLOSE;
 
 		/**
 		 * The number sent on the wire. It is the declaration position, so NEVER reorder or insert constants in the middle:

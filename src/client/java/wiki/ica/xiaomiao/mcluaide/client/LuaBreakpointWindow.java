@@ -23,11 +23,67 @@ final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
         boolean pause=LuaBreakpointClient.state().pauseGame(),next=NativeUi.check("遇到断点暂停游戏（全服）",pause);if(next!=pause)LuaBreakpointClient.setPauseGame(next);
         NativeUi.action(LuaBreakpointClient.movementLabel(),()->LuaBreakpointClient.setAllowPlayerMovement(!LuaBreakpointClient.state().allowPlayerMovement()));
         NativeUi.action(LuaDebuggerCamera.label(),()->LuaDebuggerCamera.setEnabled(!LuaDebuggerCamera.enabled()));
-        for(var detail:details()) {
+        imgui.ImGui.separator();
+        callStack();
+        watches();
+        breakpointList();
+        imgui.ImGui.separator();
+        for(var detail:details(true)) {
             imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,NativeUi.rgba(detail.color));
             if(imgui.ImGui.selectable(detail.text)&&!detail.source.isBlank())navigate.accept(detail.source,detail.line);
             imgui.ImGui.popStyleColor();
         }
+    }
+
+    private final imgui.type.ImString watchInput=new imgui.type.ImString(512);
+
+    private void callStack() {
+        var state=LuaBreakpointClient.state();
+        imgui.ImGui.textColored(.6f,.78f,1f,1f,LuaUiText.text("调用栈 · 点击选择并跳转","Call stack · click to select and jump"));
+        if(state.stack().isEmpty()){imgui.ImGui.textDisabled(state.paused()?LuaUiText.text("当前等待事件，暂无活动调用栈"):LuaUiText.text("暂停后显示调用栈"));return;}
+        for(int index=0;index<state.stack().size();index++){
+            var frame=state.stack().get(index);
+            String label=(index==0?"→ ":"  ")+"#"+(index+1)+" "+frame.name()+" · "+frame.source()+".lua:"+frame.line()+"##frame"+index;
+            if(imgui.ImGui.selectable(label,index==LuaBreakpointClient.selectedFrame())){
+                LuaBreakpointClient.selectFrame(index);
+                if(LuaScriptNames.isValid(frame.source())&&frame.line()>0)navigate.accept(frame.source(),frame.line());
+            }
+        }
+    }
+
+    private void watches() {
+        var store=LuaBreakpointClient.store();
+        if(store==null)return;
+        imgui.ImGui.textColored(.6f,.78f,1f,1f,LuaUiText.text("监视","Watch")+" · "+store.watches().size());
+        var watches=store.watches();
+        if(LuaBreakpointClient.canEvaluate())LuaBreakpointClient.evaluate(watches);
+        String remove=null;
+        for(int i=0;i<watches.size();i++){
+            String expression=watches.get(i);
+            var value=LuaBreakpointClient.value(expression);
+            String shown=!LuaBreakpointClient.canEvaluate()?LuaUiText.text("（未暂停）","(not paused)"):value==null?"…":value.ok()?value.text():value.error();
+            if(imgui.ImGui.smallButton("x##unwatch"+i))remove=expression;
+            imgui.ImGui.sameLine();
+            boolean bad=value!=null&&!value.ok();
+            imgui.ImGui.textColored(bad?1f:.82f,bad?.55f:.9f,bad?.5f:1f,1f,expression+" = "+shown);
+        }
+        if(remove!=null){store.removeWatch(remove);store.save();}
+        imgui.ImGui.setNextItemWidth(Math.max(80,imgui.ImGui.getContentRegionAvailX()-60));
+        boolean enter=imgui.ImGui.inputTextWithHint("##watch",LuaUiText.text("输入表达式后回车添加","Expression, Enter to add"),watchInput,imgui.flag.ImGuiInputTextFlags.EnterReturnsTrue);
+        imgui.ImGui.sameLine();
+        if((imgui.ImGui.button(LuaUiText.text("添加","Add")+"##addwatch")||enter)&&store.addWatch(watchInput.get())){store.save();watchInput.set("");}
+    }
+
+    private void breakpointList() {
+        var files=LuaBreakpointClient.store().config().files();
+        int total=files.values().stream().mapToInt(file->file.lines().size()).sum();
+        imgui.ImGui.textColored(.6f,.78f,1f,1f,LuaUiText.text("断点","Breakpoints")+" · "+total);
+        if(files.isEmpty())imgui.ImGui.textDisabled(LuaUiText.text("单击行号栏或按快捷键添加断点","Click the gutter to add a breakpoint"));
+        files.entrySet().stream().sorted(Comparator.comparing(java.util.Map.Entry::getKey)).forEach(entry->entry.getValue().lines().stream().sorted().forEach(line->{
+            var option=entry.getValue().option(line);
+            String extra=option.isPlain()?"":option.logpoint()?"  ◆ "+option.logMessage():"  ◉ "+(option.condition().isEmpty()?"":option.condition()+" ")+(option.hitCount()>1?"≥"+option.hitCount():"");
+            if(imgui.ImGui.selectable("● "+entry.getKey()+".lua:"+line+extra+"##bp"+entry.getKey()+":"+line)&&LuaScriptNames.isValid(entry.getKey()))navigate.accept(entry.getKey(),line);
+        }));
     }
 	static final String ID = "mc_lua_ide:breakpoint_debugger";
 	private static final int ROW_HEIGHT = 15, BUTTON_HEIGHT = 21, GAP = 4;
@@ -98,7 +154,10 @@ final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
 		return result;
 	}
 
-	List<Detail> details() {
+	List<Detail> details() { return details(false); }
+
+	/** With {@code interactive} the call stack and the breakpoint list are left out: the ImGui window draws them as its own widgets. */
+	List<Detail> details(boolean interactive) {
 		var state = LuaBreakpointClient.state();
 		List<Detail> rows = new ArrayList<>();
 		add(rows, LuaUiText.text("执行状态：") + (!state.running() ? LuaUiText.text("未运行") : !state.enabled() ? LuaUiText.text("普通运行（未启用调试）") : state.paused() ? LuaUiText.text("已暂停") : LuaUiText.text("调试运行中")),
@@ -118,18 +177,18 @@ final class LuaBreakpointWindow implements McLuaIdeWindowApi.NativeContent {
 		add(rows, "摄像机优先：移动/跳跃/潜行/疾跑控制视角，玩家不动", MUTED);
 		add(rows, LuaUiText.text("提示：") + LuaBreakpointClient.status(), state.paused() ? GOLD : MUTED);
 		if (!state.running() || !state.enabled()) add(rows, "使用 IDE 运行或 /lua testrun 启动调试", GOLD);
-		add(rows, LuaUiText.text("调用栈 · 点击跳转"), 0xFF9CC8FF);
-		if (state.stack().isEmpty()) add(rows, state.paused() ? LuaUiText.text("当前等待事件，暂无活动调用栈") : LuaUiText.text("暂停后显示调用栈"), MUTED);
-		for (int index = 0; index < state.stack().size(); index++) {
+		if (!interactive) add(rows, LuaUiText.text("调用栈 · 点击跳转"), 0xFF9CC8FF);
+		if (!interactive && state.stack().isEmpty()) add(rows, state.paused() ? LuaUiText.text("当前等待事件，暂无活动调用栈") : LuaUiText.text("暂停后显示调用栈"), MUTED);
+		for (int index = 0; !interactive && index < state.stack().size(); index++) {
 			LuaDebuggerState.Frame frame = state.stack().get(index);
 			rows.add(new Detail((index == 0 ? "→ " : "  ") + "#" + (index + 1) + " " + frame.name()
 					+ " · " + frame.source() + ".lua:" + frame.line(), index == 0 ? GOLD : TEXT, frame.source(), frame.line()));
 		}
 		var files = LuaBreakpointClient.store().config().files();
 		int total = files.values().stream().mapToInt(file -> file.lines().size()).sum();
-		add(rows, "已设置断点：" + total + " 个 · " + files.size() + LuaUiText.text(" 个文件"), 0xFF9CC8FF);
-		if (files.isEmpty()) add(rows, LuaUiText.text("单击行号栏或按快捷键添加断点"), MUTED);
-		files.entrySet().stream().sorted(Comparator.comparing(java.util.Map.Entry::getKey)).forEach(entry -> {
+		if (!interactive) add(rows, "已设置断点：" + total + " 个 · " + files.size() + LuaUiText.text(" 个文件"), 0xFF9CC8FF);
+		if (!interactive && files.isEmpty()) add(rows, LuaUiText.text("单击行号栏或按快捷键添加断点"), MUTED);
+		if (!interactive) files.entrySet().stream().sorted(Comparator.comparing(java.util.Map.Entry::getKey)).forEach(entry -> {
 			entry.getValue().lines().stream().sorted().forEach(line ->
 					rows.add(new Detail("● " + entry.getKey() + ".lua:" + line, 0xFFFF929F, entry.getKey(), line)));
 		});

@@ -322,6 +322,38 @@ tasks.register("componentCodecSmoke", JavaExec) {
 }
 
 check.dependsOn componentCodecSmoke
+tasks.register("editorToolsSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks the editor tools: lexer, bracket matching, find/replace, symbol index, snippets and diff."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.EditorToolsSmoke"
+}
+check.dependsOn editorToolsSmoke
+tasks.register("terminalSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks the terminal emulator (escape sequences, screen, scrollback) and the key encoder."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.TerminalSmoke"
+}
+check.dependsOn terminalSmoke
+tasks.register("ptySmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Starts a real shell in a pseudo terminal (ConPTY on Windows) and checks output, input, resize and exit."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.terminal.PtySmoke"
+}
+check.dependsOn ptySmoke
+tasks.register("serverTerminalSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks the server terminal policy: disabled by default, owner-only, bounded, closes with its player."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.ServerTerminalSmoke"
+}
+check.dependsOn serverTerminalSmoke
 tasks.register("protocolStabilitySmoke", JavaExec) {
 	dependsOn testClasses
 	group = "verification"

@@ -249,6 +249,38 @@ public final class ServerScriptManager {
 		return allowed;
 	}
 
+	/**
+	 * Debugger watch/hover evaluation. The request is {"frame":0,"exprs":[...]}; the reply is {"results":[{ok,text,type|error}]}.
+	 * The work runs on the Lua worker (while it is paused), so this only schedules it and returns a future.
+	 */
+	public static java.util.concurrent.CompletableFuture<String> evaluateDebugger(String executionId, String body) {
+		ScriptExecution execution;
+		synchronized (ServerScriptManager.class) { execution = activeExecution; }
+		if (execution == null || !execution.isRunning())
+			return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("当前没有正在运行的 Lua 脚本"));
+		int frame; List<String> expressions = new java.util.ArrayList<>();
+		try {
+			com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
+			frame = request.get("frame").getAsInt();
+			for (var element : request.getAsJsonArray("exprs")) expressions.add(element.getAsString());
+		} catch (RuntimeException error) {
+			return java.util.concurrent.CompletableFuture.failedFuture(new IllegalArgumentException("求值请求无效"));
+		}
+		return execution.debugger.evaluate(executionId, frame, expressions).thenApply(results -> {
+			com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+			for (var result : results) {
+				com.google.gson.JsonObject item = new com.google.gson.JsonObject();
+				item.addProperty("ok", result.ok());
+				if (result.ok()) { item.addProperty("text", result.text()); item.addProperty("type", result.type()); }
+				else item.addProperty("error", result.error());
+				array.add(item);
+			}
+			com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+			root.add("results", array);
+			return root.toString();
+		});
+	}
+
 	public static synchronized String controlDebugger(String executionId, String command) {
 		if (activeExecution == null || !activeExecution.isRunning())
 			throw new IllegalStateException("当前没有正在运行的 Lua 脚本");
@@ -294,6 +326,8 @@ public final class ServerScriptManager {
 					execution.limits.maxOutputCharsPerLine());
 			LuaValue debugLibrary = globals.get("debug");
 			sandbox(globals, execution.limits());
+			// Logpoints and breakpoint conditions need the globals and a place to print; output limits apply as for print().
+			execution.debugger.attach(globals, text -> execution.emitOutput(LuaValue.valueOf(text), output));
 			globals.set("print", new VarArgFunction() {
 				@Override
 				public Varargs invoke(Varargs values) {

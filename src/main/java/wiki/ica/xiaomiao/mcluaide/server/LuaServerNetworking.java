@@ -72,6 +72,7 @@ public final class LuaServerNetworking {
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			ServerScriptManager.stopOwnedBy(handler.getPlayer().getUUID());
 			GitHubWorkspaceService.disconnected(handler.getPlayer().getUUID());
+			ServerTerminalService.closeAll(handler.getPlayer().getUUID());
 			LuaServerPackService.disconnected(server, handler.getPlayer().getUUID());
 		});
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> LuaServerPackService.joined(server, handler.getPlayer()));
@@ -82,6 +83,7 @@ public final class LuaServerNetworking {
 		ServerLifecycleEvents.SERVER_STOPPED.register(LuaServerPackService::stopped);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> GitHubWorkspaceService.stopped());
 		ServerLifecycleEvents.SERVER_STOPPING.register(ServerScriptManager::shutdownDebugger);
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> ServerTerminalService.shutdown());
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resources, success) -> {
 			if (success) LuaLanguageAssets.invalidate();
 			if (success) notifyCatalogChanged(server);
@@ -121,6 +123,7 @@ public final class LuaServerNetworking {
 
 		if (!isAdministrator(server, player)) {
 			GitHubWorkspaceService.disconnected(player.getUUID());
+			ServerTerminalService.closeAll(player.getUUID());
 			McLuaIdeMod.LOGGER.warn("Denied Lua IDE {} request from non-administrator {} ({})",
 					action, player.getName().getString(), player.getUUID());
 			send(player, new LuaProtocol.Response(request.requestId(), action, false,
@@ -273,6 +276,13 @@ public final class LuaServerNetworking {
 						throw new IllegalArgumentException("断点暂停游戏开关必须为 true 或 false");
 					sendSuccess(player, request, ServerScriptManager.setDebuggerGamePause(server, Boolean.parseBoolean(request.body())));
 				}
+				case TERMINAL_OPEN -> completeAsync(server, player, request, java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+					try { return ServerTerminalService.open(player.getUUID(), player.getName().getString(), request.body()); }
+					catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
+				}));
+				case TERMINAL_IO -> sendSuccess(player, request, ServerTerminalService.io(player.getUUID(), request.name(), request.body()));
+				case TERMINAL_CLOSE -> sendSuccess(player, request, ServerTerminalService.close(player.getUUID(), request.name()));
+				case DEBUG_EVALUATE -> completeAsync(server, player, request, ServerScriptManager.evaluateDebugger(request.name(), request.body()));
 				case DEBUG_CONTROL -> sendSuccess(player, request,
 						ServerScriptManager.controlDebugger(request.name(), request.body()));
 				case SET_DEBUG_PLAYER_MOVEMENT -> {
@@ -345,7 +355,7 @@ public final class LuaServerNetworking {
 			java.util.concurrent.CompletableFuture<String> future) {
 		future.whenComplete((result, error) -> server.execute(() -> {
 			if (server.getPlayerList().getPlayer(player.getUUID()) != player) return;
-			if (!isAdministrator(server, player)) { GitHubWorkspaceService.disconnected(player.getUUID()); return; }
+			if (!isAdministrator(server, player)) { GitHubWorkspaceService.disconnected(player.getUUID()); ServerTerminalService.closeAll(player.getUUID()); return; }
 			if (error == null) {
 				if (request.actionId() == LuaProtocol.Action.GIT_RESTORE.id()) notifyCatalogChanged(server);
 				sendSuccess(player, request, result);

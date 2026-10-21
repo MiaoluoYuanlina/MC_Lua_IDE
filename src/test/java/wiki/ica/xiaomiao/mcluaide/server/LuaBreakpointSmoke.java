@@ -67,7 +67,7 @@ public final class LuaBreakpointSmoke {
 			f.await(6, 0); f.debugger.finish(); f.thread.interrupt(); f.thread.join(2000);
 			require(!f.thread.isAlive(), "Stopped worker stayed blocked on breakpoint");
 		}
-		checkIdleAndPause(); checkCodec(); checkFreezeLease(); checkCodePreview();
+		checkIdleAndPause(); checkCodec(); checkFreezeLease(); checkCodePreview(); checkAdvancedBreakpoints();
 		System.out.println("Lua breakpoint smoke passed: real hooks, locals, call stack, into/over/out, modules, callbacks, normal run, stale source/control, stop and idle pause");
 	}
 	private static void checkIdleAndPause() throws Exception {
@@ -103,6 +103,90 @@ public final class LuaBreakpointSmoke {
 		require(settings.allowPlayerMovement(), "Existing player movement behavior was not preserved by default");
 		var locked = settings.withGamePause(true, true, false);
 		require(!LuaDebuggerState.decode(locked.encode()).allowPlayerMovement() && locked.gamePaused(), "Player movement option lost in network codec");
+	}
+	private static final String LOOP = "local total = 0\nfor i = 1, 5 do\n    total = total + i\nend\nresult = total\n";
+	private static LuaBreakpoints withOption(String name, String source, int line, LuaBreakpoints.Option option) {
+		return new LuaBreakpoints(Map.of(name, new LuaBreakpoints.File(LuaBreakpoints.hash(source), Set.of(line), Map.of(line, option))));
+	}
+	/** Conditions, hit counts, logpoints, expression evaluation in any frame, run to cursor: all against real LuaJ hooks. */
+	private static void checkAdvancedBreakpoints() throws Exception {
+		// Codec: options survive the network encoding, and an old configuration without options still decodes.
+		var optioned = withOption("loop", LOOP, 3, new LuaBreakpoints.Option("i == 3", 2, "i={i}"));
+		require(LuaBreakpoints.decode(optioned.encode()).equals(optioned), "breakpoint options changed in the codec");
+		require(LuaBreakpoints.decode("{\"x\":{\"hash\":\"\",\"lines\":[3]}}").files().get("x").option(3).isPlain(), "legacy breakpoint configuration lost");
+		require(new LuaBreakpoints.File("", Set.of(1), Map.of(2, new LuaBreakpoints.Option("x", 0, ""))).options().isEmpty(), "an option on a line without a breakpoint was kept");
+		boolean rejected = false;
+		try { new LuaBreakpoints.Option("x".repeat(600), 0, ""); } catch (IllegalArgumentException expected) { rejected = true; }
+		require(rejected, "an oversized condition was accepted");
+
+		// Condition: only the iteration where i == 3 stops; locals are readable through the evaluator.
+		try (Fixture f = new Fixture("loop", LOOP, withOption("loop", LOOP, 3, new LuaBreakpoints.Option("i == 3", 0, "")), true, false)) {
+			var stop = f.await(3, 0);
+			var values = f.evaluate(0, "i", "total", "total + i * 2", "nope", "1 +");
+			require(values.get(0).ok() && values.get(0).text().equals("3"), "local i was not 3: " + values.get(0));
+			require(values.get(1).text().equals("3"), "total was not 3 after two iterations: " + values.get(1));
+			require(values.get(2).text().equals("9"), "expression with locals: " + values.get(2));
+			require(values.get(3).ok() && values.get(3).text().equals("nil"), "an unknown name evaluates to nil, like Lua");
+			require(!values.get(4).ok() && !values.get(4).error().isEmpty(), "a syntax error is reported, not thrown");
+			f.control("continue"); f.complete();
+			require(f.globals.get("result").checkint() == 15, "the condition changed the script result");
+			require(f.debugger.state().sequence() == stop.sequence(), "the condition stopped more than once");
+		}
+		// Hit count: stop on the 3rd time the line is reached.
+		try (Fixture f = new Fixture("loop", LOOP, withOption("loop", LOOP, 3, new LuaBreakpoints.Option("", 3, "")), true, false)) {
+			// "From the 3rd time on": iterations 3, 4 and 5 stop, 1 and 2 do not.
+			var third = f.await(3, 0);
+			require(f.evaluate(0, "i").get(0).text().equals("3"), "hit count 3 should first stop on the third iteration");
+			f.control("continue"); var fourth = f.await(3, third.sequence());
+			require(f.evaluate(0, "i").get(0).text().equals("4"), "and keep stopping afterwards");
+			f.control("continue"); f.await(3, fourth.sequence());
+			f.control("continue"); f.complete();
+		}
+		// Logpoint: prints and never stops.
+		try (Fixture f = new Fixture("loop", LOOP, withOption("loop", LOOP, 3, new LuaBreakpoints.Option("", 0, "i={i} total={total} \\{raw\\}")), true, false)) {
+			f.complete();
+			require(f.logs.size() == 5, "logpoint should print once per iteration, got " + f.logs);
+			require(f.logs.get(0).equals("[日志点 loop.lua:3] i=1 total=0 {raw}") && f.logs.get(4).contains("i=5 total=10"), "logpoint text: " + f.logs);
+			require(!f.debugger.state().paused() && f.globals.get("result").checkint() == 15, "a logpoint must not stop or change the run");
+		}
+		// A condition that errors stops the script and says why, instead of being ignored.
+		try (Fixture f = new Fixture("loop", LOOP, withOption("loop", LOOP, 3, new LuaBreakpoints.Option("nope.field > 1", 0, "")), true, false)) {
+			var stop = f.await(3, 0);
+			require(stop.reason().startsWith("断点条件出错"), "condition error reason: " + stop.reason()); f.debugger.configure(LuaBreakpoints.empty()); // the broken condition would stop on every iteration
+			f.control("continue"); f.complete();
+		}
+		// Run to cursor: from the loop header to the last line, without an explicit breakpoint there.
+		try (Fixture f = new Fixture("loop", LOOP, config("loop", LOOP, 1), true, false)) {
+			var first = f.await(1, 0);
+			f.control("run_to:loop:5"); var arrived = f.await(5, first.sequence());
+			require(arrived.reason().equals("运行到光标"), "run to cursor reason: " + arrived.reason());
+			require(f.evaluate(0, "total").get(0).text().equals("15"), "the loop should have finished before line 5");
+			boolean bad = false;
+			try { f.debugger.control(f.debugger.state().id(), "run_to:../x:1"); } catch (RuntimeException expected) { bad = true; }
+			require(bad, "an unsafe run-to target was accepted");
+			f.control("continue"); f.complete();
+		}
+		// Frames: evaluate in the caller of the function the script stopped in.
+		try (Fixture f = new Fixture("sample", SOURCE, config("sample", SOURCE, 3), true, false)) {
+			f.await(3, 0);
+			var inner = f.evaluate(0, "doubled", "n");
+			require(inner.get(0).text().equals("8") && inner.get(1).text().equals("4"), "locals of the stopped frame: " + inner);
+			var outer = f.evaluate(1, "value", "answer");
+			require(outer.get(0).text().equals("4") && outer.get(1).text().equals("nil"), "locals of the caller frame: " + outer);
+			f.control("continue"); f.complete();
+		}
+		// Evaluation needs a pause, and a stale execution id is refused.
+		try (Fixture f = new Fixture("sample", SOURCE, config("sample", SOURCE, 6), true, false)) {
+			f.await(6, 0);
+			boolean stale = false;
+			try { f.debugger.evaluate("old-execution", 0, List.of("1")).get(1, TimeUnit.SECONDS); } catch (ExecutionException expected) { stale = true; }
+			require(stale, "a stale execution id was evaluated");
+			f.control("continue"); f.complete();
+			boolean running = false;
+			try { f.debugger.evaluate(f.debugger.state().id(), 0, List.of("1")).get(1, TimeUnit.SECONDS); } catch (ExecutionException expected) { running = true; }
+			require(running, "an evaluation was accepted while the script was not paused");
+		}
+		System.out.println("Advanced breakpoint smoke passed: options codec, conditions, hit counts, logpoints, condition errors, run to cursor, frame evaluation");
 	}
 	private static void checkCodePreview() throws Exception {
 		String source = "local value = 1\r\nresult = value + 2\r\n";
@@ -151,11 +235,17 @@ public final class LuaBreakpointSmoke {
 		final Thread thread;
 		final CompletableFuture<Void> done = new CompletableFuture<>();
 		volatile String sample = "";
+		final List<String> logs = new java.util.concurrent.CopyOnWriteArrayList<>();
+		/** Evaluates expressions in a paused frame through the same path the network handler uses. */
+		List<LuaDebugEvaluator.Result> evaluate(int frame, String... expressions) throws Exception {
+			return debugger.evaluate(debugger.state().id(), frame, List.of(expressions)).get(4, TimeUnit.SECONDS);
+		}
 		Fixture(String name, String source, LuaBreakpoints config, boolean enabled, boolean callbacks) {
 			this(name, source, config, enabled, callbacks, Map.of());
 		}
 		Fixture(String name, String source, LuaBreakpoints config, boolean enabled, boolean callbacks, Map<String, String> modules) {
 			debugger = new LuaBreakpointController(name, enabled, config); debugger.source(name, source);
+			debugger.attach(globals, logs::add);
 			LuaValue debug = globals.get("debug"); Map<String, LuaValue> baseline = LuaDebugSnapshot.baseline(globals);
 			LuaScriptModuleLoader.install(globals, module -> {
 				String text = modules.get(module); if (text == null) throw new java.io.IOException("Missing module");

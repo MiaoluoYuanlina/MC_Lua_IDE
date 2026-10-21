@@ -22,7 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /** First independent UI frontend. All server actions reuse the existing permission-checked transport. */
-public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, ExtensionWindowHost {
+public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, ExtensionWindowHost, EditorHost {
     private final Screen previous;
     private final Object connection;
     private final LuaIdeSession session;
@@ -53,7 +53,110 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     }
     void openServerSettings() { openTool("NATIVE_SETTINGS"); }
     LuaIdeScreen controller() { return tools == null ? null : tools.controller; }
-    void openTool(String id) { if (tools != null) tools.open(id); else pendingTools.put(id, true); }
+    @Override public void openTool(String id) { if (tools != null) tools.open(id); else pendingTools.put(id, true); }
+
+    // ---- EditorHost: what the outline, search, compare and palette panels use ----------------------------------------------
+    private final CommandPalette palette = new CommandPalette(new PaletteSource());
+    private String jumpKey = ""; private int jumpStart, jumpEnd;
+    @Override public ImGuiIdeDocument currentDocument() { return current; }
+    @Override public List<ImGuiIdeDocument> openDocuments() { return List.copyOf(documents.values()); }
+    @Override public NativeCodeArea codeArea() { return tools.codeArea; }
+    @Override public List<ScriptManager.ScriptEntry> tree(ImGuiIdeDocument.Kind kind) { return trees.getOrDefault(kind, List.of()); }
+    @Override public void openAt(ImGuiIdeDocument.Kind kind, String path, int start, int end) {
+        jumpKey = kind.name() + ":" + path; jumpStart = start; jumpEnd = end;
+        open(kind, path, true);
+    }
+    @Override public <T> void deliver(CompletableFuture<T> future, java.util.function.Consumer<T> success, java.util.function.Consumer<String> failure) {
+        future.whenComplete((value, error) -> Minecraft.getInstance().execute(() -> {
+            if (!validConnection()) return;
+            if (error != null) failure.accept(ScriptManager.message(error)); else success.accept(value);
+        }));
+    }
+    @Override public CompletableFuture<String> read(ImGuiIdeDocument.Kind kind, String path) {
+        return kind == ImGuiIdeDocument.Kind.LUA ? ScriptManager.read(path)
+                : kind == ImGuiIdeDocument.Kind.DATAPACK ? ScriptManager.readDatapackFile(path) : local(() -> LuaResourcePackWorkspace.readText(path));
+    }
+    @Override public CompletableFuture<Void> write(ImGuiIdeDocument.Kind kind, String path, String text) {
+        CompletableFuture<Void> saved = kind == ImGuiIdeDocument.Kind.LUA ? ScriptManager.save(path, text)
+                : kind == ImGuiIdeDocument.Kind.DATAPACK ? ScriptManager.saveDatapackFile(path, text)
+                : local(() -> { LuaResourcePackWorkspace.saveText(path, text); return null; });
+        return saved.thenApply(ignored -> {
+            // A file that was rewritten on disk must not leave a stale copy in an open tab.
+            Minecraft.getInstance().execute(() -> {
+                var open = documents.get(kind.name() + ":" + path);
+                if (open != null && validConnection()) { open.external(text); open.saved = text; }
+            });
+            return null;
+        });
+    }
+    @Override public void notice(String message) { notice = message; }
+
+    /** Items for the command palette: files, symbols of the current file and every IDE command. */
+    private final class PaletteSource implements CommandPalette.Source {
+        @Override public List<CommandPalette.Entry> files() {
+            List<CommandPalette.Entry> entries = new ArrayList<>();
+            for (var kind : ImGuiIdeDocument.Kind.values()) for (var entry : trees.getOrDefault(kind, List.of())) {
+                if (entry.directory()) continue;
+                String name = entry.path() + (kind == ImGuiIdeDocument.Kind.LUA ? ".lua" : "");
+                String detail = kind == ImGuiIdeDocument.Kind.LUA ? "Lua" : kind == ImGuiIdeDocument.Kind.DATAPACK ? "datapack" : "resourcepack";
+                entries.add(new CommandPalette.Entry(name, detail, () -> open(kind, entry.path(), true)));
+            }
+            return entries;
+        }
+        @Override public List<CommandPalette.Entry> symbols() {
+            var index = tools == null ? null : tools.codeArea.symbolIndex();
+            if (index == null || current == null) return List.of();
+            List<CommandPalette.Entry> entries = new ArrayList<>();
+            for (var symbol : index.outline()) {
+                int line = LuaSymbolIndex.lineOf(current.source, symbol.offset()) + 1;
+                entries.add(new CommandPalette.Entry(symbol.name(), ":" + line, () -> tools.codeArea.goToOffset(symbol.offset())));
+            }
+            return entries;
+        }
+        @Override public List<CommandPalette.Entry> commands() { return paletteCommands(); }
+        @Override public void goToLine(int line) { if (tools != null) tools.codeArea.goToLineNumber(line); }
+    }
+
+    private List<CommandPalette.Entry> paletteCommands() {
+        List<CommandPalette.Entry> list = new ArrayList<>();
+        var area = tools == null ? null : tools.codeArea;
+        java.util.function.BiConsumer<String[], Runnable> add = (names, action) -> list.add(new CommandPalette.Entry(tr(names[0], names[1]), names[2], action));
+        add.accept(new String[]{"保存", "Save", "Ctrl+S"}, () -> { if (current != null) save(current); });
+        add.accept(new String[]{"全部保存", "Save all", ""}, this::saveAll);
+        add.accept(new String[]{"新建 Lua 文件…", "New Lua file…", "Ctrl+N"}, () -> createDialog(ImGuiIdeDocument.Kind.LUA, "file", ""));
+        add.accept(new String[]{"运行 / 停止", "Run / stop", "Ctrl+Enter"}, this::toggleRun);
+        add.accept(new String[]{"整理代码", "Format code", ""}, () -> tools.command("format"));
+        add.accept(new String[]{"查找", "Find", "Ctrl+F"}, () -> area.find());
+        add.accept(new String[]{"替换", "Replace", "Ctrl+H"}, () -> area.findAndReplace());
+        add.accept(new String[]{"转到行…", "Go to line…", "Ctrl+G"}, () -> area.goToLine());
+        add.accept(new String[]{"转到定义", "Go to definition", "Ctrl+B"}, () -> area.goToDefinition());
+        add.accept(new String[]{"查找引用", "Find references", "Ctrl+Shift+B"}, () -> area.findReferences());
+        add.accept(new String[]{"重命名符号…", "Rename symbol…", "F2"}, () -> area.requestRename());
+        add.accept(new String[]{"选中下一处相同内容", "Add next occurrence", "Ctrl+D"}, () -> area.addNextOccurrence());
+        add.accept(new String[]{"在文件中查找…", "Find in files…", "Ctrl+Shift+F"}, () -> { openTool("NATIVE_SEARCH"); tools.searchPanel().focusQuery(); });
+        add.accept(new String[]{"对比文件…", "Compare files…", ""}, () -> openTool("NATIVE_DIFF"));
+        add.accept(new String[]{"显示大纲", "Show outline", ""}, () -> openTool("NATIVE_OUTLINE"));
+        add.accept(new String[]{"切换终端", "Toggle terminal", "Ctrl+`"}, this::toggleTerminal);
+        add.accept(new String[]{"新建本地终端", "New local terminal", "Ctrl+Shift+T"}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openLocal(""); } catch (RuntimeException error) { notice(error.getMessage()); } });
+        add.accept(new String[]{"新建服务器终端", "New server terminal", ""}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openServer(); } catch (RuntimeException error) { notice(error.getMessage()); } });
+        add.accept(new String[]{"显示 / 隐藏小地图", "Toggle minimap", ""}, () -> area.setMinimapVisible(!area.minimapVisible()));
+        add.accept(new String[]{"展开全部代码", "Expand all", ""}, () -> tools.command("expand_all"));
+        add.accept(new String[]{"折叠全部代码", "Collapse all", ""}, () -> tools.command("fold_all"));
+        add.accept(new String[]{"折叠函数代码", "Collapse functions", ""}, () -> tools.command("fold_functions"));
+        add.accept(new String[]{"重载数据包", "Reload datapacks", ""}, () -> tools.command("reload_datapacks"));
+        add.accept(new String[]{"重载资源包", "Reload resource packs", ""}, () -> tools.command("reload_resources"));
+        add.accept(new String[]{"刷新目录", "Refresh explorer", ""}, this::refreshTrees);
+        add.accept(new String[]{"深色配色", "Dark theme", ""}, () -> tools.command("theme:DARK"));
+        add.accept(new String[]{"浅色配色", "Light theme", ""}, () -> tools.command("theme:LIGHT"));
+        add.accept(new String[]{"高对比度配色", "High contrast theme", ""}, () -> tools.command("theme:HIGH_CONTRAST"));
+        add.accept(new String[]{"固定 / 解除窗口布局", "Lock / unlock layout", ""}, () -> lockLayout.set(!lockLayout.get()));
+        add.accept(new String[]{"恢复默认布局", "Reset layout", ""}, () -> resetLayout = true);
+        if (tools != null) for (String id : tools.ids()) {
+            String title = tools.title(id);
+            list.add(new CommandPalette.Entry(tr("打开窗口：", "Open window: ") + title, "", () -> tools.open(id)));
+        }
+        return list;
+    }
     public boolean setExtensionWindowOpen(String id, boolean open) {
         if (tools != null) {
             boolean known = tools.ids().contains("EXT:" + id); if (!known) return false;
@@ -200,7 +303,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         ImGui.getIO().setConfigDockingNoSplit(lockLayout.get());
         for (var doc : List.copyOf(documents.values())) { doc.capture(); if (!doc.binary()) doc.analyze(); }
         drawEditor(); tools.draw();drawCompletions();
-        drawProblems(); dialogs();
+        drawProblems(); dialogs(); palette.draw();
         if (closeRequested) ImGui.openPopup("close_confirmation");
         closeRequested = false;
         closeDialog();
@@ -228,6 +331,19 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             if (ImGui.menuItem(tr("粘贴", "Paste"), "Ctrl+V", false, enabled)) tools.editorShortcut(GLFW.GLFW_KEY_V, false);
             if (ImGui.menuItem(tr("搜索", "Find"), "Ctrl+F", false, enabled)) tools.command("search");
             if (ImGui.menuItem(tr("切换注释", "Toggle comments"), "Ctrl+/", false, enabled)) tools.editorShortcut(GLFW.GLFW_KEY_SLASH, false);
+            ImGui.separator();
+            if (ImGui.menuItem(tr("替换…", "Replace…"), "Ctrl+H", false, enabled)) tools.codeArea.findAndReplace();
+            if (ImGui.menuItem(tr("在文件中查找…", "Find in files…"), "Ctrl+Shift+F")) { openTool("NATIVE_SEARCH"); tools.searchPanel().focusQuery(); }
+            if (ImGui.menuItem(tr("转到行…", "Go to line…"), "Ctrl+G", false, enabled)) tools.codeArea.goToLine();
+            if (ImGui.menuItem(tr("转到文件…", "Go to file…"), "Ctrl+P")) palette.open("");
+            if (ImGui.menuItem(tr("转到符号…", "Go to symbol…"), "Ctrl+Shift+O", false, enabled)) palette.open("@");
+            if (ImGui.menuItem(tr("命令面板…", "Command palette…"), "Ctrl+Shift+P")) palette.open(">");
+            ImGui.separator();
+            if (ImGui.menuItem(tr("转到定义", "Go to definition"), "Ctrl+B", false, enabled)) tools.codeArea.goToDefinition();
+            if (ImGui.menuItem(tr("查找引用", "Find references"), "Ctrl+Shift+B", false, enabled)) tools.codeArea.findReferences();
+            if (ImGui.menuItem(tr("重命名符号…", "Rename symbol…"), "F2", false, enabled)) tools.codeArea.requestRename();
+            if (ImGui.menuItem(tr("选中下一处相同内容", "Add next occurrence"), "Ctrl+D", false, enabled)) tools.codeArea.addNextOccurrence();
+            if (ImGui.menuItem(tr("显示小地图", "Show minimap"), "", tools.codeArea.minimapVisible())) tools.codeArea.setMinimapVisible(!tools.codeArea.minimapVisible());
             ImGui.endMenu();
         }
         if (ImGui.beginMenu(tr("UI与窗口", "UI & windows"))) {
@@ -403,6 +519,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
                         tabSlide = ImGuiIdeRuntime.approach(tabSlide, 0, 15);
                         float slideOffset = tabSlide * 36; ImGui.indent(slideOffset);
                         tools.drawCode(doc); ImGui.unindent(slideOffset); ImGui.popFont();
+                        // "Open at" from search results, references and the outline: select the range once the file is shown.
+                        if (!jumpKey.isEmpty() && doc.key().equals(jumpKey) && !doc.binary()) { tools.codeArea.selectRange(jumpStart, jumpEnd); tools.codeArea.focus(); jumpKey = ""; }
                         if(!doc.binary()&&tools.codeArea.focused())updateCompletions(doc);
                         ImGui.endTabItem();
                     }
@@ -436,6 +554,10 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     }
     private CompletableFuture<Void> saveAll() {
         return CompletableFuture.allOf(documents.values().stream().filter(d -> d.dirty() || d.saving).map(this::save).toArray(CompletableFuture[]::new));
+    }
+    private void toggleTerminal() {
+        if (tools != null && tools.isOpen(TerminalPanel.ID) && tools.terminalCaptures()) tools.close(TerminalPanel.ID);
+        else openTool(TerminalPanel.ID);
     }
     private void toggleRun() {
         if (tools != null) {
@@ -786,6 +908,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     @Override public boolean shouldCloseOnEsc() { return false; }
     @Override public void onClose() { ImGuiIdeRuntime.defer(() -> ImGuiIdeRuntime.inContext(() -> requestClose(false, null))); }
     @Override public boolean charTyped(CharacterEvent event) {
+        if (tools != null && tools.terminalCaptures()) { boolean[] typed={false}; ImGuiIdeRuntime.inContext(()->typed[0]=tools.terminalCharacter(event)); if (typed[0]) return true; }
         if (tools != null) {boolean[] handled={false};ImGuiIdeRuntime.inContext(()->handled[0]=tools.character(event));if(handled[0])return true;}
         ImGuiIdeRuntime.character(event.codepoint()); return true;
     }
@@ -796,12 +919,16 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             if(tools!=null){if(tools.isOpen("NATIVE_DEBUG"))tools.close("NATIVE_DEBUG");else tools.open("NATIVE_DEBUG");}else openTool("NATIVE_DEBUG");return true;
         }
         int key = event.key(); boolean ctrl = (event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
+        if (ctrl && key == GLFW.GLFW_KEY_GRAVE_ACCENT) { ImGuiIdeRuntime.inContext(this::toggleTerminal); return true; }
+        if (tools != null && tools.terminalCaptures()) { boolean[] used={false}; ImGuiIdeRuntime.inContext(()->used[0]=tools.terminalKey(event)); if (used[0]) return true; }
         if (completionOpen && (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_UP || key == GLFW.GLFW_KEY_TAB)) {
             if (key == GLFW.GLFW_KEY_TAB) ImGuiIdeRuntime.inContext(this::acceptCompletion);
             else completionIndex = Math.floorMod(completionIndex + (key == GLFW.GLFW_KEY_DOWN ? 1 : -1), completions.size());
             return true;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
+            if (palette.isOpen()) { palette.close(); return true; }
+            if (tools!=null&&tools.endLayoutEditing())return true;
             if (tools!=null&&tools.codeArea.dismissMarks())return true;
             if (completionOpen) completionOpen = false;
             else if(tools!=null&&tools.escape())return true;
@@ -809,6 +936,11 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             else onClose(); return true;
         }
         if (tools != null) {boolean[] handled={false};ImGuiIdeRuntime.inContext(()->handled[0]=tools.key(event,false));if(handled[0])return true;}
+        boolean shifted = (event.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
+        if (ctrl && !shifted && key == GLFW.GLFW_KEY_P) { palette.open(""); return true; }
+        if (ctrl && shifted && key == GLFW.GLFW_KEY_P) { palette.open(">"); return true; }
+        if (ctrl && shifted && key == GLFW.GLFW_KEY_O) { palette.open("@"); return true; }
+        if (ctrl && shifted && key == GLFW.GLFW_KEY_F) { ImGuiIdeRuntime.inContext(() -> { openTool("NATIVE_SEARCH"); tools.searchPanel().focusQuery(); }); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_S) { ImGuiIdeRuntime.inContext(() -> save(current)); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_N) { createDialog(ImGuiIdeDocument.Kind.LUA, "file", ""); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_I) { ImGuiIdeRuntime.inContext(() -> { idShortcutClose = true; openInsert(true); }); return true; }
@@ -848,6 +980,9 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     private static String metadataKey(ImGuiIdeDocument d) { return (d.kind == ImGuiIdeDocument.Kind.RESOURCEPACK ? "resourcepack:" : d.kind == ImGuiIdeDocument.Kind.DATAPACK ? "datapack:" : "lua:") + d.path; }
     void probeDocument(ImGuiIdeDocument doc) { documents.put(doc.key(), doc); current = selectTab = doc; }
     ImGuiToolWorkspace probeWorkspace() { return tools; }
+    ImGuiIdeDocument probeCurrent() { return current; }
+    void probePalette(String initial) { palette.open(initial); }
+    boolean probePaletteOpen() { return palette.isOpen(); }
     void probeScale(int percent) { interfacePercent.set(percent); }
     void probeWindows() { for (String id : List.of("api", "logs", "variables", "problems")) windows.get(id).set(true); }
     boolean probeHasRecovery() { return !recovery.entries().isEmpty(); }

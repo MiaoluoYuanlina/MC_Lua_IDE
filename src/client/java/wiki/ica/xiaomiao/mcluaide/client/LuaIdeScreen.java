@@ -8650,6 +8650,22 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 	LuaFunctionFolding.State nativeFolds(){return currentDocument==null||currentDocument.json?null:currentDocument.functionFolds;}
 	void nativeToggleFold(int line){LuaFunctionFolding.toggle(textField(),line);}
 	void nativeToggleBreakpoint(int line){toggleBreakpoint(line);}
+	/** Conditions, hit counts and log messages of the breakpoints in the current document, by line. */
+	Map<Integer, wiki.ica.xiaomiao.mcluaide.network.LuaBreakpoints.Option> nativeBreakpointOptions() {
+		return isBreakpointDocument() ? breakpointStore.options(currentDocument.name) : Map.of();
+	}
+	/** Sets a breakpoint's conditions (creating the breakpoint when needed); false with a message in the status on failure. */
+	boolean nativeSetBreakpointOption(int line, wiki.ica.xiaomiao.mcluaide.network.LuaBreakpoints.Option option) {
+		if (!isBreakpointDocument()) { status = "断点只适用于已加载的 Lua 脚本"; return false; }
+		try {
+			breakpointStore.setOption(currentDocument.name, line, option, editor.getValue());
+			LuaBreakpointClient.changed();
+			status = "已更新断点：" + currentDocument.name + ".lua:" + line;
+			return true;
+		} catch (IllegalStateException error) { status = error.getMessage(); return false; }
+	}
+	/** Name (without extension) of the current document, as the server knows it. */
+	String nativeDocumentName() { return currentDocument == null ? "" : currentDocument.name; }
 	Set<Integer> nativeBreakpoints(){return isBreakpointDocument()?breakpointStore.lines(currentDocument.name):Set.of();}
 	int nativePausedLine(){return pausedLine();}
 	List<LuaAiAgent.Mark> nativeMarks(){if(currentDocument==null)return List.of();var marks=new ArrayList<>(ai.marks(aiPath(currentDocument),textField().value()));if(textField().value().equals(currentDocument.mcpSource))marks.addAll(currentDocument.mcpMarks);return marks;}

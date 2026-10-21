@@ -627,6 +627,19 @@ public final class ScriptManager {
 	static CompletableFuture<String> controlDebugger(String executionId, String command) {
 		return request(LuaProtocol.Action.DEBUG_CONTROL, executionId, command).thenApply(LuaProtocol.Response::data);
 	}
+	/** Evaluates expressions in a paused frame: body is {"frame":0,"exprs":[...]}. */
+	static CompletableFuture<String> evaluateDebugger(String executionId, String body) {
+		return request(LuaProtocol.Action.DEBUG_EVALUATE, executionId, body).thenApply(LuaProtocol.Response::data);
+	}
+	static CompletableFuture<String> terminalOpen(String body) {
+		return request(LuaProtocol.Action.TERMINAL_OPEN, "", body).thenApply(LuaProtocol.Response::data);
+	}
+	static CompletableFuture<String> terminalIo(String id, String body) {
+		return request(LuaProtocol.Action.TERMINAL_IO, id, body).thenApply(LuaProtocol.Response::data);
+	}
+	static CompletableFuture<String> terminalClose(String id) {
+		return request(LuaProtocol.Action.TERMINAL_CLOSE, id, "").thenApply(LuaProtocol.Response::data);
+	}
 	static CompletableFuture<String> setDebuggerGamePause(boolean enabled) {
 		return request(LuaProtocol.Action.SET_DEBUG_GAME_PAUSE, "", Boolean.toString(enabled)).thenApply(LuaProtocol.Response::data);
 	}
@@ -728,6 +741,7 @@ public final class ScriptManager {
 		LuaClientMcpService.disconnected();
 		LuaDebugHud.disconnected();
 		LuaBreakpointClient.disconnected();
+		TerminalPanel.disconnected();
 		List<ScriptExecution> executions = List.copyOf(EXECUTIONS.values());
 		EXECUTIONS.clear();
 		activeExecution = null;
