@@ -141,6 +141,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         add.accept(new String[]{"切换终端", "Toggle terminal", "Ctrl+`"}, this::toggleTerminal);
         add.accept(new String[]{"查看审计日志", "Show audit log", ""}, () -> openTool(AuditLogPanel.ID));
         add.accept(new String[]{"备份与恢复", "Backups", ""}, () -> openTool(BackupPanel.ID));
+        add.accept(new String[]{"拆分编辑器", "Split editor", ""}, () -> openTool(SplitEditorPane.ID));
+        add.accept(new String[]{"欢迎页与示例项目", "Welcome and sample project", ""}, () -> openTool(WelcomePanel.ID));
         add.accept(new String[]{"新建本地终端", "New local terminal", "Ctrl+Shift+T"}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openLocal(""); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"新建服务器终端", "New server terminal", ""}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openServer(); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"显示 / 隐藏小地图", "Toggle minimap", ""}, () -> area.setMinimapVisible(!area.minimapVisible()));
@@ -312,6 +314,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             tools.codeArea.onExtensionCommand(this::runExtension);
             crossFiles = new CrossFileActions(this, this::notice);
             tools.codeArea.crossFile(crossFiles);
+            if (!WelcomePanel.shownBefore()) tools.open(WelcomePanel.ID);
             if (ExtensionManifests.loadOnce() && (!ExtensionManifests.last().loaded().isEmpty() || !ExtensionManifests.last().problems().isEmpty())) notice(ExtensionManifests.last().summary());
         }
         if (!pendingTools.isEmpty()) {
@@ -462,6 +465,10 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     }
     private final WindowMotion motion = new WindowMotion();
     private void endWindow() { ImGui.end(); motion.end(); }
+
+    /** For tool panes that created files on the server. */
+    void refreshTreesFromTool() { refreshTrees(); }
+    void openPalette(String prefix) { palette.open(prefix); }
 
     private void refreshTrees() {
         receive(ScriptManager.listScriptTree(), entries -> trees.put(ImGuiIdeDocument.Kind.LUA, entries));
@@ -1034,7 +1041,12 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (ctrl && shifted && key == GLFW.GLFW_KEY_P) { palette.open(">"); return true; }
         if (ctrl && shifted && key == GLFW.GLFW_KEY_O) { palette.open("@"); return true; }
         if (ctrl && shifted && key == GLFW.GLFW_KEY_F) { ImGuiIdeRuntime.inContext(() -> { openTool("NATIVE_SEARCH"); tools.searchPanel().focusQuery(); }); return true; }
-        if (ctrl && key == GLFW.GLFW_KEY_S) { ImGuiIdeRuntime.inContext(() -> save(current)); return true; }
+        if (ctrl && key == GLFW.GLFW_KEY_S) {
+            // Ctrl+S saves the file of the editor that has the keyboard: the split view or the main editor.
+            var split = tools == null ? null : tools.focusedSplit();
+            var target = split != null && split.document() != null ? split.document() : current;
+            ImGuiIdeRuntime.inContext(() -> save(target)); return true;
+        }
         if (ctrl && key == GLFW.GLFW_KEY_N) { createDialog(ImGuiIdeDocument.Kind.LUA, "file", ""); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_I) { ImGuiIdeRuntime.inContext(() -> { idShortcutClose = true; openInsert(true); }); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_SPACE) { completionRequested = true; return true; }

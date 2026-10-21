@@ -9,7 +9,7 @@ public final class EditorToolsSmoke {
 	private EditorToolsSmoke() { }
 
 	public static void main(String[] args) throws Exception {
-		lexer(); brackets(); search(); symbols(); snippets(); diff(); fuzzy(); workspace();
+		lexer(); brackets(); search(); symbols(); snippets(); diff(); fuzzy(); workspace(); samples();
 		System.out.println("Editor tools smoke passed: " + checks + " checks; lexer, brackets, find/replace, symbols/rename/outline, snippets and diff");
 	}
 
@@ -156,6 +156,16 @@ public final class EditorToolsSmoke {
 		require(LuaSymbolIndex.apply(other, edits.get("other")).contains("u.fmt(2)"), "the user is updated");
 		require(LuaSymbolIndex.apply(util, edits.get("lib/util")).contains("function M.fmt(x)"), "the definition is updated");
 		require(index.renameEdits(member, "not valid") == null, "invalid names are refused");
+	}
+
+	/** The welcome page's sample project must compile, and its require name must match the module's path. */
+	private static void samples() {
+		for (var sample : WelcomePanel.SAMPLES.entrySet()) {
+			try { wiki.ica.xiaomiao.mcluaide.server.LuaSandbox.syntaxOnly().load(sample.getValue(), sample.getKey() + ".lua"); }
+			catch (org.luaj.vm2.LuaError error) { throw new AssertionError("sample " + sample.getKey() + " does not compile: " + error.getMessage()); }
+			checks++;
+		}
+		require(WelcomePanel.SAMPLES.get("examples/use_module").contains("require(\"examples.lib.greeting\")") && WelcomePanel.SAMPLES.containsKey("examples/lib/greeting"), "the module sample requires the module that exists");
 	}
 
 	private static void fuzzy() {

@@ -47,6 +47,8 @@ final class ImGuiToolWorkspace implements AutoCloseable {
         panes.put("NATIVE_OUTLINE",new Pane("NATIVE_OUTLINE",LuaUiText.text("大纲","Outline"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_OUTLINE","false"))));
         panes.put("NATIVE_SEARCH",new Pane("NATIVE_SEARCH",LuaUiText.text("在文件中查找","Search in files"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_SEARCH","false"))));
         panes.put("NATIVE_DIFF",new Pane("NATIVE_DIFF",LuaUiText.text("文件对比","Compare"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DIFF","false"))));
+        panes.put(WelcomePanel.ID,new Pane(WelcomePanel.ID,LuaUiText.text("欢迎","Welcome"),false));
+        panes.put(SplitEditorPane.ID,new Pane(SplitEditorPane.ID,LuaUiText.text("拆分编辑器","Split editor"),Boolean.parseBoolean(preferences.getProperty("tool."+SplitEditorPane.ID,"false"))));
         panes.put(BackupPanel.ID,new Pane(BackupPanel.ID,LuaUiText.text("备份与恢复","Backups"),Boolean.parseBoolean(preferences.getProperty("tool."+BackupPanel.ID,"false"))));
         panes.put(AuditLogPanel.ID,new Pane(AuditLogPanel.ID,LuaUiText.text("审计日志","Audit log"),Boolean.parseBoolean(preferences.getProperty("tool."+AuditLogPanel.ID,"false"))));
         panes.put(TerminalPanel.ID,new Pane(TerminalPanel.ID,LuaUiText.text("终端","Terminal"),Boolean.parseBoolean(preferences.getProperty("tool."+TerminalPanel.ID,"false"))));
@@ -97,7 +99,11 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     boolean isOpen(String id){var pane=panes.get(id);return pane!=null&&pane.open.get()&&!pane.closing;}
     void menu(String id){var pane=panes.get(id);if(pane==null)return;if(ImGui.menuItem(pane.title,"",isOpen(id))){if(isOpen(id))close(id);else open(id);}}
     void allMenus(){for(var pane:panes.values())menu(pane.id);}
-    void beginFrame(){codeArea.beginFrame();activePane="";}
+    void beginFrame(){codeArea.beginFrame();if(split!=null)split.beginFrame();activePane="";}
+    private SplitEditorPane split;
+    private WelcomePanel welcome;
+    /** The split view when it is open and focused, so keys and characters go to it instead of the main editor. */
+    SplitEditorPane focusedSplit(){return split!=null&&isOpen(SplitEditorPane.ID)&&split.focused()?split:null;}
     private String windowTitle(Pane pane){return pane.title+"###tool_"+pane.id;}
     void dockDefaults(int left,int right,int bottom){for(var pane:panes.values())if(!pane.id.equals("NATIVE_GAMEVIEW"))imgui.internal.ImGui.dockBuilderDockWindow(windowTitle(pane),switch(pane.id){case "FILES","DATAPACK_FILES","RESOURCE_FILES"->left;case "OUTPUT","VARIABLES","NATIVE_SEARCH","NATIVE_DIFF","NATIVE_TERMINAL","NATIVE_AUDIT"->bottom;default->right;});}
     void draw(){
@@ -115,7 +121,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
             boolean visible=ImGui.begin(windowTitle(pane),pane.open,ImGuiWindowFlags.NoCollapse|(owner.layoutLocked()&&pane.docked?ImGuiWindowFlags.NoMove:0));
             motion.observe(pane.id);
             pane.docked=ImGui.isWindowDocked();
-            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else if(pane.id.equals(BackupPanel.ID)){if(backups==null)backups=new BackupPanel(owner);backups.draw();}else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
+            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else if(pane.id.equals(WelcomePanel.ID)){if(welcome==null)welcome=new WelcomePanel(owner,preferences);welcome.draw();}else if(pane.id.equals(SplitEditorPane.ID)){if(split==null){split=new SplitEditorPane(owner);split.area().onExtensionCommand(owner::runExtension);}split.draw(owner.openDocuments(),owner.currentDocument());}else if(pane.id.equals(BackupPanel.ID)){if(backups==null)backups=new BackupPanel(owner);backups.draw();}else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
             ImGui.end();motion.end();
             // The title-bar X only clears the flag; keep drawing while the window fades out, then release it above.
             if(!pane.open.get()){pane.open.set(true);pane.closing=true;}
@@ -155,6 +161,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     }
     boolean character(CharacterEvent event){
         var legacy=legacyWindow();if(legacy!=null&&legacy.charTyped(event))return true;
+        var splitView=focusedSplit();if(splitView!=null)return splitView.character(event);
         if(bound==null||bound.binary()||!codeArea.focused())return false;
         // Auto-closing brackets, multiple carets and wrapping a selection are handled before the character reaches the model.
         if(codeArea.preCharacter(event.codepoint())){pull();return true;}
@@ -164,6 +171,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
         var legacy=legacyWindow();
         if(legacy!=null){if(release)return legacy.keyReleased(event);if(legacy.keyPressed(event))return true;}
         if(release)return false;
+        var splitView=focusedSplit();if(splitView!=null)return splitView.key(event);
         if(nativePanels.key(event))return true;
         boolean contextual=event.hasControlDown()&&event.key()==GLFW.GLFW_KEY_I||event.key()>=GLFW.GLFW_KEY_F1&&event.key()<=GLFW.GLFW_KEY_F12&&(event.modifiers()&7)!=0;
         if(!contextual){boolean handled=codeArea.key(event);pull();syncOpen();return handled;}
@@ -197,6 +205,6 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     int frames(String id){return panes.get(id).frames;}
     void focusCode(){if(bound!=null&&!bound.binary())codeArea.focus();}
     void focus(String id){focusNext=id;}
-    @Override public void close(){pull();controller.nativeDispose();NativeUi.clear();}
+    @Override public void close(){pull();controller.nativeDispose();if(split!=null)split.close();NativeUi.clear();}
     private static final class Pane{final String id,title;final ImBoolean open;int frames;boolean docked,closing;Pane(String id,String title,boolean open){this.id=id;this.title=title;this.open=new ImBoolean(open);}}
 }

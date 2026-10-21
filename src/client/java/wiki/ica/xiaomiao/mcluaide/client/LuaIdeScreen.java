@@ -8632,7 +8632,11 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			datapackOverlay.setCurrentScript(document.kind == ImGuiIdeDocument.Kind.DATAPACK ? document.path : "");
 			if (document.kind == ImGuiIdeDocument.Kind.RESOURCEPACK) resourceJsonOverlay.setJsonSource(document.source);
 		} else if (!textField().value().equals(document.source)) {
+			// The text changed elsewhere (another view of the same file, MCP): keep this view's caret where it was.
+			int cursor = nativeCursor(), anchor = nativeAnchor();
 			editor.setValue(document.source); currentDocument.source = document.source;
+			int length = document.source.length();
+			nativeSelect(Math.min(anchor, length), Math.min(cursor, length));
 		}
 		currentDocument.savedSource = document.saved;
 		lastSavedSource = document.saved;
