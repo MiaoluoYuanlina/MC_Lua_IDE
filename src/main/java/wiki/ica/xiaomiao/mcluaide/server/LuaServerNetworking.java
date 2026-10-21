@@ -73,6 +73,7 @@ public final class LuaServerNetworking {
 			ServerScriptManager.stopOwnedBy(handler.getPlayer().getUUID());
 			GitHubWorkspaceService.disconnected(handler.getPlayer().getUUID());
 			ServerTerminalService.closeAll(handler.getPlayer().getUUID());
+			LuaEditPresence.disconnected(handler.getPlayer().getUUID());
 			LuaServerPackService.disconnected(server, handler.getPlayer().getUUID());
 		});
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> LuaServerPackService.joined(server, handler.getPlayer()));
@@ -100,6 +101,7 @@ public final class LuaServerNetworking {
 
 	static void notifyMcpFileChanged(MinecraftServer server, String name, String before, String source) {
 		if (before.equals(source)) return;
+		LuaEditPresence.saved(name, "MCP");
 		var message = new wiki.ica.xiaomiao.mcluaide.network.LuaMcpFileChanged(name,
 				wiki.ica.xiaomiao.mcluaide.network.LuaTextChanges.hash(before), source,
 				wiki.ica.xiaomiao.mcluaide.network.LuaTextChanges.between(before, source));
@@ -107,6 +109,25 @@ public final class LuaServerNetworking {
 			if (isAdministrator(server, player) && ServerPlayNetworking.canSend(player, message.type()))
 				ServerPlayNetworking.send(player, message);
 		}
+	}
+
+	/** Requests that change files, run code or change server settings: written to the audit log (see LuaAuditLog). */
+	private static final java.util.Set<LuaProtocol.Action> AUDITED = java.util.EnumSet.of(
+			LuaProtocol.Action.SAVE, LuaProtocol.Action.SAVE_CHECKED, LuaProtocol.Action.DELETE, LuaProtocol.Action.CREATE_DIRECTORY,
+			LuaProtocol.Action.DELETE_DIRECTORY, LuaProtocol.Action.CREATE_DATAPACK, LuaProtocol.Action.SAVE_DATAPACK_FILE,
+			LuaProtocol.Action.CREATE_DATAPACK_FILE, LuaProtocol.Action.DELETE_DATAPACK_PATH, LuaProtocol.Action.CREATE_DATAPACK_DIRECTORY,
+			LuaProtocol.Action.RENAME_DATAPACK_PATH, LuaProtocol.Action.RUN, LuaProtocol.Action.RUN_NORMAL, LuaProtocol.Action.RUN_FUNCTION,
+			LuaProtocol.Action.STOP, LuaProtocol.Action.SAVE_LIMITS, LuaProtocol.Action.SAVE_GIT_CONFIG, LuaProtocol.Action.GIT_PUSH,
+			LuaProtocol.Action.GIT_COMMIT, LuaProtocol.Action.GIT_RESTORE, LuaProtocol.Action.SET_SERVER_PACK, LuaProtocol.Action.SET_MCP_SERVER,
+			LuaProtocol.Action.RELOAD_DATAPACKS, LuaProtocol.Action.DEBUG_CONTROL, LuaProtocol.Action.SET_DEBUG_GAME_PAUSE,
+			LuaProtocol.Action.TERMINAL_OPEN, LuaProtocol.Action.TERMINAL_CLOSE);
+
+	private static String auditTarget(LuaProtocol.Action action, LuaProtocol.Request request) {
+		String target = request.name() == null ? "" : request.name();
+		boolean bodyMatters = action == LuaProtocol.Action.RENAME_DATAPACK_PATH || action == LuaProtocol.Action.DEBUG_CONTROL
+				|| action == LuaProtocol.Action.SET_DEBUG_GAME_PAUSE;
+		if (bodyMatters && request.body() != null && request.body().length() <= 200) target += (target.isEmpty() ? "" : " → ") + request.body();
+		return target;
 	}
 
 	private static void handle(LuaProtocol.Request request, MinecraftServer server, ServerPlayer player) {
@@ -131,9 +152,10 @@ public final class LuaServerNetworking {
 			return;
 		}
 
+		if (AUDITED.contains(action)) LuaAuditLog.record(player.getName().getString(), player.getUUID(), action.name(), auditTarget(action, request), "requested");
 		try {
 			if (GitWorkspaceService.restoring() && switch (action) {
-				case SAVE, DELETE, CREATE_DIRECTORY, DELETE_DIRECTORY, CREATE_DATAPACK,
+				case SAVE, SAVE_CHECKED, DELETE, CREATE_DIRECTORY, DELETE_DIRECTORY, CREATE_DATAPACK,
 						SAVE_DATAPACK_FILE, CREATE_DATAPACK_FILE, DELETE_DATAPACK_PATH,
 						CREATE_DATAPACK_DIRECTORY, RENAME_DATAPACK_PATH, RUN, RUN_NORMAL,
 						RUN_FUNCTION, RELOAD_DATAPACKS -> true;
@@ -176,9 +198,16 @@ public final class LuaServerNetworking {
 						throw new IllegalStateException("脚本与目录总数超过 " + MAX_LISTED_SCRIPTS + " 项");
 					sendSuccess(player, request, String.join("\n", entries));
 				}
+				case GET_AUDIT_LOG -> sendSuccess(player, request, LuaAuditLog.recent(300));
+				case FILE_PRESENCE -> sendSuccess(player, request, LuaEditPresence.report(player.getUUID(), player.getName().getString(), request.body()));
+				case SAVE_CHECKED -> {
+					LuaEditPresence.saveChecked(request.name(), player.getName().getString(), request.body());
+					sendSuccess(player, request, "saved");
+				}
 				case READ -> sendSuccess(player, request, ServerScriptManager.read(request.name()));
 				case SAVE -> {
 					ServerScriptManager.save(request.name(), request.body());
+					LuaEditPresence.saved(request.name(), player.getName().getString());
 					sendSuccess(player, request, "saved");
 				}
 				case DELETE -> sendSuccess(player, request,
@@ -323,6 +352,7 @@ public final class LuaServerNetworking {
 					LuaProtocol.Action.RENAME_DATAPACK_PATH, LuaProtocol.Action.RUN_FUNCTION).contains(action)) notifyCatalogChanged(server);
 		} catch (Throwable error) {
 			String message = safeMessage(error);
+			if (AUDITED.contains(action)) LuaAuditLog.record(player.getName().getString(), player.getUUID(), action.name(), auditTarget(action, request), "failed: " + message);
 			McLuaIdeMod.LOGGER.warn("Lua IDE {} request from {} failed: {}",
 					action, player.getName().getString(), message);
 			send(player, new LuaProtocol.Response(request.requestId(), action, false, message));
@@ -360,7 +390,11 @@ public final class LuaServerNetworking {
 				if (request.actionId() == LuaProtocol.Action.GIT_RESTORE.id()) notifyCatalogChanged(server);
 				sendSuccess(player, request, result);
 			}
-			else send(player, new LuaProtocol.Response(request.requestId(), request.actionId(), false, safeMessage(error)));
+			else {
+				LuaProtocol.Action failed = LuaProtocol.Action.byId(request.actionId());
+				if (AUDITED.contains(failed)) LuaAuditLog.record(player.getName().getString(), player.getUUID(), failed.name(), auditTarget(failed, request), "failed: " + safeMessage(error));
+				send(player, new LuaProtocol.Response(request.requestId(), request.actionId(), false, safeMessage(error)));
+			}
 		}));
 	}
 

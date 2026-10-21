@@ -50,7 +50,7 @@ public final class LuaProtocol {
 	public static int requestTextLimit(int actionId) {
 		if (actionId < 0 || actionId >= Action.values().length) return MAX_CONTROL_CHARS;
 		return switch (Action.byId(actionId)) {
-			case SAVE, RUN, RUN_NORMAL, RUN_FUNCTION, SAVE_DATAPACK_FILE, CREATE_DATAPACK_FILE, MCP_TOOL -> MAX_SCRIPT_CHARS;
+			case SAVE, RUN, RUN_NORMAL, RUN_FUNCTION, SAVE_DATAPACK_FILE, CREATE_DATAPACK_FILE, MCP_TOOL, SAVE_CHECKED -> MAX_SCRIPT_CHARS;
 			default -> MAX_CONTROL_CHARS;
 		};
 	}
@@ -134,7 +134,13 @@ public final class LuaProtocol {
 		/** Server terminal (off unless the server's terminal.properties enables it). Appended: wire numbers are positions. */
 		TERMINAL_OPEN,
 		TERMINAL_IO,
-		TERMINAL_CLOSE;
+		TERMINAL_CLOSE,
+		/** Newest entries of the server audit log. */
+		GET_AUDIT_LOG,
+		/** Which files other administrators have open (and unsaved); the body lists this client's own open files. */
+		FILE_PRESENCE,
+		/** Save that fails when the file changed since the version the editor started from (body: base hash and source). */
+		SAVE_CHECKED;
 
 		/**
 		 * The number sent on the wire. It is the declaration position, so NEVER reorder or insert constants in the middle:

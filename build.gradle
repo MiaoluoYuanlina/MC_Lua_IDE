@@ -372,6 +372,14 @@ tasks.register("serverTerminalSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.server.ServerTerminalSmoke"
 }
 check.dependsOn serverTerminalSmoke
+tasks.register("collaborationSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks the audit log and multi-administrator editing (presence, conflict-checked saves)."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.CollaborationSmoke"
+}
+check.dependsOn collaborationSmoke
 tasks.register("protocolStabilitySmoke", JavaExec) {
 	dependsOn testClasses
 	group = "verification"

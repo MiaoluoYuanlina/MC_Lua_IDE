@@ -373,10 +373,15 @@ public final class ScriptManager {
 		return request(LuaProtocol.Action.RENAME_DATAPACK_PATH, oldPath, newPath).thenApply(ignored -> null);
 	}
 
+	/** Reads a script without treating the result as the version being edited (for comparing after a save conflict). */
+	static CompletableFuture<String> peek(String name) {
+		return request(LuaProtocol.Action.READ, requireName(name), "").thenApply(LuaProtocol.Response::data);
+	}
+
 	public static CompletableFuture<String> read(String name) {
 		long requestedAt = LuaMcpFileSync.revision();
 		return request(LuaProtocol.Action.READ, requireName(name), "").thenApply(response -> {
-			LuaMcpFileSync.observedRead(name, response.data(), requestedAt); return response.data();
+			LuaMcpFileSync.observedRead(name, response.data(), requestedAt); rememberBase(name, response.data()); return response.data();
 		});
 	}
 	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> mcpServerStatus() {
@@ -394,10 +399,33 @@ public final class ScriptManager {
 				.thenApply(response -> com.google.gson.JsonParser.parseString(response.data()).getAsJsonObject());
 	}
 
+	/**
+	 * Saves a script. When the version this client last read or saved is known, the save is checked: the server refuses it (with a
+	 * message starting with {@link #CONFLICT}) if someone else changed the file meanwhile. Use {@link #overwrite} to save anyway.
+	 */
 	public static CompletableFuture<Void> save(String name, String source) {
 		requireSource(source);
-		return request(LuaProtocol.Action.SAVE, requireName(name), source).thenApply(ignored -> { LuaMcpFileSync.saved(name); return null; });
+		String base = BASES.get(name);
+		if (base == null) return overwrite(name, source);
+		com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+		body.addProperty("base", base); body.addProperty("source", source);
+		return request(LuaProtocol.Action.SAVE_CHECKED, requireName(name), body.toString())
+				.thenApply(ignored -> { LuaMcpFileSync.saved(name); rememberBase(name, source); return null; });
 	}
+
+	/** Saves without checking for changes by others. */
+	public static CompletableFuture<Void> overwrite(String name, String source) {
+		requireSource(source);
+		return request(LuaProtocol.Action.SAVE, requireName(name), source).thenApply(ignored -> { LuaMcpFileSync.saved(name); rememberBase(name, source); return null; });
+	}
+
+	/** The start of the error message of a save refused because the file changed on the server. */
+	static final String CONFLICT = "CONFLICT:";
+	private static final Map<String, String> BASES = new java.util.concurrent.ConcurrentHashMap<>();
+	/** The version of a script this client has (after reading it, saving it or accepting someone else's change). */
+	static void rememberBase(String name, String source) { if (name != null && source != null) BASES.put(name, wiki.ica.xiaomiao.mcluaide.network.LuaBreakpoints.hash(source)); }
+	static boolean isConflict(Throwable error) { String text = message(error); return text != null && text.startsWith(CONFLICT); }
+	static String conflictText(Throwable error) { String text = message(error); return text.startsWith(CONFLICT) ? text.substring(CONFLICT.length()) : text; }
 
 	public static CompletableFuture<Boolean> delete(String name) {
 		return request(LuaProtocol.Action.DELETE, requireName(name), "")
@@ -631,6 +659,13 @@ public final class ScriptManager {
 	static CompletableFuture<String> evaluateDebugger(String executionId, String body) {
 		return request(LuaProtocol.Action.DEBUG_EVALUATE, executionId, body).thenApply(LuaProtocol.Response::data);
 	}
+	static CompletableFuture<String> auditLog() {
+		return request(LuaProtocol.Action.GET_AUDIT_LOG, "", "").thenApply(LuaProtocol.Response::data);
+	}
+	/** Reports this IDE's open files; the reply lists other administrators' open files. */
+	static CompletableFuture<String> filePresence(String body) {
+		return request(LuaProtocol.Action.FILE_PRESENCE, "", body).thenApply(LuaProtocol.Response::data);
+	}
 	static CompletableFuture<String> terminalOpen(String body) {
 		return request(LuaProtocol.Action.TERMINAL_OPEN, "", body).thenApply(LuaProtocol.Response::data);
 	}
@@ -742,6 +777,8 @@ public final class ScriptManager {
 		LuaDebugHud.disconnected();
 		LuaBreakpointClient.disconnected();
 		TerminalPanel.disconnected();
+		BASES.clear();
+		EditPresenceClient.disconnected();
 		List<ScriptExecution> executions = List.copyOf(EXECUTIONS.values());
 		EXECUTIONS.clear();
 		activeExecution = null;

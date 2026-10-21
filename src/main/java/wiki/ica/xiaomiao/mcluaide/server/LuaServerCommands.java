@@ -48,6 +48,7 @@ public final class LuaServerCommands {
 				.then(Commands.literal("list").executes(command -> list(command.getSource())))
 				.then(Commands.literal("stop").executes(command -> {
 					boolean stopped = ServerScriptManager.stopActive();
+					LuaAuditLog.record(command.getSource().getTextName(), auditId(command.getSource()), "COMMAND_STOP", "", stopped ? "ok" : "nothing running");
 					if (!stopped) throw failure("当前没有正在运行的脚本");
 					command.getSource().sendSuccess(() -> Component.literal("正在停止 Lua 脚本…"), false);
 					return 1;
@@ -93,12 +94,19 @@ public final class LuaServerCommands {
 					});
 			source.sendSuccess(() -> Component.literal("正在" + (debug ? "调试" : "运行") + "脚本 " + name + "…"), false);
 			McLuaIdeMod.LOGGER.info("Lua command source {} started {}.lua (debug={})", source.getTextName(), name, debug);
+			LuaAuditLog.record(source.getTextName(), auditId(source), debug ? "COMMAND_TESTRUN" : "COMMAND_RUN", name, "ok");
 			return 1;
 		} catch (Exception error) {
 			// A normal return of zero still counts as a successful command block execution.
 			// Throw so vanilla's result callback reports failure to conditional chains too.
+			LuaAuditLog.record(source.getTextName(), auditId(source), debug ? "COMMAND_TESTRUN" : "COMMAND_RUN", name, "failed: " + message(error));
 			throw failure("启动失败：" + message(error));
 		}
+	}
+
+	private static UUID auditId(CommandSourceStack source) {
+		CommandSource original = ((CommandSourceStackAccessor) (Object) source).mcLuaIde$getSource();
+		return original instanceof ServerPlayer player ? player.getUUID() : null;
 	}
 
 	private static int list(CommandSourceStack source) throws CommandSyntaxException {

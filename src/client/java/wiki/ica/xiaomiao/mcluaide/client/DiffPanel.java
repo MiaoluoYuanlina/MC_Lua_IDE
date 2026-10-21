@@ -24,6 +24,10 @@ final class DiffPanel {
 
 	DiffPanel(EditorHost host) { this.host = host; }
 
+	private String externalLabel = "", externalText;
+	/** Compares the current file with a text that is not an open document (for example the server's version after a save conflict). */
+	void compareWith(String label, String text) { externalLabel = label; externalText = text; target = -1; cacheKey = ""; }
+
 	private List<ImGuiIdeDocument> others(ImGuiIdeDocument current) {
 		List<ImGuiIdeDocument> list = new ArrayList<>();
 		for (var doc : host.openDocuments()) if (doc != current && !doc.binary()) list.add(doc);
@@ -34,16 +38,17 @@ final class DiffPanel {
 		var doc = host.currentDocument();
 		if (doc == null || doc.binary()) { ImGui.textWrapped(LuaUiText.text("打开一个文本文件后可以与保存版本或其他文件对比。", "Open a text file to compare it with its saved version or another file.")); return; }
 		var others = others(doc);
-		if (target > others.size()) target = 0;
-		String leftName = target == 0 ? LuaUiText.text("已保存版本", "Saved version") : others.get(target - 1).filename();
+		if (target > others.size() || target == -1 && externalText == null) target = 0;
+		String leftName = target == -1 ? externalLabel : target == 0 ? LuaUiText.text("已保存版本", "Saved version") : others.get(target - 1).filename();
 		ImGui.setNextItemWidth(Math.min(300, ImGui.getContentRegionAvailX() * .5f));
 		if (ImGui.beginCombo("##diff_target", LuaUiText.text("对比：", "Compare with: ") + leftName)) {
 			if (ImGui.selectable(LuaUiText.text("已保存版本", "Saved version"), target == 0)) target = 0;
+			if (externalText != null && ImGui.selectable(externalLabel + "##external", target == -1)) target = -1;
 			for (int i = 0; i < others.size(); i++) if (ImGui.selectable(others.get(i).filename() + "##other" + i, target == i + 1)) target = i + 1;
 			ImGui.endCombo();
 		}
-		String left = target == 0 ? doc.saved : others.get(target - 1).source, right = doc.source;
-		String key = doc.key() + ":" + doc.revision + ":" + target + ":" + (target == 0 ? doc.saved.hashCode() : left.hashCode());
+		String left = target == -1 ? externalText : target == 0 ? doc.saved : others.get(target - 1).source, right = doc.source;
+		String key = doc.key() + ":" + doc.revision + ":" + target + ":" + (target == 0 ? doc.saved.hashCode() : left.hashCode()) + ":" + (target == -1 ? externalLabel : "");
 		if (!key.equals(cacheKey)) {
 			cacheKey = key;
 			var diff = TextDiff.diff(left, right);

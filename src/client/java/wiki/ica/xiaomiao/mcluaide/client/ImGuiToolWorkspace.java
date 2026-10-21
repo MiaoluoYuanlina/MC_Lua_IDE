@@ -27,7 +27,9 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     private final SearchPanel search;
     private final DiffPanel diff;
     final TerminalPanel terminal;
+    private final AuditLogPanel audit = new AuditLogPanel();
     SearchPanel searchPanel(){return search;}
+    DiffPanel diffPanel(){return diff;}
     /** Whether the focused pane is the terminal: it then owns the keyboard, apart from the few global shortcuts the screen handles first. */
     boolean terminalCaptures(){return activePane.equals(TerminalPanel.ID)&&isOpen(TerminalPanel.ID)&&terminal.captures();}
     String title(String id){var pane=panes.get(id);return pane==null?id:pane.title;}
@@ -44,6 +46,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
         panes.put("NATIVE_OUTLINE",new Pane("NATIVE_OUTLINE",LuaUiText.text("大纲","Outline"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_OUTLINE","false"))));
         panes.put("NATIVE_SEARCH",new Pane("NATIVE_SEARCH",LuaUiText.text("在文件中查找","Search in files"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_SEARCH","false"))));
         panes.put("NATIVE_DIFF",new Pane("NATIVE_DIFF",LuaUiText.text("文件对比","Compare"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DIFF","false"))));
+        panes.put(AuditLogPanel.ID,new Pane(AuditLogPanel.ID,LuaUiText.text("审计日志","Audit log"),Boolean.parseBoolean(preferences.getProperty("tool."+AuditLogPanel.ID,"false"))));
         panes.put(TerminalPanel.ID,new Pane(TerminalPanel.ID,LuaUiText.text("终端","Terminal"),Boolean.parseBoolean(preferences.getProperty("tool."+TerminalPanel.ID,"false"))));
         panes.put("NATIVE_DEBUG",new Pane("NATIVE_DEBUG",LuaUiText.text("调试设置 · F12"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DEBUG","false"))));
         if(!preferences.containsKey("tool.initialized"))for(String id:List.of("FILES","API_DOCS","MANUAL"))panes.get(id).open.set(true);
@@ -94,7 +97,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     void allMenus(){for(var pane:panes.values())menu(pane.id);}
     void beginFrame(){codeArea.beginFrame();activePane="";}
     private String windowTitle(Pane pane){return pane.title+"###tool_"+pane.id;}
-    void dockDefaults(int left,int right,int bottom){for(var pane:panes.values())if(!pane.id.equals("NATIVE_GAMEVIEW"))imgui.internal.ImGui.dockBuilderDockWindow(windowTitle(pane),switch(pane.id){case "FILES","DATAPACK_FILES","RESOURCE_FILES"->left;case "OUTPUT","VARIABLES","NATIVE_SEARCH","NATIVE_DIFF","NATIVE_TERMINAL"->bottom;default->right;});}
+    void dockDefaults(int left,int right,int bottom){for(var pane:panes.values())if(!pane.id.equals("NATIVE_GAMEVIEW"))imgui.internal.ImGui.dockBuilderDockWindow(windowTitle(pane),switch(pane.id){case "FILES","DATAPACK_FILES","RESOURCE_FILES"->left;case "OUTPUT","VARIABLES","NATIVE_SEARCH","NATIVE_DIFF","NATIVE_TERMINAL","NATIVE_AUDIT"->bottom;default->right;});}
     void draw(){
         for(var pane:List.copyOf(panes.values())){
             if(!pane.open.get()){motion.reset(pane.id);pane.closing=false;continue;}
@@ -110,7 +113,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
             boolean visible=ImGui.begin(windowTitle(pane),pane.open,ImGuiWindowFlags.NoCollapse|(owner.layoutLocked()&&pane.docked?ImGuiWindowFlags.NoMove:0));
             motion.observe(pane.id);
             pane.docked=ImGui.isWindowDocked();
-            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
+            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
             ImGui.end();motion.end();
             // The title-bar X only clears the flag; keep drawing while the window fades out, then release it above.
             if(!pane.open.get()){pane.open.set(true);pane.closing=true;}
@@ -184,7 +187,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     CompletableFuture<Void> save(ImGuiIdeDocument document){
         if(document.saving&&document.saveTask!=null)return document.saveTask;
         bind(document);String snapshot=document.source;document.saving=true;var task=controller.nativeSave();document.saveTask=task;
-        task.whenComplete((v,e)->Minecraft.getInstance().execute(()->{document.saving=false;if(e==null)document.saved=snapshot;}));return task;
+        task.whenComplete((v,e)->Minecraft.getInstance().execute(()->{document.saving=false;if(e==null)document.saved=snapshot;else if(ScriptManager.isConflict(e))owner.saveConflict(document,ScriptManager.conflictText(e));}));return task;
     }
     void forget(ImGuiIdeDocument document,boolean discard){controller.nativeForget(document,discard);document.backend=null;if(bound==document){bound=null;lastSource="";}}
     void persist(){preferences.setProperty("tool.initialized","true");for(var pane:panes.values())preferences.setProperty("tool."+pane.id,Boolean.toString(pane.open.get()&&!pane.closing));}

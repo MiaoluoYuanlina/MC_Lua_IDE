@@ -139,6 +139,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         add.accept(new String[]{"对比文件…", "Compare files…", ""}, () -> openTool("NATIVE_DIFF"));
         add.accept(new String[]{"显示大纲", "Show outline", ""}, () -> openTool("NATIVE_OUTLINE"));
         add.accept(new String[]{"切换终端", "Toggle terminal", "Ctrl+`"}, this::toggleTerminal);
+        add.accept(new String[]{"查看审计日志", "Show audit log", ""}, () -> openTool(AuditLogPanel.ID));
         add.accept(new String[]{"新建本地终端", "New local terminal", "Ctrl+Shift+T"}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openLocal(""); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"新建服务器终端", "New server terminal", ""}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openServer(); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"显示 / 隐藏小地图", "Toggle minimap", ""}, () -> area.setMinimapVisible(!area.minimapVisible()));
@@ -331,6 +332,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (closeRequested) ImGui.openPopup("close_confirmation");
         closeRequested = false;
         closeDialog();
+        conflictDialog();
         motion.drawGhosts();
         ImGui.popFont();
     }
@@ -532,10 +534,11 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
                         current = doc; if (selectTab == doc) selectTab = null;
                         if (doc.pendingMcp != null) {
                             ImGui.textWrapped(tr("MCP 已修改此文件，本地也有未保存的改动。", "MCP changed this file; local edits are unsaved."));
-                            if (ImGui.smallButton(tr("采用 MCP 版本", "Use MCP version"))) { doc.external(doc.pendingMcp); doc.saved = doc.pendingMcp; doc.pendingMcp = null; }
+                            if (ImGui.smallButton(tr("采用 MCP 版本", "Use MCP version"))) { doc.external(doc.pendingMcp); doc.saved = doc.pendingMcp; if (doc.kind == ImGuiIdeDocument.Kind.LUA) ScriptManager.rememberBase(doc.path, doc.pendingMcp); doc.pendingMcp = null; }
                             ImGui.sameLine(); if (ImGui.smallButton(tr("保留本地", "Keep local"))) doc.pendingMcp = null;
                         }
                         ImGui.textDisabled(doc.path + (doc.saving ? " · " + tr("保存中…", "Saving…") : ""));
+                        EditPresenceClient.banner(doc);
                         ImGuiIdeRuntime.pushEditorFont(fontSize[0]*uiScale()*tools.controller.nativePersonalization().fontPercent/100f);
                         // Switching tabs slides the code in from the side the new tab sits on.
                         if (doc != slideDoc) {
@@ -867,6 +870,40 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (dirty) closeRequested = true;
         else ImGuiIdeRuntime.defer(() -> { if (doc == null) leave(classic); else removeDocument(doc); });
     }
+    private ImGuiIdeDocument conflictDoc;
+    private String conflictText = "";
+    private boolean conflictRequested;
+
+    /** A save was refused because someone else changed the file since this editor loaded it. */
+    void saveConflict(ImGuiIdeDocument doc, String text) { conflictDoc = doc; conflictText = text; conflictRequested = true; }
+
+    private void conflictDialog() {
+        if (conflictRequested) { ImGui.openPopup(tr("保存冲突", "Save conflict") + "###save_conflict"); conflictRequested = false; }
+        if (!modal(tr("保存冲突", "Save conflict") + "###save_conflict")) return;
+        var doc = conflictDoc;
+        ImGui.textWrapped(conflictText);
+        ImGui.textDisabled(doc == null ? "" : doc.path);
+        ImGui.spacing();
+        if (doc != null && ImGui.button(tr("对比服务器版本", "Compare with the server version"))) {
+            receive(ScriptManager.peek(doc.path), text -> { selectTab = doc; openTool("NATIVE_DIFF"); tools.diffPanel().compareWith(tr("服务器上的版本", "Server version"), text); });
+            ImGui.closeCurrentPopup();
+        }
+        ImGui.sameLine();
+        if (doc != null && ImGui.button(tr("覆盖服务器版本", "Overwrite the server version"))) {
+            doc.capture(); String snapshot = doc.source;
+            receive(ScriptManager.overwrite(doc.path, snapshot), ignored -> { doc.saved = snapshot; notice = tr("已覆盖保存：", "Overwritten: ") + doc.filename(); });
+            ImGui.closeCurrentPopup();
+        }
+        ImGui.sameLine();
+        if (doc != null && ImGui.button(tr("放弃我的改动并加载服务器版本", "Discard mine and load the server version"))) {
+            receive(ScriptManager.read(doc.path), text -> { doc.external(text); doc.saved = text; });
+            ImGui.closeCurrentPopup();
+        }
+        ImGui.sameLine();
+        if (ImGui.button(tr("取消", "Cancel"))) ImGui.closeCurrentPopup();
+        endModal();
+    }
+
     private void closeDialog() {
         if (!modal("close_confirmation")) return;
         ImGui.textWrapped(tr("有未保存的文件，是否保存？", "There are unsaved files. Save changes?"));
@@ -933,13 +970,14 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     }
     @Override public void tick() {
         if (!validConnection()) return;
+        EditPresenceClient.tick(documents.values());
         if (tools != null) { tools.tick(); return; }
         for (var doc : documents.values()) if (doc.lua()) {
             var update = LuaMcpFileSync.latest(doc.path);
             if (update != null && update.revision() > doc.mcpRevision) {
                 doc.mcpRevision = update.revision();
                 if (doc.dirty() && !doc.source.equals(update.change().source())) doc.pendingMcp = update.change().source();
-                else { doc.external(update.change().source()); doc.saved = doc.source; }
+                else { doc.external(update.change().source()); doc.saved = doc.source; if (doc.kind == ImGuiIdeDocument.Kind.LUA) ScriptManager.rememberBase(doc.path, doc.source); }
             }
         }
         long now = System.nanoTime();
