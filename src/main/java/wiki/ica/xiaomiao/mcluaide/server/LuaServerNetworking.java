@@ -85,6 +85,8 @@ public final class LuaServerNetworking {
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> GitHubWorkspaceService.stopped());
 		ServerLifecycleEvents.SERVER_STOPPING.register(ServerScriptManager::shutdownDebugger);
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> ServerTerminalService.shutdown());
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> LuaWorkspaceSnapshots.start());
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> LuaWorkspaceSnapshots.stop());
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resources, success) -> {
 			if (success) LuaLanguageAssets.invalidate();
 			if (success) notifyCatalogChanged(server);
@@ -120,7 +122,8 @@ public final class LuaServerNetworking {
 			LuaProtocol.Action.STOP, LuaProtocol.Action.SAVE_LIMITS, LuaProtocol.Action.SAVE_GIT_CONFIG, LuaProtocol.Action.GIT_PUSH,
 			LuaProtocol.Action.GIT_COMMIT, LuaProtocol.Action.GIT_RESTORE, LuaProtocol.Action.SET_SERVER_PACK, LuaProtocol.Action.SET_MCP_SERVER,
 			LuaProtocol.Action.RELOAD_DATAPACKS, LuaProtocol.Action.DEBUG_CONTROL, LuaProtocol.Action.SET_DEBUG_GAME_PAUSE,
-			LuaProtocol.Action.TERMINAL_OPEN, LuaProtocol.Action.TERMINAL_CLOSE);
+			LuaProtocol.Action.TERMINAL_OPEN, LuaProtocol.Action.TERMINAL_CLOSE, LuaProtocol.Action.CREATE_SNAPSHOT,
+			LuaProtocol.Action.RESTORE_SNAPSHOT);
 
 	private static String auditTarget(LuaProtocol.Action action, LuaProtocol.Request request) {
 		String target = request.name() == null ? "" : request.name();
@@ -155,7 +158,7 @@ public final class LuaServerNetworking {
 		if (AUDITED.contains(action)) LuaAuditLog.record(player.getName().getString(), player.getUUID(), action.name(), auditTarget(action, request), "requested");
 		try {
 			if (GitWorkspaceService.restoring() && switch (action) {
-				case SAVE, SAVE_CHECKED, DELETE, CREATE_DIRECTORY, DELETE_DIRECTORY, CREATE_DATAPACK,
+				case SAVE, SAVE_CHECKED, RESTORE_SNAPSHOT, DELETE, CREATE_DIRECTORY, DELETE_DIRECTORY, CREATE_DATAPACK,
 						SAVE_DATAPACK_FILE, CREATE_DATAPACK_FILE, DELETE_DATAPACK_PATH,
 						CREATE_DATAPACK_DIRECTORY, RENAME_DATAPACK_PATH, RUN, RUN_NORMAL,
 						RUN_FUNCTION, RELOAD_DATAPACKS -> true;
@@ -198,6 +201,13 @@ public final class LuaServerNetworking {
 						throw new IllegalStateException("脚本与目录总数超过 " + MAX_LISTED_SCRIPTS + " 项");
 					sendSuccess(player, request, String.join("\n", entries));
 				}
+				case LIST_SNAPSHOTS -> sendSuccess(player, request, LuaWorkspaceSnapshots.list());
+				case CREATE_SNAPSHOT -> completeAsync(server, player, request, java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+					try { return LuaWorkspaceSnapshots.create("manual", true); } catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
+				}));
+				case RESTORE_SNAPSHOT -> completeAsync(server, player, request, java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+					try { return LuaWorkspaceSnapshots.restore(request.name()); } catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
+				}).thenCompose(result -> server.submit(() -> { notifyCatalogChanged(server); return result; })));
 				case GET_AUDIT_LOG -> sendSuccess(player, request, LuaAuditLog.recent(300));
 				case FILE_PRESENCE -> sendSuccess(player, request, LuaEditPresence.report(player.getUUID(), player.getName().getString(), request.body()));
 				case SAVE_CHECKED -> {

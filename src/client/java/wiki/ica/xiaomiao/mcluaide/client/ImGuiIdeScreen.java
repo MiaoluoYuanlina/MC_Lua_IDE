@@ -140,6 +140,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         add.accept(new String[]{"显示大纲", "Show outline", ""}, () -> openTool("NATIVE_OUTLINE"));
         add.accept(new String[]{"切换终端", "Toggle terminal", "Ctrl+`"}, this::toggleTerminal);
         add.accept(new String[]{"查看审计日志", "Show audit log", ""}, () -> openTool(AuditLogPanel.ID));
+        add.accept(new String[]{"备份与恢复", "Backups", ""}, () -> openTool(BackupPanel.ID));
         add.accept(new String[]{"新建本地终端", "New local terminal", "Ctrl+Shift+T"}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openLocal(""); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"新建服务器终端", "New server terminal", ""}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openServer(); } catch (RuntimeException error) { notice(error.getMessage()); } });
         add.accept(new String[]{"显示 / 隐藏小地图", "Toggle minimap", ""}, () -> area.setMinimapVisible(!area.minimapVisible()));

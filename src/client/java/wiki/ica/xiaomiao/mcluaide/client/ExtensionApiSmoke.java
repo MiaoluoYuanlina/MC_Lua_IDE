@@ -13,7 +13,7 @@ public final class ExtensionApiSmoke {
 	private static int checks;
 
 	public static void main(String[] args) throws Exception {
-		javaApi(); manifests(); documentedExample();
+		javaApi(); manifests(); documentedExample(); settingsBackup();
 		System.out.println("Extension API smoke passed: " + checks + " checks; commands, snippets, completion providers, shells, manifests, limits and isolation");
 	}
 
@@ -92,6 +92,41 @@ public final class ExtensionApiSmoke {
 	}
 
 	private static ExtensionManifests.Source source(String label, String owner, boolean trusted, String json) { return new ExtensionManifests.Source(label, owner, trusted, json); }
+
+	/** Settings export / import: only allowed files, never scripts or secrets, and an import can be undone. */
+	private static void settingsBackup() throws java.io.IOException {
+		var root = java.nio.file.Files.createTempDirectory("mc-lua-ide-settings");
+		java.nio.file.Files.writeString(root.resolve("personalization.properties"), "theme=LIGHT\n");
+		java.nio.file.Files.createDirectories(root.resolve("sessions"));
+		java.nio.file.Files.writeString(root.resolve("sessions/server-a.properties"), "open=main\n");
+		java.nio.file.Files.createDirectories(root.resolve("scripts"));
+		java.nio.file.Files.writeString(root.resolve("scripts/main.lua"), "print(1)");
+		java.nio.file.Files.writeString(root.resolve("mcp-client.properties"), "token=secret\n");
+		java.nio.file.Files.writeString(root.resolve("lua-limits.properties"), "x=1\n");
+		var zip = root.resolveSibling(root.getFileName() + "-export.zip");
+		require(LuaSettingsBackup.export(root, zip) == 2, "only the personalization file and the session are exported");
+		var names = new java.util.ArrayList<String>();
+		try (var in = new java.util.zip.ZipInputStream(java.nio.file.Files.newInputStream(zip))) { for (var e = in.getNextEntry(); e != null; e = in.getNextEntry()) names.add(e.getName()); }
+		require(names.contains("sessions/server-a.properties") && names.stream().noneMatch(n -> n.contains("scripts") || n.contains("mcp") || n.contains("limits")), "no scripts, tokens or server settings: " + names);
+
+		java.nio.file.Files.writeString(root.resolve("personalization.properties"), "theme=DARK\n");
+		var undo = root.resolve("backups/undo.zip");
+		require(LuaSettingsBackup.restore(root, zip, undo) == 2, "both files are imported");
+		require(java.nio.file.Files.readString(root.resolve("personalization.properties")).contains("LIGHT"), "the exported value is back");
+		require(java.nio.file.Files.exists(undo), "the previous settings were saved first");
+		LuaSettingsBackup.restore(root, undo, root.resolve("backups/undo2.zip"));
+		require(java.nio.file.Files.readString(root.resolve("personalization.properties")).contains("DARK"), "an import can be undone");
+
+		var evil = root.resolveSibling(root.getFileName() + "-evil.zip");
+		try (var out = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(evil))) {
+			out.putNextEntry(new java.util.zip.ZipEntry("../outside.properties")); out.write(1); out.closeEntry();
+			out.putNextEntry(new java.util.zip.ZipEntry("scripts/injected.lua")); out.write(1); out.closeEntry();
+		}
+		boolean refused = false;
+		try { LuaSettingsBackup.restore(root, evil, root.resolve("backups/undo3.zip")); } catch (java.io.IOException expected) { refused = true; }
+		require(refused && !java.nio.file.Files.exists(root.resolve("scripts/injected.lua")) && !java.nio.file.Files.exists(root.resolveSibling("outside.properties")),
+				"a package without settings is refused and writes nothing outside the allowed files");
+	}
 
 	/** The manifest printed in the documentation must load without a single problem. */
 	private static void documentedExample() throws java.io.IOException {

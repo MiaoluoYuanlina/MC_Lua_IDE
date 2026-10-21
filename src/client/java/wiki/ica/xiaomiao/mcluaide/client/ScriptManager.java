@@ -659,6 +659,16 @@ public final class ScriptManager {
 	static CompletableFuture<String> evaluateDebugger(String executionId, String body) {
 		return request(LuaProtocol.Action.DEBUG_EVALUATE, executionId, body).thenApply(LuaProtocol.Response::data);
 	}
+	static CompletableFuture<String> listSnapshots() {
+		return request(LuaProtocol.Action.LIST_SNAPSHOTS, "", "").thenApply(LuaProtocol.Response::data);
+	}
+	static CompletableFuture<String> createSnapshot() {
+		return request(LuaProtocol.Action.CREATE_SNAPSHOT, "", "").thenApply(LuaProtocol.Response::data);
+	}
+	/** Replaces the server's scripts with a snapshot (the server snapshots the current scripts first); returns that backup's name. */
+	static CompletableFuture<String> restoreSnapshot(String name) {
+		return request(LuaProtocol.Action.RESTORE_SNAPSHOT, name, "").thenApply(LuaProtocol.Response::data);
+	}
 	static CompletableFuture<String> auditLog() {
 		return request(LuaProtocol.Action.GET_AUDIT_LOG, "", "").thenApply(LuaProtocol.Response::data);
 	}

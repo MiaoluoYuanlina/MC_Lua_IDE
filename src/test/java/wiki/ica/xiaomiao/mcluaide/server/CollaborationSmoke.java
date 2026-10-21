@@ -14,8 +14,8 @@ public final class CollaborationSmoke {
 	private static int checks;
 
 	public static void main(String[] args) throws Exception {
-		audit(); presence(); checkedSaves();
-		System.out.println("Collaboration smoke passed: " + checks + " checks; audit log, presence and conflict-checked saves");
+		audit(); presence(); checkedSaves(); snapshots();
+		System.out.println("Collaboration smoke passed: " + checks + " checks; audit log, presence, conflict-checked saves and workspace snapshots");
 	}
 
 	private static void require(boolean condition, String message) { checks++; if (!condition) throw new AssertionError(message); }
@@ -73,6 +73,47 @@ public final class CollaborationSmoke {
 		refused = false;
 		try { LuaEditPresence.saveChecked("new", "Bo", body("", "other"), reader, writer); } catch (IllegalStateException conflict) { refused = true; }
 		require(refused, "claiming a new file that already exists is refused");
+	}
+
+	private static void snapshots() throws Exception {
+		Path root = Files.createTempDirectory("mc-lua-ide-snapshots");
+		LuaWorkspaceSnapshots.useDirectoryForTests(root);
+		Path scripts = root.resolve("scripts");
+		Files.createDirectories(scripts.resolve("lib"));
+		Files.writeString(scripts.resolve("main.lua"), "print('v1')");
+		Files.writeString(scripts.resolve("lib/util.lua"), "return {}");
+		Files.writeString(root.resolve("snapshots.properties"), "enabled=true\nintervalMinutes=30\nkeep=4\n");
+
+		String first = LuaWorkspaceSnapshots.create("auto", false);
+		require(!first.isEmpty(), "the first automatic snapshot is taken");
+		require(LuaWorkspaceSnapshots.create("auto", false).isEmpty(), "an unchanged workspace is not snapshotted again");
+		String manual = LuaWorkspaceSnapshots.create("manual", true);
+		require(manual.endsWith("-manual.zip") && !manual.equals(first), "a manual snapshot is always taken: " + manual);
+
+		Files.writeString(scripts.resolve("main.lua"), "print('v2, broken')");
+		Files.writeString(scripts.resolve("extra.lua"), "-- added later");
+		String backup = LuaWorkspaceSnapshots.restore(first);
+		require(backup.endsWith("-before-restore.zip"), "restoring first snapshots the current scripts");
+		require(Files.readString(scripts.resolve("main.lua")).equals("print('v1')") && Files.exists(scripts.resolve("lib/util.lua")), "the snapshot content is back");
+		require(!Files.exists(scripts.resolve("extra.lua")), "files added after the snapshot are gone after a restore");
+		LuaWorkspaceSnapshots.restore(backup);
+		require(Files.readString(scripts.resolve("main.lua")).equals("print('v2, broken')") && Files.exists(scripts.resolve("extra.lua")), "a restore can be undone");
+
+		var listed = JsonParser.parseString(LuaWorkspaceSnapshots.list()).getAsJsonObject();
+		require(listed.get("keep").getAsInt() == 4 && listed.getAsJsonArray("snapshots").size() <= 4, "only the configured number of snapshots is kept");
+		require(listed.getAsJsonArray("snapshots").get(0).getAsJsonObject().get("kind").getAsString().equals("before-restore"), "newest first");
+
+		boolean refused = false;
+		try { LuaWorkspaceSnapshots.restore("../../etc/passwd"); } catch (IllegalArgumentException invalid) { refused = true; }
+		require(refused, "snapshot names are validated");
+		Path evil = root.resolve("snapshots").resolve("scripts-2000-01-01_00-00-00.zip");
+		try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(evil))) {
+			zip.putNextEntry(new java.util.zip.ZipEntry("../escaped.lua")); zip.write("x".getBytes()); zip.closeEntry();
+		}
+		refused = false;
+		try { LuaWorkspaceSnapshots.restore(evil.getFileName().toString()); } catch (java.io.IOException invalid) { refused = invalid.getMessage().contains("无效路径"); }
+		require(refused && !Files.exists(root.resolve("escaped.lua")), "entries that would leave the folder are refused");
+		require(Files.readString(scripts.resolve("main.lua")).equals("print('v2, broken')"), "a refused restore leaves the scripts alone");
 	}
 
 	private static String body(String base, String source) {

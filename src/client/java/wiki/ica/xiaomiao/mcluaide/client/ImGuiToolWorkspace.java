@@ -28,6 +28,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     private final DiffPanel diff;
     final TerminalPanel terminal;
     private final AuditLogPanel audit = new AuditLogPanel();
+    private BackupPanel backups;
     SearchPanel searchPanel(){return search;}
     DiffPanel diffPanel(){return diff;}
     /** Whether the focused pane is the terminal: it then owns the keyboard, apart from the few global shortcuts the screen handles first. */
@@ -46,6 +47,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
         panes.put("NATIVE_OUTLINE",new Pane("NATIVE_OUTLINE",LuaUiText.text("大纲","Outline"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_OUTLINE","false"))));
         panes.put("NATIVE_SEARCH",new Pane("NATIVE_SEARCH",LuaUiText.text("在文件中查找","Search in files"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_SEARCH","false"))));
         panes.put("NATIVE_DIFF",new Pane("NATIVE_DIFF",LuaUiText.text("文件对比","Compare"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DIFF","false"))));
+        panes.put(BackupPanel.ID,new Pane(BackupPanel.ID,LuaUiText.text("备份与恢复","Backups"),Boolean.parseBoolean(preferences.getProperty("tool."+BackupPanel.ID,"false"))));
         panes.put(AuditLogPanel.ID,new Pane(AuditLogPanel.ID,LuaUiText.text("审计日志","Audit log"),Boolean.parseBoolean(preferences.getProperty("tool."+AuditLogPanel.ID,"false"))));
         panes.put(TerminalPanel.ID,new Pane(TerminalPanel.ID,LuaUiText.text("终端","Terminal"),Boolean.parseBoolean(preferences.getProperty("tool."+TerminalPanel.ID,"false"))));
         panes.put("NATIVE_DEBUG",new Pane("NATIVE_DEBUG",LuaUiText.text("调试设置 · F12"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DEBUG","false"))));
@@ -113,7 +115,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
             boolean visible=ImGui.begin(windowTitle(pane),pane.open,ImGuiWindowFlags.NoCollapse|(owner.layoutLocked()&&pane.docked?ImGuiWindowFlags.NoMove:0));
             motion.observe(pane.id);
             pane.docked=ImGui.isWindowDocked();
-            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
+            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else if(pane.id.equals(BackupPanel.ID)){if(backups==null)backups=new BackupPanel(owner);backups.draw();}else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
             ImGui.end();motion.end();
             // The title-bar X only clears the flag; keep drawing while the window fades out, then release it above.
             if(!pane.open.get()){pane.open.set(true);pane.closing=true;}

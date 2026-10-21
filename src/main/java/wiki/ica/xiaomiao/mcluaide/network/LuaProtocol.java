@@ -140,7 +140,11 @@ public final class LuaProtocol {
 		/** Which files other administrators have open (and unsaved); the body lists this client's own open files. */
 		FILE_PRESENCE,
 		/** Save that fails when the file changed since the version the editor started from (body: base hash and source). */
-		SAVE_CHECKED;
+		SAVE_CHECKED,
+		/** Automatic and manual zip snapshots of the script workspace. */
+		LIST_SNAPSHOTS,
+		CREATE_SNAPSHOT,
+		RESTORE_SNAPSHOT;
 
 		/**
 		 * The number sent on the wire. It is the declaration position, so NEVER reorder or insert constants in the middle:
