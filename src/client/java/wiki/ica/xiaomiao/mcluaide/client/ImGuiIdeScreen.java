@@ -309,6 +309,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (tools == null) {
             tools = new ImGuiToolWorkspace(this, preferences);
             tools.codeArea.onExtensionCommand(this::runExtension);
+            crossFiles = new CrossFileActions(this, this::notice);
+            tools.codeArea.crossFile(crossFiles);
             if (ExtensionManifests.loadOnce() && (!ExtensionManifests.last().loaded().isEmpty() || !ExtensionManifests.last().problems().isEmpty())) notice(ExtensionManifests.last().summary());
         }
         if (!pendingTools.isEmpty()) {
@@ -333,6 +335,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         closeRequested = false;
         closeDialog();
         conflictDialog();
+        if (crossFiles != null) crossFiles.draw();
         motion.drawGhosts();
         ImGui.popFont();
     }
@@ -870,6 +873,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         if (dirty) closeRequested = true;
         else ImGuiIdeRuntime.defer(() -> { if (doc == null) leave(classic); else removeDocument(doc); });
     }
+    private CrossFileActions crossFiles;
     private ImGuiIdeDocument conflictDoc;
     private String conflictText = "";
     private boolean conflictRequested;

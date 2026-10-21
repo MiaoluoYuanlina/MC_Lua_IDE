@@ -9,7 +9,7 @@ public final class EditorToolsSmoke {
 	private EditorToolsSmoke() { }
 
 	public static void main(String[] args) throws Exception {
-		lexer(); brackets(); search(); symbols(); snippets(); diff(); fuzzy();
+		lexer(); brackets(); search(); symbols(); snippets(); diff(); fuzzy(); workspace();
 		System.out.println("Editor tools smoke passed: " + checks + " checks; lexer, brackets, find/replace, symbols/rename/outline, snippets and diff");
 	}
 
@@ -124,6 +124,38 @@ public final class EditorToolsSmoke {
 		require(LuaSnippets.wordBefore("local x = fori", 14).equals("fori") && LuaSnippets.wordBefore("a.b", 3).equals("b"), "word before the caret");
 		require(LuaSnippets.indentAt("if x then\n    foo", 17).equals("    "), "indent of the current line");
 		require(LuaSnippets.all().size() >= 10, "built-in templates");
+	}
+
+	private static void workspace() {
+		String util = "local M = {}\nfunction M.format(x) return tostring(x) end\nM.limit = 10\nfunction helper() return 1 end\nreturn M\n";
+		String main = "local util = require(\"lib.util\")\nprint(util.format(1), util.limit)\nhelper()\nlocal again = helper\n";
+		String other = "local u = require \"lib.util\"\nu.format(2)\nlocal function helper() end\nhelper()\n";
+		var index = new LuaWorkspaceIndex(List.of(LuaWorkspaceIndex.File.of("lib/util", util), LuaWorkspaceIndex.File.of("main", main), LuaWorkspaceIndex.File.of("other", other)));
+		var mainFile = index.file("main");
+
+		var member = LuaWorkspaceIndex.targetAt(mainFile, main.indexOf("format") + 2);
+		require(member != null && member.member() && member.module().equals("lib/util") && member.name().equals("format"), "util.format is a member of lib/util: " + member);
+		var memberDefs = index.definitions(member);
+		require(memberDefs.size() == 1 && memberDefs.get(0).path().equals("lib/util") && memberDefs.get(0).line() == 2, "format is defined on line 2 of lib/util: " + memberDefs);
+		require(index.references(member).size() == 3, "format: definition plus one use in each other file: " + index.references(member));
+		var limit = LuaWorkspaceIndex.targetAt(mainFile, main.indexOf("limit") + 1);
+		require(index.definitions(limit).size() == 1 && index.definitions(limit).get(0).line() == 3, "M.limit = 10 is a member definition");
+
+		var global = LuaWorkspaceIndex.targetAt(mainFile, main.indexOf("helper()") + 1);
+		require(global != null && !global.member() && global.name().equals("helper"), "helper is a global: " + global);
+		var globalDefs = index.definitions(global);
+		require(globalDefs.size() == 1 && globalDefs.get(0).path().equals("lib/util") && globalDefs.get(0).line() == 4, "the global function is defined in lib/util: " + globalDefs);
+		var globalRefs = index.references(global);
+		require(globalRefs.size() == 3 && globalRefs.stream().noneMatch(r -> r.path().equals("other")), "a local of the same name elsewhere is not the global: " + globalRefs);
+
+		require(LuaWorkspaceIndex.targetAt(mainFile, main.indexOf("util") + 1) == null, "a local never leaves its file");
+		require(LuaWorkspaceIndex.targetAt(mainFile, main.indexOf("print") + 1) != null, "print is a global name");
+
+		var edits = index.renameEdits(member, "fmt");
+		require(edits.size() == 3, "renaming a member touches the module and both users");
+		require(LuaSymbolIndex.apply(other, edits.get("other")).contains("u.fmt(2)"), "the user is updated");
+		require(LuaSymbolIndex.apply(util, edits.get("lib/util")).contains("function M.fmt(x)"), "the definition is updated");
+		require(index.renameEdits(member, "not valid") == null, "invalid names are refused");
 	}
 
 	private static void fuzzy() {

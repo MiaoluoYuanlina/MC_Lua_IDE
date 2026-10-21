@@ -111,10 +111,24 @@ final class NativeCodeArea {
 		matchKey = "";
 	}
 	void goToLine() { popupRequest = "goto_line"; lineInput.set(""); popupError = ""; }
+	/** Navigation that can leave the file: globals and members of required modules (see CrossFileActions). */
+	interface CrossFile {
+		/** True when the target spans files and the request was taken over. */
+		boolean definition(String source, int offset);
+		boolean references(String source, int offset);
+		boolean rename(String source, int offset, String newName);
+		boolean spansFiles(String source, int offset);
+	}
+	private CrossFile crossFile;
+	private boolean renameSpansFiles;
+	private final imgui.type.ImBoolean renameAllFiles = new imgui.type.ImBoolean(true);
+	void crossFile(CrossFile handler) { crossFile = handler; }
+
 	void requestRename() {
 		var occurrence = symbols == null ? null : symbols.occurrenceAt(model.nativeCursor());
 		if (occurrence == null) { searchNotice = LuaUiText.text("光标不在可重命名的标识符上", "The caret is not on a renamable identifier"); return; }
 		renameInput.set(symbols.symbol(occurrence.symbol()).name()); popupError = ""; popupRequest = "rename";
+		renameSpansFiles = crossFile != null && crossFile.spansFiles(currentText(), model.nativeCursor());
 	}
 	/** Renames the symbol at the caret everywhere in this file (one undo step); false when the name is invalid or no symbol is there. */
 	boolean renameTo(String newName) {
@@ -144,6 +158,7 @@ final class NativeCodeArea {
 	/** Jumps to the declaration of the symbol under the caret; on the declaration itself it lists the references instead. */
 	void goToDefinition() { goToDefinitionAt(model.nativeCursor()); }
 	private void goToDefinitionAt(int offset) {
+		if (crossFile != null && crossFile.definition(currentText(), offset)) return;
 		if (symbols == null) return;
 		var occurrence = symbols.occurrenceAt(offset);
 		if (occurrence == null) return;
@@ -153,6 +168,7 @@ final class NativeCodeArea {
 	}
 	void findReferences() { findReferencesAt(model.nativeCursor()); }
 	private void findReferencesAt(int offset) {
+		if (crossFile != null && crossFile.references(currentText(), offset)) return;
 		if (symbols == null) return;
 		var occurrence = symbols.occurrenceAt(offset);
 		if (occurrence == null) return;
@@ -712,13 +728,20 @@ final class NativeCodeArea {
 			ImGui.endPopup();
 		}
 		if (ImGui.beginPopupModal("rename##editor_popup", ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoTitleBar)) {
-			ImGui.textUnformatted(LuaUiText.text("重命名（仅本文件内的所有引用）", "Rename (every reference in this file)"));
+			boolean everywhere = renameSpansFiles && renameAllFiles.get();
+			ImGui.textUnformatted(everywhere ? LuaUiText.text("重命名（工作区所有脚本中的引用）", "Rename (references in every workspace script)")
+					: LuaUiText.text("重命名（仅本文件内的所有引用）", "Rename (every reference in this file)"));
 			ImGui.setNextItemWidth(300);
 			if (ImGui.isWindowAppearing()) ImGui.setKeyboardFocusHere();
 			boolean enter = ImGui.inputText("##rename", renameInput, ImGuiInputTextFlags.EnterReturnsTrue);
+			if (renameSpansFiles) ImGui.checkbox(LuaUiText.text("同时修改其他脚本（先预览）", "Also change other scripts (preview first)"), renameAllFiles);
 			if (!popupError.isEmpty()) ImGui.textColored(1f, .45f, .4f, 1f, popupError);
 			if (enter || ImGui.button(LuaUiText.text("重命名", "Rename"))) {
-				if (renameTo(renameInput.get().strip())) ImGui.closeCurrentPopup();
+				String name = renameInput.get().strip();
+				boolean done = renameSpansFiles && renameAllFiles.get() && crossFile != null
+						? LuaSymbolIndex.validName(name) && crossFile.rename(currentText(), model.nativeCursor(), name)
+						: renameTo(name);
+				if (done) ImGui.closeCurrentPopup();
 				else popupError = LuaUiText.text("不是有效的 Lua 标识符", "Not a valid Lua identifier");
 			}
 			ImGui.sameLine(); if (ImGui.button(LuaUiText.text("取消", "Cancel")) || ImGui.isKeyPressed(ImGuiKey.Escape)) ImGui.closeCurrentPopup();
