@@ -12,6 +12,7 @@
 		"sources": "https://xiaomiao.ica.wiki"
 	},
 	"license": "MIT",
+	"icon": "assets/mc_lua_ide/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
