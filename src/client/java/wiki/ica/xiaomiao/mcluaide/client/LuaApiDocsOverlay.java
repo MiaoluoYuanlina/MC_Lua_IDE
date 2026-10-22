@@ -30,7 +30,7 @@ final class LuaApiDocsOverlay {
         if(pinyinToggleVisible()) pinyinSearchEnabled=NativeUi.check("拼音首字母",pinyinSearchEnabled);
         if(romajiToggleVisible()) romajiSearchEnabled=NativeUi.check("ローマ字検索",romajiSearchEnabled);
         if(imgui.ImGui.beginTable("api",2,imgui.flag.ImGuiTableFlags.Resizable|imgui.flag.ImGuiTableFlags.BordersInnerV)) {
-            imgui.ImGui.tableSetupColumn("navigation",imgui.flag.ImGuiTableColumnFlags.WidthFixed,220);
+            imgui.ImGui.tableSetupColumn("navigation",imgui.flag.ImGuiTableColumnFlags.WidthFixed,380);
             imgui.ImGui.tableSetupColumn("details"); imgui.ImGui.tableNextColumn();
             imgui.ImGui.beginChild("navigation");
             int index=0;
@@ -58,7 +58,7 @@ final class LuaApiDocsOverlay {
                 for(var element:selectedPage.translation().elements()) {
                     imgui.ImGui.pushID(index++);
                     if(element.kind()==McLuaIdeDocsApi.ElementKind.CODE) nativeCode(element.content());
-                    else NativeUi.readOnly("##text",element.content(),Math.max(46,imgui.ImGui.calcTextSize(element.content()).y+20));
+                    else {imgui.ImGui.textWrapped(element.content());imgui.ImGui.dummy(0,4);}
                     imgui.ImGui.popID();
                 }
             } else if(selected!=null) {
@@ -67,7 +67,7 @@ final class LuaApiDocsOverlay {
                 StringBuilder description=new StringBuilder(entry.signature()).append("\n\n作用：").append(entry.summary()).append("\n返回：").append(entry.returns());
                 for(int i=0;i<entry.parameters().size();i++)description.append("\n参数").append(i+1).append("：").append(entry.describe(entry.parameters().get(i)));
                 description.append("\n\n").append(entry.details()).append("\n\n").append(usageHint(selected));
-                NativeUi.readOnly("##description",description.toString(),Math.max(180,imgui.ImGui.getContentRegionAvailY()*.46f));
+                NativeUi.action("复制",()->NativeUi.copy(description.toString()));imgui.ImGui.textWrapped(description.toString());imgui.ImGui.dummy(0,4);
                 nativeCode(LuaApiDocumentation.usageTemplate(selected.symbol()));
             } else imgui.ImGui.textWrapped(LuaUiText.text("展开目录或搜索 API"));
             imgui.ImGui.endChild(); imgui.ImGui.endTable();
