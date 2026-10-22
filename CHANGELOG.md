@@ -2,6 +2,23 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-10-22
+
+### Added
+- The Run button has an icon: a green play triangle, a red square with a red label while a script runs, and grey when nothing can run.
+
+### Changed
+- English and Japanese translations for the main IDE windows (files, Git, resource packs, JSON and component editors, text JSON, personalization, debugger, MCP, AI, server resource packs), plus word-by-word fallback for text built at run time.
+
+
+## [1.0.2] - 2026-10-22
+
+### Added
+- Run button in the menu bar has an icon: a green play triangle for Run, a red square and red label while a script runs, grey when there is nothing to run.
+
+### Changed
+- English and Japanese translations for the main IDE windows (files, Git, resource packs, JSON and component editors, text JSON, personalization, debugger, server pack, analyzer messages); text composed at run time is translated by known fragments.
+
 ## [1.0.1] - 2026-10-21
 
 ### Changed
@@ -58,5 +75,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.2]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.2
+[1.0.2]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.2
 [1.0.1]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.0

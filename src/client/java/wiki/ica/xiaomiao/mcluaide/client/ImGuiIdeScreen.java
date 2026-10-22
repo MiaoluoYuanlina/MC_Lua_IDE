@@ -431,7 +431,17 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         }
         ImGui.separator();
         boolean running = ScriptManager.activeExecution() != null;
-        if (ImGui.menuItem(running ? tr("停止", "Stop") : tr("运行", "Run"), "Ctrl+Enter", false, running || current != null)) toggleRun();
+        boolean runnable = running || current != null;
+        float iconSize = ImGui.getTextLineHeight();
+        // Green play triangle for Run, red square for Stop; the label takes the same colour (dimmed while nothing can run).
+        int tint = running ? ImGui.colorConvertFloat4ToU32(.95f, .42f, .4f, 1f) : runnable ? ImGui.colorConvertFloat4ToU32(.4f, .85f, .55f, 1f) : ImGui.colorConvertFloat4ToU32(.5f, .5f, .5f, .6f);
+        ImGui.pushStyleColor(ImGuiCol.Text, tint);
+        if (ImGui.menuItem("      " + (running ? tr("停止", "Stop") : tr("运行", "Run")), "Ctrl+Enter", false, runnable)) toggleRun();
+        ImGui.popStyleColor();
+        float left = ImGui.getItemRectMinX() + ImGui.getStyle().getFramePaddingX() + 2, top = ImGui.getItemRectMinY() + (ImGui.getItemRectSizeY() - iconSize * .7f) / 2, side = iconSize * .7f;
+        var draw = ImGui.getWindowDrawList();
+        if (running) draw.addRectFilled(left, top, left + side, top + side, tint, 2);
+        else draw.addTriangleFilled(left, top, left, top + side, left + side * 1.05f, top + side / 2, tint);
         ImGui.checkbox(tr("调试", "Debug"), debugRun);
         ImGui.sameLine();
         if (running) { float pulse = (float) (.5 + .5 * Math.sin(System.nanoTime() / 1.0e9 * 5)); ImGui.textColored(.4f, .85f, .55f, .35f + .65f * pulse, "●"); ImGui.sameLine(); }
