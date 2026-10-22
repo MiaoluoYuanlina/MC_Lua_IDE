@@ -2,6 +2,13 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-10-21
+
+### Changed
+- Relicensed under GPL-3.0.
+- In-game manual: compact layout without extra blank space, tables shown as rows, new "Copy whole manual" button.
+- API reference: the navigation sidebar opens wider, and descriptions use compact wrapped text with a Copy button.
+
 ## [1.0.0] - 2026-10-21
 
 First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.155.2+, Java 25).
@@ -51,4 +58,5 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.1]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.0
