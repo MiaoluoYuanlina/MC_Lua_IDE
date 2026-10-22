@@ -8584,6 +8584,7 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 		}
 	}
 	private void nativeManualImGui(){
+		NativeUi.action("复制全文",()->NativeUi.copy(manualDocument.lines().stream().map(MarkdownManualDocument.Line::text).collect(java.util.stream.Collectors.joining("\n"))));
 		int lastBlock=-1,index=0;
 		for(var line:manualDocument.lines()){
 			imgui.ImGui.pushID(index++);
@@ -8592,8 +8593,15 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 					NativeUi.action("插入",()->nativeInsert(block.source()));imgui.ImGui.sameLine();NativeUi.action("复制",()->NativeUi.copy(block.source()));
 					NativeUi.code("##example",block.source(),Math.max(65,Math.min(400,block.source().lines().count()*imgui.ImGui.getTextLineHeightWithSpacing()+15)));
 				}
-			}else if(line.kind()==MarkdownManualDocument.Kind.SPACE)imgui.ImGui.spacing();
-			else {if(line.kind()==MarkdownManualDocument.Kind.HEADING||line.kind()==MarkdownManualDocument.Kind.SUBHEADING)imgui.ImGui.separator();NativeUi.readOnly("##paragraph",line.text(),Math.max(38,(float)Math.ceil(imgui.ImGui.calcTextSize(line.text()).x/Math.max(80,imgui.ImGui.getContentRegionAvailX()))*imgui.ImGui.getTextLineHeightWithSpacing()+12));}
+			}else if(line.kind()==MarkdownManualDocument.Kind.SPACE)imgui.ImGui.dummy(0,4);
+			else {
+				var kind=line.kind();
+				if(kind==MarkdownManualDocument.Kind.HEADING||kind==MarkdownManualDocument.Kind.SUBHEADING){imgui.ImGui.dummy(0,2);imgui.ImGui.separator();}
+				if(kind==MarkdownManualDocument.Kind.HEADING)imgui.ImGui.textColored(1f,.83f,.5f,1f,line.text());
+				else if(kind==MarkdownManualDocument.Kind.SUBHEADING)imgui.ImGui.textColored(.95f,.9f,.65f,1f,line.text());
+				else if(kind==MarkdownManualDocument.Kind.QUOTE)imgui.ImGui.textDisabled(line.text());
+				else imgui.ImGui.textWrapped(line.text());
+			}
 			imgui.ImGui.popID();
 		}
 	}

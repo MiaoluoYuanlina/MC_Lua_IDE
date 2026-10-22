@@ -550,6 +550,7 @@
   "Confirm deleting the draft": "下書きの削除を確認",
   "Confirm restoring the selected version": "選択したバージョンの復元を確認",
   "Copy all": "すべてコピー",
+  "Copy whole manual": "マニュアル全文をコピー",
   "Copy call log": "呼び出しログをコピー",
   "Copy component": "コンポーネントをコピー",
   "Copy Lua": "Lua をコピー",

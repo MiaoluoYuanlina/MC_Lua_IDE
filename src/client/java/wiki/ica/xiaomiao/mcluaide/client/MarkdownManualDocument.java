@@ -53,7 +53,13 @@ public final class MarkdownManualDocument {
 				currentCode.add(raw.replace("\t", "    "));
 				lines.add(new Line(raw.replace("\t", "    "), Kind.CODE, codeBlockIndex));
 			} else if (trimmed.isEmpty() || trimmed.equals("---")) {
-				lines.add(new Line("", Kind.SPACE, -1));
+				if (!lines.isEmpty() && lines.getLast().kind() != Kind.SPACE) {
+					lines.add(new Line("", Kind.SPACE, -1));
+				}
+			} else if (trimmed.startsWith("|")) {
+				if (!trimmed.matches("^[|\\s:-]+$")) {
+					lines.add(new Line("• " + inline(trimmed.replaceAll("^\\||\\|$", "").strip().replaceAll("\\s*\\|\\s*", "  │  ")), Kind.TEXT, -1));
+				}
 			} else if (trimmed.startsWith("# ")) {
 				lines.add(new Line(inline(trimmed.substring(2)), Kind.HEADING, -1));
 			} else if (trimmed.startsWith("## ") || trimmed.startsWith("### ")) {
@@ -70,6 +76,9 @@ public final class MarkdownManualDocument {
 		}
 		if (codeBlock) {
 			codeBlocks.add(new CodeBlock(codeLanguage, String.join("\n", currentCode)));
+		}
+		while (!lines.isEmpty() && lines.getLast().kind() == Kind.SPACE) {
+			lines.removeLast();
 		}
 		return new Document(List.copyOf(lines), List.copyOf(codeBlocks));
 	}
