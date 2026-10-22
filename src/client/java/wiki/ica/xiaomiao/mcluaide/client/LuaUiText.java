@@ -39,9 +39,48 @@ final class LuaUiText {
 				|| normalized.equals("yue") || normalized.startsWith("yue_");
 	}
 
+	private static final Map<String, String> SEGMENT_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final Map<Character, java.util.List<String>> SEGMENT_KEYS = segmentKeys();
+
+	private static Map<Character, java.util.List<String>> segmentKeys() {
+		Map<Character, java.util.List<String>> result = new java.util.HashMap<>();
+		for (String key : ENGLISH.keySet()) {
+			if (key.length() >= 2 && key.codePoints().anyMatch(c -> c >= 0x4E00 && c <= 0x9FFF)) result.computeIfAbsent(key.charAt(0), c -> new java.util.ArrayList<>()).add(key);
+		}
+		result.values().forEach(list -> list.sort((a, b) -> b.length() - a.length()));
+		return result;
+	}
+
+	/** Runtime text built from fragments cannot match a whole-string entry, so known fragments are translated one by one. */
+	private static String bySegments(String chinese) {
+		if (chinese.codePoints().noneMatch(c -> c >= 0x4E00 && c <= 0x9FFF) || chinese.matches("(?s).*['\"={}].*")) return chinese; // code and user text stay as written
+		if (SEGMENT_CACHE.size() > 4096) SEGMENT_CACHE.clear();
+		boolean ja = japanese();
+		return SEGMENT_CACHE.computeIfAbsent((ja ? "j" : "e") + chinese, ignored -> {
+			StringBuilder out = new StringBuilder();
+			boolean matched = false;
+			for (int i = 0; i < chinese.length(); ) {
+				String hit = null;
+				for (String key : SEGMENT_KEYS.getOrDefault(chinese.charAt(i), java.util.List.of())) {
+					if (chinese.startsWith(key, i)) { hit = key; break; }
+				}
+				if (hit == null) { out.append(chinese.charAt(i++)); continue; }
+				String english = ENGLISH.get(hit);
+				out.append(ja ? JAPANESE.getOrDefault(hit, JAPANESE.getOrDefault(english, english)) : english);
+				i += hit.length();
+				matched = true;
+			}
+			return matched ? out.toString() : chinese;
+		});
+	}
+
 	static String text(String chinese) {
 		if (chinese == null || chinese() || chinese.isEmpty()) return chinese;
-		String english = ENGLISH.getOrDefault(chinese, chinese);
+		String english = ENGLISH.get(chinese);
+		if (english == null) {
+			String ja = japanese() ? JAPANESE.get(chinese) : null;
+			return ja != null ? ja : bySegments(chinese);
+		}
 		return japanese() ? JAPANESE.getOrDefault(chinese, JAPANESE.getOrDefault(english, english)) : english;
 	}
 
