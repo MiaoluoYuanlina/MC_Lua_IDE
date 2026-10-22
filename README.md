@@ -179,4 +179,4 @@ Tested on Windows. The local terminal and the title-bar integration on macOS and
 
 ## License
 
-[MIT](LICENSE). Bundled libraries keep their own licenses: [LuaJ](https://github.com/luaj/luaj) (MIT), [imgui-java](https://github.com/SpaiR/imgui-java) and [Dear ImGui](https://github.com/ocornut/imgui) (MIT), [JNA](https://github.com/java-native-access/jna) (Apache 2.0 / LGPL 2.1).
+[GPL-3.0](LICENSE). Copyright (c) 2026 XiaoMiao_ICa. Bundled libraries keep their own (GPL-compatible) licenses: [LuaJ](https://github.com/luaj/luaj) (MIT), [imgui-java](https://github.com/SpaiR/imgui-java) and [Dear ImGui](https://github.com/ocornut/imgui) (MIT), [JNA](https://github.com/java-native-access/jna) (Apache 2.0 / LGPL 2.1).

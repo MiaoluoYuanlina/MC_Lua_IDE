@@ -12,7 +12,7 @@
 		"sources": "https://github.com/MiaoluoYuanlina/MC_Lua_IDE",
 		"issues": "https://github.com/MiaoluoYuanlina/MC_Lua_IDE/issues"
 	},
-	"license": "MIT",
+	"license": "GPL-3.0-only",
 	"icon": "assets/mc_lua_ide/icon.png",
 	"environment": "*",
 	"entrypoints": {

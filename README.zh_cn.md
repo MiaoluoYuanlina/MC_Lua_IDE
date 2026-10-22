@@ -179,4 +179,4 @@ JAR 输出到 `build/libs/`。`build` 也会运行冒烟测试（`PATH` 中需�
 
 ## 许可
 
-[MIT](LICENSE)。内置的第三方库遵循各自的许可：[LuaJ](https://github.com/luaj/luaj)（MIT）、[imgui-java](https://github.com/SpaiR/imgui-java) 与 [Dear ImGui](https://github.com/ocornut/imgui)（MIT）、[JNA](https://github.com/java-native-access/jna)（Apache 2.0 / LGPL 2.1）。
+[GPL-3.0](LICENSE)。版权所有 (c) 2026 XiaoMiao_ICa。内置的第三方库遵循各自的（与 GPL 兼容的）许可：[LuaJ](https://github.com/luaj/luaj)（MIT）、[imgui-java](https://github.com/SpaiR/imgui-java) 与 [Dear ImGui](https://github.com/ocornut/imgui)（MIT）、[JNA](https://github.com/java-native-access/jna)（Apache 2.0 / LGPL 2.1）。
