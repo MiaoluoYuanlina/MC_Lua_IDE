@@ -23,6 +23,15 @@ public final class LuaMcpSmoke {
             require(LuaMcpSettings.load(root.resolve("settings.properties"), false).equals(config), "Enabled, port, permissions or token lost after restart");
             var disabled = config.update(false, config.port(), false, false, config.ownerUuid(), config.scope(), false); disabled.save(root.resolve("settings.properties"));
             require(!LuaMcpSettings.load(root.resolve("settings.properties"), false).enabled(), "Disabled preference lost");
+            LuaMcpSettings remoteConfig = config.update(true, freePort(), false, false, config.ownerUuid(), config.scope(), false, true);
+            remoteConfig.save(root.resolve("remote.properties"));
+            require(LuaMcpSettings.load(root.resolve("remote.properties"), false).allowRemote() && !config.allowRemote(), "Remote-connections setting lost or on by default");
+            try (LuaMcpServer remote = new LuaMcpServer("remote", (tool, values) -> CompletableFuture.completedFuture(LuaMcpTools.text("ok")))) {
+                remote.start(remoteConfig);
+                require(send(remoteConfig, "POST", "{}", null, "wrong", "https://other.example", null).statusCode() == 401, "Remote mode must still require the token");
+                require(send(remoteConfig, "POST", "{}", null, remoteConfig.token(), "https://other.example", null).statusCode() != 403, "Remote mode still blocked a foreign origin");
+                require(LuaMcpServer.prompt(remoteConfig, true).contains("127.0.0.1"), "Prompt lost the address hint");
+            }
             AtomicInteger calls = new AtomicInteger();
             try (LuaMcpServer endpoint = new LuaMcpServer("smoke", (tool, values) -> { calls.incrementAndGet(); return CompletableFuture.completedFuture(LuaMcpTools.text("ok")); })) {
                 endpoint.start(config);

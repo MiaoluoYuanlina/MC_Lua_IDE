@@ -2051,5 +2051,8 @@
   "命令函数不能使用 Lua 变量；请改为普通文字": "A command function cannot use Lua variables; use plain text instead",
   "已插入命令组件格式 · 已通过服务器编解码校验": "Inserted command-format components · validated by the server codec",
   "已插入文本组件 JSON": "Inserted the text component JSON",
-  "文本 JSON": "text JSON"
+  "文本 JSON": "text JSON",
+  "允许非本机 IP 连接（任意设备都能连接）": "Allow connections from non-local IP addresses (any device can connect)",
+  "已允许非本机连接：知道地址和令牌的任何设备都能调用 MCP，令牌以明文 HTTP 传输；只在可信网络使用，并注意防火墙。": "Remote connections are allowed: any device that knows the address and token can call MCP, and the token travels over plain HTTP. Use it only on a trusted network and mind your firewall.",
+  "默认只监听本机 127.0.0.1。": "By default only this computer (127.0.0.1) is listened on."
 }

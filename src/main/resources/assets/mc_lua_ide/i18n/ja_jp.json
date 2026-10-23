@@ -2498,5 +2498,8 @@
   "A command function cannot use Lua variables; use plain text instead": "コマンド関数では Lua 変数を使えません。通常のテキストに変更してください",
   "Inserted command-format components · validated by the server codec": "コマンド形式のコンポーネントを挿入しました · サーバーのコーデックで検証済み",
   "Inserted the text component JSON": "テキストコンポーネントの JSON を挿入しました",
-  "text JSON": "テキスト JSON"
+  "text JSON": "テキスト JSON",
+  "Allow connections from non-local IP addresses (any device can connect)": "本機以外の IP アドレスからの接続を許可（どのデバイスでも接続可能）",
+  "Remote connections are allowed: any device that knows the address and token can call MCP, and the token travels over plain HTTP. Use it only on a trusted network and mind your firewall.": "本機以外からの接続を許可中: アドレスとトークンを知っているデバイスなら誰でも MCP を呼び出せ、トークンは平文の HTTP で送られます。信頼できるネットワークでのみ使用し、ファイアウォールにも注意してください。",
+  "By default only this computer (127.0.0.1) is listened on.": "既定ではこのコンピューター（127.0.0.1）のみで待ち受けます。"
 }

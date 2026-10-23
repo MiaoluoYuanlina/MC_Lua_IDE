@@ -194,6 +194,9 @@ public final class McLuaIdeClient implements ClientModInitializer {
 	}
 
 	static void openIde(Minecraft client) {
+		// While the IDE is only controlling the game, its key (and /lua) must bring that same IDE back, not stack a new one.
+		if (GameControl.active()) { GameControl.exit(); return; }
+		if (client.screen instanceof ImGuiIdeScreen) return;
 		if (!ScriptManager.isServerAvailable()) {
 			if (client.player != null) client.player.sendSystemMessage(
 					Component.literal("服务器未安装或未启用 MC Lua IDE"));

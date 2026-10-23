@@ -31,12 +31,13 @@ final class LuaClientMcpService {
     static void disconnected() { closeEndpoint(); problem = "已断开；开启设置保留，重进相同世界/服务器且权限有效时自动恢复"; }
     static void shutdown() { closeEndpoint(); }
     private static void closeEndpoint() { revision++; if (endpoint != null) { endpoint.close(); history = logs(); endpoint = null; } }
-    static CompletableFuture<LuaMcpStatus> configure(boolean enabled, int port, boolean write, boolean execute, boolean rotate) {
+    static CompletableFuture<LuaMcpStatus> configure(boolean enabled, int port, boolean write, boolean execute, boolean rotate) { return configure(enabled, port, write, execute, rotate, settings.allowRemote()); }
+    static CompletableFuture<LuaMcpStatus> configure(boolean enabled, int port, boolean write, boolean execute, boolean rotate, boolean remote) {
         Minecraft client = Minecraft.getInstance();
         return (enabled ? ScriptManager.checkAccess() : CompletableFuture.<Void>completedFuture(null)).thenApply(ignored -> {
             try {
                 String owner = client.player == null ? settings.ownerUuid() : client.player.getUUID().toString();
-                LuaMcpSettings next = settings.update(enabled, port, write, execute, owner, client.player == null ? settings.scope() : scope(), rotate);
+                LuaMcpSettings next = settings.update(enabled, port, write, execute, owner, client.player == null ? settings.scope() : scope(), rotate, remote);
                 next.save(FILE); settings = next; restore(); return status();
             } catch (Exception error) { throw new java.util.concurrent.CompletionException(error); }
         });

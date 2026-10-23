@@ -387,8 +387,11 @@ public final class ScriptManager {
 	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> mcpServerStatus() {
 		return request(LuaProtocol.Action.GET_MCP_SERVER, "", "").thenApply(response -> wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus.decode(response.data()));
 	}
-	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> configureMcpServer(boolean enabled, int port, boolean write, boolean execute, boolean rotate) {
-		String json = wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpServer.JSON.toJson(java.util.Map.of("enabled", enabled, "port", port, "allowWrite", write, "allowExecution", execute, "rotate", rotate));
+	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> configureMcpServer(boolean enabled, int port, boolean write, boolean execute, boolean rotate) { return configureMcpServer(enabled, port, write, execute, rotate, null); }
+	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> configureMcpServer(boolean enabled, int port, boolean write, boolean execute, boolean rotate, Boolean remote) {
+		var fields = new java.util.LinkedHashMap<String, Object>(java.util.Map.of("enabled", enabled, "port", port, "allowWrite", write, "allowExecution", execute, "rotate", rotate));
+		if (remote != null) fields.put("allowRemote", remote);
+		String json = wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpServer.JSON.toJson(fields);
 		return request(LuaProtocol.Action.SET_MCP_SERVER, "", json).thenApply(response -> wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus.decode(response.data()));
 	}
 	static CompletableFuture<wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpStatus> clearMcpServerLogs() {

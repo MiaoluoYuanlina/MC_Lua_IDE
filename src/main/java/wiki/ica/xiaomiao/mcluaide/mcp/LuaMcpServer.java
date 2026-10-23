@@ -28,7 +28,8 @@ public final class LuaMcpServer implements AutoCloseable {
     public LuaMcpServer(String title, Backend backend) { this.title = title; this.backend = backend; }
     public synchronized void start(LuaMcpSettings settings) throws java.io.IOException {
         if (http != null) throw new IllegalStateException("MCP 服务已经开启");
-        HttpServer candidate = HttpServer.create(new InetSocketAddress("127.0.0.1", settings.port()), 8);
+        // Loopback only unless the administrator explicitly allowed connections from other IP addresses.
+        HttpServer candidate = HttpServer.create(settings.allowRemote() ? new InetSocketAddress(settings.port()) : new InetSocketAddress("127.0.0.1", settings.port()), 8);
         workers = new ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(32),
                 runnable -> { Thread thread = new Thread(runnable, "MC Lua IDE MCP HTTP"); thread.setDaemon(true); return thread; });
         this.settings = settings; candidate.setExecutor(workers); candidate.createContext("/mcp", this::handle);
@@ -51,6 +52,7 @@ public final class LuaMcpServer implements AutoCloseable {
     }
     public static String prompt(LuaMcpSettings settings, boolean server) {
         return "请通过 MCP 的 Streamable HTTP 连接 MC Lua IDE：\nURL：" + settings.url()
+                + (settings.allowRemote() ? "\n（已允许非本机 IP 连接：把 127.0.0.1 换成本机的局域网或公网地址；令牌经明文 HTTP 传输，请只在可信网络使用。）" : "")
                 + "\nAuthorization: Bearer " + settings.token()
                 + "\n协议版本：" + VERSION + "（兼容 2025-06-18 / 2025-03-26）。\n"
                 + (server ? "这是 Minecraft 服务端本机地址。若服务端在另一台机器，请先用 SSH/可信隧道转发该端口，不要直接公开到互联网。\n" : "这是管理员 Minecraft 客户端的本机地址，管理员需在线连接游戏服务器。\n")
@@ -64,9 +66,9 @@ public final class LuaMcpServer implements AutoCloseable {
             LuaMcpSettings config = settings;
             if (!exchange.getRequestURI().getPath().equals("/mcp") || exchange.getRequestURI().getRawQuery() != null) { send(exchange, 404, null); outcome = "404"; return; }
             String host = exchange.getRequestHeaders().getFirst("Host");
-            if (!Objects.equals(host, "127.0.0.1:" + config.port()) && !Objects.equals(host, "localhost:" + config.port())) { send(exchange, 403, null); outcome = "Host 拒绝"; return; }
+            if (!config.allowRemote() && !Objects.equals(host, "127.0.0.1:" + config.port()) && !Objects.equals(host, "localhost:" + config.port())) { send(exchange, 403, null); outcome = "Host 拒绝"; return; }
             String origin = exchange.getRequestHeaders().getFirst("Origin");
-            if (origin != null && !origin.equals("http://127.0.0.1:" + config.port()) && !origin.equals("http://localhost:" + config.port())) { send(exchange, 403, null); outcome = "Origin 拒绝"; return; }
+            if (origin != null && !config.allowRemote() && !origin.equals("http://127.0.0.1:" + config.port()) && !origin.equals("http://localhost:" + config.port())) { send(exchange, 403, null); outcome = "Origin 拒绝"; return; }
             String authorization = exchange.getRequestHeaders().getFirst("Authorization");
             if (authorization == null || !MessageDigest.isEqual(authorization.getBytes(StandardCharsets.UTF_8), ("Bearer " + config.token()).getBytes(StandardCharsets.UTF_8))) {
                 exchange.getResponseHeaders().set("WWW-Authenticate", "Bearer"); send(exchange, 401, null); outcome = "鉴权拒绝"; return;

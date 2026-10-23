@@ -19,6 +19,9 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
         String typedPort=NativeUi.field("监听端口",port.getValue()).replaceAll("[^0-9]","");
         if(!typedPort.equals(port.getValue()))port.setValue(typedPort.length()>5?typedPort.substring(0,5):typedPort);
         write=NativeUi.check("允许写 Lua 文件（覆盖原内容）",write);execute=NativeUi.check("允许运行/停止脚本",execute);
+        remote=NativeUi.check("允许非本机 IP 连接（任意设备都能连接）",remote);
+        if(remote)imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("已允许非本机连接：知道地址和令牌的任何设备都能调用 MCP，令牌以明文 HTTP 传输；只在可信网络使用，并注意防火墙。"));
+        else imgui.ImGui.textDisabled(LuaUiText.text("默认只监听本机 127.0.0.1。"));
         imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("高危：执行可改变世界，令牌不要发给不可信的人。"));
         NativeUi.action("开启 / 应用配置",()->apply(true,false));imgui.ImGui.sameLine();NativeUi.action("关闭服务",()->apply(false,false));NativeUi.action("重置令牌",()->apply(data!=null&&data.running(),true));
         if(data!=null){
@@ -34,7 +37,7 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
     private final boolean server;
     private final EditBox port;
     private int width = 500, height = 340, scroll;
-    private boolean write, execute, busy, disposed, dirty;
+    private boolean write, execute, remote, busy, disposed, dirty;
     private LuaMcpStatus data;
     private String notice = "正在读取 MCP 配置…";
     private long refreshed;
@@ -51,7 +54,7 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
                     if (disposed) return;
                     if (error != null) { notice = LuaUiText.text("读取失败：") + ScriptManager.message(error); return; }
                     data = value;
-                    if (reset || !dirty && !port.isFocused()) { port.setValue(Integer.toString(value.settings().port())); write = value.settings().allowWrite(); execute = value.settings().allowExecution(); dirty = false; }
+                    if (reset || !dirty && !port.isFocused()) { port.setValue(Integer.toString(value.settings().port())); write = value.settings().allowWrite(); execute = value.settings().allowExecution(); remote = value.settings().allowRemote(); dirty = false; }
                     if (reset) notice = value.problem().isBlank() ? "初次默认关闭；启停配置保存，下次启动恢复" : value.problem();
                 }));
     }
@@ -102,7 +105,7 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
         if (busy || data == null) return;
         try {
             int value = Integer.parseInt(port.getValue()); new LuaMcpSettings(false, value, write, execute, data.settings().token(), "", ""); busy = true;
-            (server ? ScriptManager.configureMcpServer(enabled, value, write, execute, rotate) : LuaClientMcpService.configure(enabled, value, write, execute, rotate))
+            (server ? ScriptManager.configureMcpServer(enabled, value, write, execute, rotate, remote) : LuaClientMcpService.configure(enabled, value, write, execute, rotate, remote))
                     .whenComplete((result, error) -> context.minecraft().execute(() -> {
                         if (disposed) return; busy = false;
                         if (error != null) notice = "配置失败：" + ScriptManager.message(error);
