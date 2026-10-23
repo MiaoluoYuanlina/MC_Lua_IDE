@@ -100,6 +100,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     void menu(String id){var pane=panes.get(id);if(pane==null)return;if(ImGui.menuItem(pane.title,"",isOpen(id))){if(isOpen(id))close(id);else open(id);}}
     void allMenus(){for(var pane:panes.values())menu(pane.id);}
     void beginFrame(){codeArea.beginFrame();if(split!=null)split.beginFrame();activePane="";}
+    private final Map<String,Integer> cascade=new HashMap<>();
     private SplitEditorPane split;
     private WelcomePanel welcome;
     SplitEditorPane probeSplit(){return split;}
@@ -115,8 +116,15 @@ final class ImGuiToolWorkspace implements AutoCloseable {
                 if(!pane.id.startsWith("NATIVE_"))controller.nativeCloseTool(pane.id);
                 continue;
             }
-            if(pane.id.equals("NATIVE_GAMEVIEW"))ImGui.setNextWindowPos(120,70,ImGuiCond.FirstUseEver);
-            boolean smallWindow=pane.id.equals("NATIVE_GAMEVIEW");ImGui.setNextWindowSize(smallWindow?500:650,smallWindow?320:470,ImGuiCond.FirstUseEver);ImGui.setNextWindowSizeConstraints(140,90,Float.MAX_VALUE,Float.MAX_VALUE);
+            { // First opening: a roomy window centred in the workspace and cascaded, so it neither hugs the corner nor hides the one below it.
+                var viewport=ImGui.getMainViewport();
+                boolean smallWindow=pane.id.equals("NATIVE_GAMEVIEW");
+                float width=Math.clamp(viewport.getWorkSizeX()*(smallWindow?.4f:.5f),smallWindow?420:520,920),height=Math.clamp(viewport.getWorkSizeY()*(smallWindow?.4f:.62f),smallWindow?280:380,760);
+                int step=cascade.computeIfAbsent(pane.id,key->cascade.size()%7);
+                float x=viewport.getWorkPosX()+Math.max(10,(viewport.getWorkSizeX()-width)/2)+(step-3)*30,y=viewport.getWorkPosY()+Math.max(10,(viewport.getWorkSizeY()-height)/2)+(step-3)*26;
+                ImGui.setNextWindowPos(x,y,ImGuiCond.FirstUseEver);
+                ImGui.setNextWindowSize(width,height,ImGuiCond.FirstUseEver);ImGui.setNextWindowSizeConstraints(140,90,Float.MAX_VALUE,Float.MAX_VALUE);
+            }
             if(focusNext.equals(pane.id)){ImGui.setNextWindowFocus();focusNext="";}
             motion.begin(pane.id,pane.closing);
             boolean visible=ImGui.begin(windowTitle(pane),pane.open,ImGuiWindowFlags.NoCollapse|(owner.layoutLocked()&&pane.docked?ImGuiWindowFlags.NoMove:0));

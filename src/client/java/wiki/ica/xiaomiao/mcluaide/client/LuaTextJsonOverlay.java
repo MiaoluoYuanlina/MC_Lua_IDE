@@ -56,10 +56,36 @@ final class LuaTextJsonOverlay {
 			imgui.ImGui.endTable();
 		}
 		imgui.ImGui.separatorText("分段预览");
-		int previewWidth=Math.max(32,(int)imgui.ImGui.getContentRegionAvailX());
-		NativeUi.media("text_component_preview",previewWidth,48,g->{int px=6;for(var segment:segments){String text=segment.previewText();List<Integer> colors=null;try{if(segment.gradient&&segment.kind==LuaTextJsonDocument.Kind.TEXT)colors=LuaTextJsonDocument.gradientColors(segment.gradientStops,text.codePointCount(0,text.length()));}catch(IllegalArgumentException ignored){}int charIndex=0;for(int position=0;position<text.length()&&px<previewWidth-8;){int cp=text.codePointAt(position);String ch=new String(Character.toChars(cp));Component styled=Component.literal(ch).withStyle(previewStyle(segment,colors==null?safeRgb(firstColorText(segment)):colors.get(charIndex++)));g.text(font,styled,px,17,0xFFFFFFFF);px+=font.width(styled);position+=Character.charCount(cp);}}});
+		previewComponent(Math.max(32,(int)imgui.ImGui.getContentRegionAvailX()));
 		for(int i=0;i<segments.size();i++){var segment=segments.get(i);int rgb=safeRgb(segment.color);imgui.ImGui.pushStyleColor(imgui.flag.ImGuiCol.Text,(rgb>>16&255)/255f,(rgb>>8&255)/255f,(rgb&255)/255f,1);if(imgui.ImGui.selectable(segment.previewText()+"##preview"+i,i==selectedIndex))selectSegment(i);NativeUi.hint(hoverSummary(segment));imgui.ImGui.popStyleColor();}
 		NativeUi.readOnly("##generated",generatedJsonSafe(),120);NativeUi.action("插入",this::insertJson);imgui.ImGui.sameLine();NativeUi.action("复制",this::copyJson);NativeUi.status(status);
+	}
+	/** Draws the styled segments at 2x, wrapping onto further rows when the window is narrow, so long text stays readable. */
+	private void previewComponent(int pixelWidth) {
+		final int density = 2, margin = 6, rowHeight = 12;
+		int logicalWidth = Math.max(40, pixelWidth / density);
+		List<Object[]> glyphs = new ArrayList<>();
+		int x = margin, row = 0;
+		for (var segment : segments) {
+			String text = segment.previewText();
+			List<Integer> colors = null;
+			try { if (segment.gradient && segment.kind == LuaTextJsonDocument.Kind.TEXT) colors = LuaTextJsonDocument.gradientColors(segment.gradientStops, text.codePointCount(0, text.length())); } catch (IllegalArgumentException ignored) { }
+			int charIndex = 0;
+			for (int position = 0; position < text.length(); ) {
+				int cp = text.codePointAt(position);
+				position += Character.charCount(cp);
+				if (cp == '\n') { x = margin; row++; continue; }
+				Component styled = Component.literal(new String(Character.toChars(cp))).withStyle(previewStyle(segment, colors == null ? safeRgb(firstColorText(segment)) : colors.get(charIndex++)));
+				int width = font.width(styled);
+				if (x + width > logicalWidth - margin && x > margin) { x = margin; row++; }
+				glyphs.add(new Object[] {styled, x, row});
+				x += width;
+			}
+		}
+		int logicalHeight = Math.min(200, Math.max(24, (row + 1) * rowHeight + 10));
+		NativeUi.mediaScaled("text_component_preview", logicalWidth, logicalHeight, density, -10000, -10000, g -> {
+			for (Object[] glyph : glyphs) g.text(font, (Component) glyph[0], (Integer) glyph[1], 5 + (Integer) glyph[2] * rowHeight, 0xFFFFFFFF);
+		});
 	}
 	private static final int TITLE_HEIGHT = 28;
 	private static final int RESIZE_MARGIN = 6;

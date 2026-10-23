@@ -50,9 +50,25 @@ final class NativeUi {
     static void hint(String text) { if(ImGui.isItemHovered()) ImGui.setTooltip(LuaUiText.text(text)); }
     static void status(String text) { ImGui.separator(); ImGui.textWrapped(LuaUiText.text(text==null?"":text)); }
     static void copy(String text) { ImGui.setClipboardText(text==null?"":text); }
+    /** Read-only text that wraps to the window width (no sideways scrolling); right-click copies it. */
     static void readOnly(String id,String text,float height) {
-        var buffer=strings.computeIfAbsent(ImGui.getID(id),key->new ImString(256)); buffer.set(text==null?"":text,true);
-        ImGui.inputTextMultiline(id,buffer,-1,height,ImGuiInputTextFlags.ReadOnly);
+        String value=text==null?"":text;
+        ImGui.beginChild(id+"##readonly",-1,height,true);
+        ImGui.textWrapped(value);
+        if(ImGui.beginPopupContextWindow()){ if(ImGui.menuItem(LuaUiText.text("复制")))copy(value); ImGui.endPopup(); }
+        ImGui.endChild();
+    }
+    private static final Map<Integer,Integer> logSizes=new HashMap<>();
+    /** Wrapped log lines that follow new output: while the view sits at the bottom, new lines scroll into view. */
+    static void log(String id,java.util.List<String> lines,float height) {
+        int key=ImGui.getID(id);
+        ImGui.beginChild(id+"##log",-1,height,true);
+        boolean atBottom=ImGui.getScrollY()>=ImGui.getScrollMaxY()-4;
+        for(String line:lines)ImGui.textWrapped(line);
+        int previous=logSizes.getOrDefault(key,-1);
+        if(previous!=lines.size()){ logSizes.put(key,lines.size()); if(atBottom||previous<0||lines.size()<previous)ImGui.setScrollHereY(1f); }
+        if(ImGui.beginPopupContextWindow()){ if(ImGui.menuItem(LuaUiText.text("复制全部")))copy(String.join("\n",lines)); ImGui.endPopup(); }
+        ImGui.endChild();
     }
     static void code(String id,String source,float height) {
         var editor=code.computeIfAbsent(ImGui.getID(id),key->{

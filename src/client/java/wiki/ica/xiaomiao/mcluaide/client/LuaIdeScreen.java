@@ -8579,7 +8579,7 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			case MANUAL->nativeManualImGui();
 			case OUTPUT->{
 				NativeUi.action("复制全部",()->NativeUi.copy(String.join("\n",outputLines)));imgui.ImGui.sameLine();NativeUi.action("清空日志",outputLines::clear);
-				NativeUi.readOnly("##logs",String.join("\n",outputLines),Math.max(80,imgui.ImGui.getContentRegionAvailY()));
+				NativeUi.log("##logs",outputLines,Math.max(80,imgui.ImGui.getContentRegionAvailY()));
 			}
 		}
 	}
