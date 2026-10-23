@@ -689,6 +689,7 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			componentEditorOverlay = new LuaComponentEditorOverlay(minecraft, font,
 					this::insertComponentPatch, message -> status = message);
 		}
+		componentEditorOverlay.setFunctionDocument(this::isFunctionDocument);
 		componentEditorOverlay.resize(width, height);
 		if (datapackJsonEditorOverlay == null) {
 			datapackJsonEditorOverlay = new LuaDatapackJsonEditorOverlay(minecraft, font,
@@ -701,6 +702,7 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			textJsonOverlay = new LuaTextJsonOverlay(minecraft, font,
 					this::insertTextJson, message -> status = message);
 		}
+		textJsonOverlay.setFunctionDocument(this::isFunctionDocument);
 		textJsonOverlay.resize(width, height);
 		if (minecraftUiEditorOverlay == null) {
 			minecraftUiEditorOverlay = new LuaMinecraftUiEditorOverlay(minecraft, font,
@@ -3430,10 +3432,11 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			end = Math.max(access.mcLuaIde$getCursor(), access.mcLuaIde$getSelectCursor());
 		}
 		componentInsertionTarget = null;
-		String formatted = LuaIndentation.formatPaste(componentsLua, field.value(), start);
+		boolean command = isFunctionDocument();
+		String formatted = command ? componentsLua : LuaIndentation.formatPaste(componentsLua, field.value(), start);
 		replaceRange(start, end, formatted);
 		clearSuggestions();
-		status = "已插入数据组件表 · 导出前已通过服务器编解码校验";
+		status = command ? "已插入命令组件格式 · 已通过服务器编解码校验" : "已插入数据组件表 · 导出前已通过服务器编解码校验";
 	}
 
 	private void insertTextJson(String luaJsonString) {
@@ -3454,7 +3457,7 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 		}
 		replaceRange(start, end, luaJsonString);
 		clearSuggestions();
-		status = "已插入 Minecraft 文本组件 JSON 字符串";
+		status = isFunctionDocument() ? "已插入文本组件 JSON" : "已插入 Minecraft 文本组件 JSON 字符串";
 	}
 
 	private String currentDatapackJsonCategory() {

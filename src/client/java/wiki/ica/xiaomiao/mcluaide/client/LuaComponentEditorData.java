@@ -105,6 +105,68 @@ record LuaComponentEditorData(String kind, String requestedId, String itemId, St
 		return result.append(indent).append('}').toString();
 	}
 
+	/** Item components in command syntax: {@code [minecraft:custom_name={text:"x"},!minecraft:food]}. */
+	static String commandComponents(JsonObject patch) {
+		StringBuilder result = new StringBuilder("[");
+		for (Map.Entry<String, JsonElement> entry : patch.entrySet()) {
+			if (result.length() > 1) result.append(',');
+			if (entry.getValue() == null || entry.getValue().isJsonNull()) result.append('!').append(entry.getKey());
+			else result.append(entry.getKey()).append('=').append(snbt(entry.getValue()));
+		}
+		return result.append(']').toString();
+	}
+
+	/** Block state properties plus block entity data in command syntax: {@code [facing=north]{Lock:"key"}}. */
+	static String commandBlock(String blockId, JsonObject config, boolean withId) {
+		StringBuilder result = new StringBuilder(withId ? blockId : "");
+		if (config.has("states") && config.get("states").isJsonObject() && !config.getAsJsonObject("states").isEmpty()) {
+			result.append('[');
+			boolean first = true;
+			for (Map.Entry<String, JsonElement> state : config.getAsJsonObject("states").entrySet()) {
+				if (!first) result.append(',');
+				first = false;
+				JsonElement value = state.getValue();
+				result.append(state.getKey()).append('=')
+						.append(value.isJsonPrimitive() ? value.getAsJsonPrimitive().getAsString() : value.toString());
+			}
+			result.append(']');
+		}
+		if (config.has("blockEntityData") && config.get("blockEntityData").isJsonObject()
+				&& !config.getAsJsonObject("blockEntityData").isEmpty()) result.append(snbt(config.get("blockEntityData")));
+		return result.toString();
+	}
+
+	/** Entity configuration as an NBT compound for summon-style commands. */
+	static String commandEntity(JsonObject patch) { return snbt(patch); }
+
+	static String snbt(JsonElement value) {
+		if (value == null || value.isJsonNull()) return "{}";
+		if (value.isJsonPrimitive()) {
+			var primitive = value.getAsJsonPrimitive();
+			if (primitive.isString()) return snbtString(primitive.getAsString());
+			return primitive.toString();
+		}
+		if (value.isJsonArray()) {
+			StringBuilder result = new StringBuilder("[");
+			for (JsonElement child : value.getAsJsonArray()) {
+				if (result.length() > 1) result.append(',');
+				result.append(snbt(child));
+			}
+			return result.append(']').toString();
+		}
+		StringBuilder result = new StringBuilder("{");
+		for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
+			if (result.length() > 1) result.append(',');
+			String key = entry.getKey();
+			result.append(key.matches("[A-Za-z0-9_.+-]+") ? key : snbtString(key)).append(':').append(snbt(entry.getValue()));
+		}
+		return result.append('}').toString();
+	}
+
+	private static String snbtString(String value) {
+		return '"' + value.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
+	}
+
 	private static String quote(String value) {
 		return new com.google.gson.JsonPrimitive(value).toString();
 	}

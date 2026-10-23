@@ -874,3 +874,11 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+tasks.register("commandReferenceSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks the command reference built from a Brigadier dispatcher (usages, aliases, grouping)."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.CommandReferenceSmoke"
+}
+check.dependsOn commandReferenceSmoke

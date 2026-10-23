@@ -58,7 +58,7 @@ public final class LuaProtocol {
 	public static int responseTextLimit(int actionId) {
 		if (actionId < 0 || actionId >= Action.values().length) return MAX_RESPONSE_CHARS;
 		return switch (Action.byId(actionId)) {
-			case READ, READ_DATAPACK_FILE -> MAX_SCRIPT_CHARS;
+			case READ, READ_DATAPACK_FILE, GET_COMMAND_REFERENCE -> MAX_SCRIPT_CHARS;
 			default -> MAX_RESPONSE_CHARS;
 		};
 	}
@@ -144,7 +144,9 @@ public final class LuaProtocol {
 		/** Automatic and manual zip snapshots of the script workspace. */
 		LIST_SNAPSHOTS,
 		CREATE_SNAPSHOT,
-		RESTORE_SNAPSHOT;
+		RESTORE_SNAPSHOT,
+		/** Every command of the server with its usage lines, grouped by vanilla and by mod (JSON). */
+		GET_COMMAND_REFERENCE;
 
 		/**
 		 * The number sent on the wire. It is the declaration position, so NEVER reorder or insert constants in the middle:

@@ -2481,5 +2481,22 @@
   "replacing": "置き換えたもの:",
   "Hold Ctrl, Shift or Alt as well; a bare F key is never intercepted": "Ctrl・Shift・Alt のいずれかを同時に押してください。F キー単独では割り当てられません",
   "Lua folder": "Lua フォルダー",
-  "Image tool": "画像ツール"
+  "Image tool": "画像ツール",
+  "Command reference": "コマンドリファレンス",
+  "Search commands, formats or descriptions…": "コマンド・書式・説明を検索…",
+  "From the connected server: one category for vanilla and one per mod. Click a format to select it; double-click inserts it into the function file.": "接続中のサーバーから取得: バニラ用に 1 カテゴリ、Mod ごとに 1 カテゴリ。書式をクリックで選択、ダブルクリックで関数ファイルに挿入します。",
+  "Vanilla commands": "バニラのコマンド",
+  "Other commands (mod unknown)": "その他のコマンド（所属 Mod 不明）",
+  "No commands to show.": "表示できるコマンドはありません。",
+  "No command format selected": "コマンドの書式が未選択です",
+  "Insert into editor": "エディターに挿入",
+  "Copied the command format": "コマンドの書式をコピーしました",
+  "Inserted the command format": "コマンドの書式を挿入しました",
+  "Open an editable file first": "先に編集可能なファイルを開いてください",
+  "Invalid command data": "コマンドデータの形式が無効です",
+  "Copy command format": "コマンド形式をコピー",
+  "A command function cannot use Lua variables; use plain text instead": "コマンド関数では Lua 変数を使えません。通常のテキストに変更してください",
+  "Inserted command-format components · validated by the server codec": "コマンド形式のコンポーネントを挿入しました · サーバーのコーデックで検証済み",
+  "Inserted the text component JSON": "テキストコンポーネントの JSON を挿入しました",
+  "text JSON": "テキスト JSON"
 }

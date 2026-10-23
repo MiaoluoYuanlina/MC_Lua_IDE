@@ -108,6 +108,9 @@ final class LuaTextJsonOverlay {
 	private final Minecraft minecraft;
 	private final Font font;
 	private final Consumer<String> insertion;
+	private java.util.function.BooleanSupplier functionDocument = () -> false;
+	/** In a .mcfunction file the editor inserts the raw JSON text component instead of a Lua string expression. */
+	void setFunctionDocument(java.util.function.BooleanSupplier supplier) { this.functionDocument = supplier; }
 	private final Consumer<String> feedback;
 	private final List<LuaTextJsonDocument.Segment> segments = new ArrayList<>();
 	private final List<Hit> hits = new ArrayList<>();
@@ -1147,6 +1150,13 @@ final class LuaTextJsonOverlay {
 	private void insertJson() {
 		try {
 			validatedJson();
+			if (functionDocument.getAsBoolean()) {
+				if (LuaTextJsonDocument.hasVariables(segments)) throw new IllegalArgumentException(LuaUiText.text("命令函数不能使用 Lua 变量；请改为普通文字"));
+				insertion.accept(LuaTextJsonDocument.build(segments).toString());
+				status = "已插入由 " + segments.size() + " 段组成的文本 JSON";
+				feedback.accept(status);
+				return;
+			}
 			insertion.accept(LuaTextJsonDocument.luaExpression(segments));
 			status = "已插入由 " + segments.size() + " 段组成的"
 					+ (LuaTextJsonDocument.hasVariables(segments) ? " Lua 动态文本拼接表达式" : "文本 JSON 字符串");

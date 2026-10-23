@@ -41,7 +41,7 @@ final class LuaComponentEditorOverlay {
 		String text=NativeUi.field("筛选组件",componentQuery);if(!text.equals(componentQuery)){componentQuery=text;filterComponents();}
 		boolean all=NativeUi.check("显示全部可用字段",showAll);if(all!=showAll){showAll=all;filterComponents();}
 		if(data!=null)treeEditor.renderImGui();else imgui.ImGui.textWrapped(loading?"正在读取游戏组件…":"选择目标以读取可用组件、状态和数据");
-		NativeUi.action("插入",()->export(Export.INSERT));imgui.ImGui.sameLine();NativeUi.action("复制 Lua",()->export(Export.COPY_STACK));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->export(Export.COPY_JSON));
+		NativeUi.action("插入",()->export(Export.INSERT));imgui.ImGui.sameLine();NativeUi.action(functionDocument.getAsBoolean()?"复制命令格式":"复制 Lua",()->export(Export.COPY_STACK));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->export(Export.COPY_JSON));
 		if(imgui.ImGui.getIO().getKeyCtrl()&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))export(Export.INSERT);
 		NativeUi.status(status);
 	}
@@ -58,6 +58,16 @@ final class LuaComponentEditorOverlay {
 	private final Minecraft minecraft;
 	private final Font font;
 	private final Consumer<String> insertion;
+	private java.util.function.BooleanSupplier functionDocument = () -> false;
+	/** In a .mcfunction file the editor writes command syntax instead of Lua tables. */
+	void setFunctionDocument(java.util.function.BooleanSupplier supplier) { this.functionDocument = supplier; }
+	private String commandText(JsonObject checked, boolean withId) {
+		return switch (data.kind()) {
+			case "entity" -> LuaComponentEditorData.commandEntity(checked);
+			case "block" -> LuaComponentEditorData.commandBlock(data.requestedId(), checked, withId);
+			default -> (withId ? data.itemId() : "") + LuaComponentEditorData.commandComponents(checked);
+		};
+	}
 	private final Consumer<String> feedback;
 	private final JsonTreeEditor treeEditor;
 	private final Map<Category, List<LuaInsertCatalog.Entry>> catalogs = new EnumMap<>(Category.class);
@@ -858,9 +868,12 @@ final class LuaComponentEditorOverlay {
 					}
 					JsonObject checked = JsonParser.parseString(canonical).getAsJsonObject();
 					if (action == Export.INSERT) {
-						insertion.accept(LuaComponentEditorData.luaComponents(checked));
+						insertion.accept(functionDocument.getAsBoolean() ? commandText(checked, false) : LuaComponentEditorData.luaComponents(checked));
 						status = LuaUiText.text("配置表已插入代码编辑器");
 						if (open && closeAfterInsert && openRevision == insertionRevision) close();
+					} else if (action == Export.COPY_STACK && functionDocument.getAsBoolean()) {
+						minecraft.keyboardHandler.setClipboard(commandText(checked, true));
+						status = LuaUiText.text("已复制命令格式");
 					} else if (action == Export.COPY_STACK) {
 						if (data.kind().equals("entity")) {
 							minecraft.keyboardHandler.setClipboard(

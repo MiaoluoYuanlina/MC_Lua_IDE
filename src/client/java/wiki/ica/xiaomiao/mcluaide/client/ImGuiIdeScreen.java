@@ -56,6 +56,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     void openServerSettings() { openTool("NATIVE_SETTINGS"); }
     LuaIdeScreen controller() { return tools == null ? null : tools.controller; }
     @Override public void openTool(String id) { if (tools != null) tools.open(id); else pendingTools.put(id, true); }
+    @Override public boolean insertText(String text) { return tools != null && tools.editorContext().insertText(text); }
 
     // ---- EditorHost: what the outline, search, compare and palette panels use ----------------------------------------------
     private final CommandPalette palette = new CommandPalette(new PaletteSource());
@@ -141,6 +142,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         add.accept(new String[]{"切换终端", "Toggle terminal", "Ctrl+`"}, this::toggleTerminal);
         add.accept(new String[]{"查看审计日志", "Show audit log", ""}, () -> openTool(AuditLogPanel.ID));
         add.accept(new String[]{"备份与恢复", "Backups", ""}, () -> openTool(BackupPanel.ID));
+        add.accept(new String[]{"命令参考", "Command reference", ""}, () -> openTool(CommandReferencePanel.ID));
         add.accept(new String[]{"拆分编辑器", "Split editor", ""}, () -> openTool(SplitEditorPane.ID));
         add.accept(new String[]{"欢迎页与示例项目", "Welcome and sample project", ""}, () -> openTool(WelcomePanel.ID));
         add.accept(new String[]{"新建本地终端", "New local terminal", "Ctrl+Shift+T"}, () -> { openTool(TerminalPanel.ID); try { TerminalPanel.openLocal(""); } catch (RuntimeException error) { notice(error.getMessage()); } });

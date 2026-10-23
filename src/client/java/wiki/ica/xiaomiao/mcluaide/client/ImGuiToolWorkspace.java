@@ -29,6 +29,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
     final TerminalPanel terminal;
     private final AuditLogPanel audit = new AuditLogPanel();
     private BackupPanel backups;
+    private CommandReferencePanel commandReference;
     SearchPanel searchPanel(){return search;}
     DiffPanel diffPanel(){return diff;}
     /** Whether the focused pane is the terminal: it then owns the keyboard, apart from the few global shortcuts the screen handles first. */
@@ -50,6 +51,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
         panes.put(WelcomePanel.ID,new Pane(WelcomePanel.ID,LuaUiText.text("欢迎","Welcome"),false));
         panes.put(SplitEditorPane.ID,new Pane(SplitEditorPane.ID,LuaUiText.text("拆分编辑器","Split editor"),Boolean.parseBoolean(preferences.getProperty("tool."+SplitEditorPane.ID,"false"))));
         panes.put(BackupPanel.ID,new Pane(BackupPanel.ID,LuaUiText.text("备份与恢复","Backups"),Boolean.parseBoolean(preferences.getProperty("tool."+BackupPanel.ID,"false"))));
+        panes.put(CommandReferencePanel.ID,new Pane(CommandReferencePanel.ID,LuaUiText.text("命令参考","Command reference"),Boolean.parseBoolean(preferences.getProperty("tool."+CommandReferencePanel.ID,"false"))));
         panes.put(AuditLogPanel.ID,new Pane(AuditLogPanel.ID,LuaUiText.text("审计日志","Audit log"),Boolean.parseBoolean(preferences.getProperty("tool."+AuditLogPanel.ID,"false"))));
         panes.put(TerminalPanel.ID,new Pane(TerminalPanel.ID,LuaUiText.text("终端","Terminal"),Boolean.parseBoolean(preferences.getProperty("tool."+TerminalPanel.ID,"false"))));
         panes.put("NATIVE_DEBUG",new Pane("NATIVE_DEBUG",LuaUiText.text("调试设置 · F12"),Boolean.parseBoolean(preferences.getProperty("tool.NATIVE_DEBUG","false"))));
@@ -130,7 +132,7 @@ final class ImGuiToolWorkspace implements AutoCloseable {
             boolean visible=ImGui.begin(windowTitle(pane),pane.open,ImGuiWindowFlags.NoCollapse|(owner.layoutLocked()&&pane.docked?ImGuiWindowFlags.NoMove:0));
             motion.observe(pane.id);
             pane.docked=ImGui.isWindowDocked();
-            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else if(pane.id.equals(WelcomePanel.ID)){if(welcome==null)welcome=new WelcomePanel(owner,preferences);welcome.draw();}else if(pane.id.equals(SplitEditorPane.ID)){if(split==null){split=new SplitEditorPane(owner);split.area().onExtensionCommand(owner::runExtension);}split.draw(owner.openDocuments(),owner.currentDocument());}else if(pane.id.equals(BackupPanel.ID)){if(backups==null)backups=new BackupPanel(owner);backups.draw();}else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
+            if(visible){if(ImGui.isWindowFocused(ImGuiFocusedFlags.ChildWindows))activePane=pane.id;if(bound!=null)bind(bound);ImGui.pushID(pane.id);if(pane.id.equals("NATIVE_SETTINGS"))nativePanels.settings();else if(pane.id.equals("NATIVE_DEBUG"))nativePanels.debug();else if(pane.id.equals("NATIVE_GAMEVIEW"))gameView.draw();else if(pane.id.equals("NATIVE_OUTLINE"))outline.draw();else if(pane.id.equals("NATIVE_SEARCH"))search.draw();else if(pane.id.equals("NATIVE_DIFF"))diff.draw();else if(pane.id.equals(TerminalPanel.ID))terminal.draw();else if(pane.id.equals(AuditLogPanel.ID))audit.draw();else if(pane.id.equals(WelcomePanel.ID)){if(welcome==null)welcome=new WelcomePanel(owner,preferences);welcome.draw();}else if(pane.id.equals(SplitEditorPane.ID)){if(split==null){split=new SplitEditorPane(owner);split.area().onExtensionCommand(owner::runExtension);}split.draw(owner.openDocuments(),owner.currentDocument());}else if(pane.id.equals(BackupPanel.ID)){if(backups==null)backups=new BackupPanel(owner);backups.draw();}else if(pane.id.equals(CommandReferencePanel.ID)){if(commandReference==null)commandReference=new CommandReferencePanel(owner);commandReference.draw();}else controller.nativeDrawToolImGui(pane.id);ImGui.popID();pane.frames++;pull();}
             ImGui.end();motion.end();
             // The title-bar X only clears the flag; keep drawing while the window fades out, then release it above.
             if(!pane.open.get()){pane.open.set(true);pane.closing=true;}

@@ -669,6 +669,9 @@ public final class ScriptManager {
 	static CompletableFuture<String> restoreSnapshot(String name) {
 		return request(LuaProtocol.Action.RESTORE_SNAPSHOT, name, "").thenApply(LuaProtocol.Response::data);
 	}
+	static CompletableFuture<String> commandReference() {
+		return request(LuaProtocol.Action.GET_COMMAND_REFERENCE, "", "").thenApply(LuaProtocol.Response::data);
+	}
 	static CompletableFuture<String> auditLog() {
 		return request(LuaProtocol.Action.GET_AUDIT_LOG, "", "").thenApply(LuaProtocol.Response::data);
 	}

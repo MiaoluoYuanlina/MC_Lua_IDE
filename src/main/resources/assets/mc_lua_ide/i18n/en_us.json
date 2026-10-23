@@ -2034,5 +2034,22 @@
   "请按下新的快捷键…": "Press the new shortcut…",
   "清除": "Clear",
   "取代了": "replacing",
-  "请同时按住 Ctrl、Shift 或 Alt，单独的 F 键不会被拦截": "Hold Ctrl, Shift or Alt as well; a bare F key is never intercepted"
+  "请同时按住 Ctrl、Shift 或 Alt，单独的 F 键不会被拦截": "Hold Ctrl, Shift or Alt as well; a bare F key is never intercepted",
+  "命令参考": "Command reference",
+  "搜索命令、格式或说明…": "Search commands, formats or descriptions…",
+  "来自当前服务器：原版命令一个分类，每个模组各一个分类。点击格式选中，双击插入到函数文件。": "From the connected server: one category for vanilla and one per mod. Click a format to select it; double-click inserts it into the function file.",
+  "原版命令": "Vanilla commands",
+  "其他命令（无法判定所属模组）": "Other commands (mod unknown)",
+  "没有可显示的命令。": "No commands to show.",
+  "尚未选择命令格式": "No command format selected",
+  "插入到编辑器": "Insert into editor",
+  "已复制命令格式": "Copied the command format",
+  "已插入命令格式": "Inserted the command format",
+  "请先打开一个可编辑的文件": "Open an editable file first",
+  "命令数据格式无效": "Invalid command data",
+  "复制命令格式": "Copy command format",
+  "命令函数不能使用 Lua 变量；请改为普通文字": "A command function cannot use Lua variables; use plain text instead",
+  "已插入命令组件格式 · 已通过服务器编解码校验": "Inserted command-format components · validated by the server codec",
+  "已插入文本组件 JSON": "Inserted the text component JSON",
+  "文本 JSON": "text JSON"
 }

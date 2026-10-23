@@ -209,6 +209,7 @@ public final class LuaServerNetworking {
 					try { return LuaWorkspaceSnapshots.restore(request.name()); } catch (java.io.IOException error) { throw new java.util.concurrent.CompletionException(error); }
 				}).thenCompose(result -> server.submit(() -> { notifyCatalogChanged(server); return result; })));
 				case GET_AUDIT_LOG -> sendSuccess(player, request, LuaAuditLog.recent(300));
+				case GET_COMMAND_REFERENCE -> sendSuccess(player, request, LuaCommandReference.build(server.getCommands().getDispatcher(), player.createCommandSourceStack()));
 				case FILE_PRESENCE -> sendSuccess(player, request, LuaEditPresence.report(player.getUUID(), player.getName().getString(), request.body()));
 				case SAVE_CHECKED -> {
 					LuaEditPresence.saveChecked(request.name(), player.getName().getString(), request.body());

@@ -23,4 +23,6 @@ interface EditorHost {
 	void notice(String message);
 	/** Opens one of the tool panes by id (see ImGuiToolWorkspace). */
 	void openTool(String id);
+	/** Inserts text at the caret of the active editor tab (replacing the selection); false when no editable file is open. */
+	boolean insertText(String text);
 }
