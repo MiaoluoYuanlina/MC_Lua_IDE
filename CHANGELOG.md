@@ -2,6 +2,18 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-10-23
+
+### Added
+- Command reference window: every command of the connected server with its formats, grouped into one Minecraft category and one category per mod; vanilla commands have descriptions in Chinese, English and Japanese. Double-click a format to insert it into the open file.
+- The data component editor and the text JSON editor write command syntax in `.mcfunction` files (and Lua in Lua files), like the insert window already did.
+- MCP: an opt-in toggle that allows connections from non-local IP addresses (off by default; the access token is still required).
+
+### Changed
+- Personalization shortcuts page: one row per window with a Set button that waits for the key combination, Clear, and translations.
+- Run log follows new output; read-only text wraps instead of scrolling sideways; new windows open centred and cascaded; the text JSON preview is larger and wraps.
+- Pressing the IDE key (or running `/lua`) while the IDE is controlling the game returns to the IDE you already have open.
+
 ## [1.0.2] - 2026-10-22
 
 ### Added
@@ -66,6 +78,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.3]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.3
 [1.0.2]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.2
 [1.0.1]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.0
