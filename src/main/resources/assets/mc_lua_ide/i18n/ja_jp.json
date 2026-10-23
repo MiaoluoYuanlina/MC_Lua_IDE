@@ -2472,5 +2472,14 @@
   "Maximum run seconds": "最大実行秒数",
   "Network response bytes": "ネットワーク応答のバイト数",
   "Network timeout seconds": "ネットワークタイムアウト秒数",
-  "Maximum script characters": "スクリプトの最大文字数"
+  "Maximum script characters": "スクリプトの最大文字数",
+  "Click \"Set\", then press the new shortcut directly: Ctrl / Shift / Alt + F1–F12. Esc cancels.": "「設定」をクリックしてから新しいショートカットを直接押してください: Ctrl / Shift / Alt + F1～F12。Esc でキャンセル。",
+  "Window": "ウィンドウ",
+  "Actions": "操作",
+  "Set": "設定",
+  "Clear": "クリア",
+  "replacing": "置き換えたもの:",
+  "Hold Ctrl, Shift or Alt as well; a bare F key is never intercepted": "Ctrl・Shift・Alt のいずれかを同時に押してください。F キー単独では割り当てられません",
+  "Lua folder": "Lua フォルダー",
+  "Image tool": "画像ツール"
 }

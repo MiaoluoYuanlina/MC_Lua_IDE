@@ -15,6 +15,57 @@ import java.util.List;
 
 /** Client-only appearance page inspired by a terminal settings pane. */
 final class LuaPersonalizationScreen extends Screen {
+    private LuaWindowShortcuts.Target capturingTarget;
+    /** One row per window: its current chord, a button that waits for the next key combination, and a clear button. */
+    private void shortcutsImGui() {
+        var shortcuts=draft.windowShortcuts;
+        imgui.ImGui.textWrapped(LuaUiText.text("点击“设置”后直接按下新的快捷键：Ctrl / Shift / Alt + F1～F12。Esc 取消。"));
+        imgui.ImGui.textDisabled(LuaUiText.text("窗口快捷键优先于同组合的调试快捷键。"));
+        if(capturingTarget!=null) {
+            LuaWindowShortcuts.capturing();
+            var io=imgui.ImGui.getIO();
+            if(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Escape,false)) {
+                capturingTarget=null; status=LuaUiText.text("已取消修改");
+            } else for(int f=1;f<=12&&capturingTarget!=null;f++) {
+                if(!imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.F1+f-1,false))continue;
+                int modifiers=(io.getKeyShift()?LuaWindowShortcuts.SHIFT:0)|(io.getKeyCtrl()?LuaWindowShortcuts.CTRL:0)|(io.getKeyAlt()?LuaWindowShortcuts.ALT:0);
+                if(modifiers==0){status=LuaUiText.text("请同时按住 Ctrl、Shift 或 Alt，单独的 F 键不会被拦截");break;}
+                var replaced=shortcuts.get(modifiers,f);
+                shortcuts.bind(capturingTarget,modifiers,f);
+                status=LuaUiText.text("已设置 ")+LuaWindowShortcuts.chordLabel(modifiers,f)+" → "+LuaUiText.text(capturingTarget.label)
+                        +(replaced!=LuaWindowShortcuts.Target.NONE&&replaced!=capturingTarget?" · "+LuaUiText.text("取代了")+" "+LuaUiText.text(replaced.label):"")
+                        +LuaUiText.text(" · 点击保存应用");
+                capturingTarget=null;
+            }
+        }
+        if(imgui.ImGui.beginTable("window_shortcuts",3,imgui.flag.ImGuiTableFlags.RowBg|imgui.flag.ImGuiTableFlags.BordersInnerH|imgui.flag.ImGuiTableFlags.SizingStretchProp)) {
+            imgui.ImGui.tableSetupColumn(LuaUiText.text("窗口"),imgui.flag.ImGuiTableColumnFlags.WidthStretch,2);
+            imgui.ImGui.tableSetupColumn(LuaUiText.text("快捷键"),imgui.flag.ImGuiTableColumnFlags.WidthStretch,1.4f);
+            imgui.ImGui.tableSetupColumn(LuaUiText.text("操作"),imgui.flag.ImGuiTableColumnFlags.WidthFixed,170);
+            imgui.ImGui.tableHeadersRow();
+            for(var target:LuaWindowShortcuts.Target.values()) {
+                if(target==LuaWindowShortcuts.Target.NONE)continue;
+                imgui.ImGui.pushID(target.name());
+                imgui.ImGui.tableNextRow(); imgui.ImGui.tableNextColumn();
+                imgui.ImGui.alignTextToFramePadding(); imgui.ImGui.text(LuaUiText.text(target.label));
+                imgui.ImGui.tableNextColumn();
+                boolean waiting=capturingTarget==target;
+                String chords=shortcuts.chordsOf(target);
+                if(waiting)imgui.ImGui.textColored(1f,.83f,.4f,1f,LuaUiText.text("请按下新的快捷键…"));
+                else if(chords.isEmpty())imgui.ImGui.textDisabled(LuaUiText.text("未绑定"));
+                else imgui.ImGui.text(chords);
+                imgui.ImGui.tableNextColumn();
+                if(imgui.ImGui.button(waiting?LuaUiText.text("取消"):LuaUiText.text("设置")))capturingTarget=waiting?null:target;
+                imgui.ImGui.sameLine();
+                imgui.ImGui.beginDisabled(chords.isEmpty());
+                if(imgui.ImGui.button(LuaUiText.text("清除"))) { shortcuts.unbind(target); if(waiting)capturingTarget=null; }
+                imgui.ImGui.endDisabled();
+                imgui.ImGui.popID();
+            }
+            imgui.ImGui.endTable();
+        }
+        NativeUi.action("恢复全部窗口快捷键默认值",()->{draft.windowShortcuts.reset();capturingTarget=null;});
+    }
     void renderImGui() {
         for(var tab:Section.values()) { if(imgui.ImGui.button(LuaUiText.text(tab.label)))section=tab;NativeUi.next(tab.label); }
         imgui.ImGui.newLine();
@@ -56,16 +107,9 @@ final class LuaPersonalizationScreen extends Screen {
                 }
                 NativeUi.action("恢复默认配色",draft.syntaxColors::clear);
             }
-            case SHORTCUTS -> {
-                shortcutModifiers=NativeUi.integer("修饰键 1=Ctrl 2=Shift 4=Alt",shortcutModifiers,1,7);
-                shortcutFunction=NativeUi.integer("F 键",shortcutFunction,1,12);
-                for(var action:LuaWindowShortcuts.Target.values()) {
-                    if(imgui.ImGui.button(action.name()))draft.windowShortcuts.set(shortcutModifiers,shortcutFunction,action);
-                    imgui.ImGui.sameLine();
-                }
-                imgui.ImGui.newLine();
-            }
+            case SHORTCUTS -> shortcutsImGui();
         }
+        if(section!=Section.SHORTCUTS)capturingTarget=null;
         imgui.ImGui.separator();
         NativeUi.action("保存并应用",()->{try{draft.save();previous.setPersonalization(draft.copy());status="已保存并应用";}catch(Exception e){status=e.getMessage();}});
         NativeUi.status(status);

@@ -2028,5 +2028,11 @@
   "最长运行秒数": "Maximum run seconds",
   "网络响应字节数": "Network response bytes",
   "网络超时秒数": "Network timeout seconds",
-  "脚本最大字符数": "Maximum script characters"
+  "脚本最大字符数": "Maximum script characters",
+  "点击“设置”后直接按下新的快捷键：Ctrl / Shift / Alt + F1～F12。Esc 取消。": "Click \"Set\", then press the new shortcut directly: Ctrl / Shift / Alt + F1–F12. Esc cancels.",
+  "操作": "Actions",
+  "请按下新的快捷键…": "Press the new shortcut…",
+  "清除": "Clear",
+  "取代了": "replacing",
+  "请同时按住 Ctrl、Shift 或 Alt，单独的 F 键不会被拦截": "Hold Ctrl, Shift or Alt as well; a bare F key is never intercepted"
 }

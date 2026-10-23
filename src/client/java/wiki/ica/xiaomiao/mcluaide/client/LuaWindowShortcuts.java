@@ -37,9 +37,33 @@ final class LuaWindowShortcuts {
 		if (modifiers < 1 || modifiers > 7 || f < 1 || f > 12) throw new IllegalArgumentException("Invalid IDE chord");
 		bindings[modifiers][f - 1] = java.util.Objects.requireNonNull(target);
 	}
+	/** While the personalization page waits for a new chord, window shortcuts must not fire; refreshed every frame so a closed page cannot leave them disabled. */
+	private static volatile long captureUntilNanos;
+	static void capturing() { captureUntilNanos = System.nanoTime() + 300_000_000L; }
+	static boolean isCapturing() { return System.nanoTime() < captureUntilNanos; }
+	static String chordLabel(int modifiers, int f) { return modifierLabel(modifiers) + "F" + f; }
+	/** All chords currently opening the target, e.g. "Ctrl+F1, Alt+F3". */
+	String chordsOf(Target target) {
+		StringBuilder result = new StringBuilder();
+		for (int modifiers = 1; modifiers <= 7; modifiers++) for (int f = 1; f <= 12; f++) {
+			if (bindings[modifiers][f - 1] != target) continue;
+			if (!result.isEmpty()) result.append(", ");
+			result.append(chordLabel(modifiers, f));
+		}
+		return result.toString();
+	}
+	/** Gives the target exactly one chord, replacing its old ones and whatever used the new chord. */
+	void bind(Target target, int modifiers, int f) {
+		unbind(target);
+		set(modifiers, f, target);
+	}
+	void unbind(Target target) {
+		for (int modifiers = 1; modifiers <= 7; modifiers++) for (int f = 1; f <= 12; f++)
+			if (bindings[modifiers][f - 1] == target) bindings[modifiers][f - 1] = Target.NONE;
+	}
 	Target match(int key, int modifiers) {
 		// Caps/Num lock don't affect a chord; Super/Windows must not match Ctrl/Shift/Alt.
-		return (modifiers & ~ (7 | 16 | 32)) == 0 ? get(modifiers & 7, key - FIRST_F_KEY + 1) : Target.NONE;
+		return !isCapturing() && (modifiers & ~ (7 | 16 | 32)) == 0 ? get(modifiers & 7, key - FIRST_F_KEY + 1) : Target.NONE;
 	}
 	LuaWindowShortcuts copy() {
 		LuaWindowShortcuts result = new LuaWindowShortcuts();
