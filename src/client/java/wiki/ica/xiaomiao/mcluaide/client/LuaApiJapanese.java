@@ -24,6 +24,8 @@ final class LuaApiJapanese {
 		Map.entry("MC.Player.uuid", "オンラインのプレイヤー名から UUID を取得します。"),
 		Map.entry("MC.Player.online", "指定 UUID のプレイヤーがオンラインかを確認します。"),
 		Map.entry("MC.Player.position", "サーバー上のプレイヤーの座標、向き、ディメンションを取得します。"),
+		Map.entry("MC.Player.facing", "プレイヤーの水平（yaw）と垂直（pitch）の向きの角度と、最も近い方角を取得します。"),
+		Map.entry("MC.Player.relativePosition", "プレイヤーの前・後ろ・左・右の指定距離にある座標を、水平・垂直・両方の向き成分で計算します。"),
 		Map.entry("MC.Player.teleport", "指定プレイヤーをテレポートします。ディメンション省略時は現在のディメンションを維持します。"),
 		Map.entry("MC.Player.openChest", "実際のブロックを必要としないチェスト UI を開きます。1～6 行に対応します。読み取り専用の店には onContainerClicked を使用します。"),
 		Map.entry("MC.Player.openBlock", "実在するブロックのバニラメニューを開きます。通常の距離とディメンション制限は適用されます。"),

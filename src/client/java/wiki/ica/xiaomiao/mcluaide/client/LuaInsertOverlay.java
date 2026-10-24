@@ -1065,7 +1065,7 @@ final class LuaInsertOverlay {
 		Vector3f offset = new Vector3f(0.0F, state.boundingBoxHeight / 2.0F, 0.0F);
 		Quaternionf pose = new Quaternionf().rotateZ((float) Math.PI);
 		Quaternionf camera = new Quaternionf().rotateX(-0.12F);
-		graphics.entity(state, scale, offset, pose, camera, x, y, x + 16, y + 16);
+		graphics.entity(state, ImGuiMcSurface.entityScale(scale), offset, pose, camera, x, y, x + 16, y + 16);
 	}
 
 	private EntityRenderState entityIcon(String id) {

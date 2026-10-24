@@ -469,6 +469,34 @@ final class MinecraftLuaApi {
 			result.set("dimension", snapshot.dimension());
 			return result;
 		});
+		bind(api, "facing", args -> {
+			UUID uuid = playerUuid(args, 1);
+			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));
+			var facing = LuaRelativePosition.facing(snapshot.yaw(), snapshot.pitch());
+			LuaTable result = new LuaTable();
+			result.set("yaw", facing.yaw());
+			result.set("pitch", facing.pitch());
+			result.set("direction", facing.direction());
+			return result;
+		});
+		bind(api, "relativePosition", args -> {
+			UUID uuid = playerUuid(args, 1);
+			String direction = args.checkjstring(2), plane = args.checkjstring(3);
+			double distance = args.checkdouble(4);
+			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));
+			LuaRelativePosition.Point point;
+			try { point = LuaRelativePosition.offset(snapshot.x(), snapshot.y(), snapshot.z(), snapshot.yaw(), snapshot.pitch(), direction, plane, distance); }
+			catch (IllegalArgumentException invalid) { throw new LuaError(invalid.getMessage()); }
+			LuaTable result = new LuaTable();
+			result.set("x", point.x());
+			result.set("y", point.y());
+			result.set("z", point.z());
+			result.set("blockX", (int) Math.floor(point.x()));
+			result.set("blockY", (int) Math.floor(point.y()));
+			result.set("blockZ", (int) Math.floor(point.z()));
+			result.set("dimension", snapshot.dimension());
+			return result;
+		});
 		bind(api, "health", args -> {
 			UUID uuid = playerUuid(args, 1);
 			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));

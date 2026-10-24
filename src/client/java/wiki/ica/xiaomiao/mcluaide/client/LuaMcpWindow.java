@@ -18,8 +18,12 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
         imgui.ImGui.beginDisabled(busy);
         String typedPort=NativeUi.field("监听端口",port.getValue()).replaceAll("[^0-9]","");
         if(!typedPort.equals(port.getValue()))port.setValue(typedPort.length()>5?typedPort.substring(0,5):typedPort);
+        boolean wasWrite=write,wasExecute=execute,wasRemote=remote;
         write=NativeUi.check("允许写 Lua 文件（覆盖原内容）",write);execute=NativeUi.check("允许运行/停止脚本",execute);
         remote=NativeUi.check("允许非本机 IP 连接（任意设备都能连接）",remote);
+        // Without this the periodic status refresh copies the saved values back over an unapplied choice.
+        if(write!=wasWrite||execute!=wasExecute||remote!=wasRemote)dirty=true;
+        if(dirty)imgui.ImGui.textColored(1f,.83f,.4f,1f,LuaUiText.text("设置已更改，点击“开启 / 应用配置”后生效。"));
         if(remote)imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("已允许非本机连接：知道地址和令牌的任何设备都能调用 MCP，令牌以明文 HTTP 传输；只在可信网络使用，并注意防火墙。"));
         else imgui.ImGui.textDisabled(LuaUiText.text("默认只监听本机 127.0.0.1。"));
         imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("高危：执行可改变世界，令牌不要发给不可信的人。"));

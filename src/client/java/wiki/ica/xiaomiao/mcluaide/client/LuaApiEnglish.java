@@ -24,6 +24,8 @@ final class LuaApiEnglish {
 		Map.entry("MC.Player.uuid", "Find an online player's UUID by name."),
 		Map.entry("MC.Player.online", "Check whether the specified player UUID is online."),
 		Map.entry("MC.Player.position", "Read the player's server position, rotation and dimension."),
+		Map.entry("MC.Player.facing", "Read the player's horizontal (yaw) and vertical (pitch) facing angles and the nearest compass direction."),
+		Map.entry("MC.Player.relativePosition", "Compute the coordinates a distance in front of, behind, left of or right of a player, using horizontal, vertical or both facing components."),
 		Map.entry("MC.Player.teleport", "Teleport an online player. Omitted dimension keeps the player's current dimension."),
 		Map.entry("MC.Player.openChest", "Open a worldless vanilla chest UI with a title and item array. Use 1–6 rows. Read-only mode prevents transfers; use onContainerClicked for shops."),
 		Map.entry("MC.Player.openBlock", "Open the vanilla menu of an existing block. Vanilla distance and dimension checks still apply."),

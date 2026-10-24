@@ -141,9 +141,11 @@ final class TerminalPanel {
 		if (tab == null) return false;
 		int key = event.key();
 		boolean ctrl = event.hasControlDown(), alt = event.hasAltDown(), shift = event.hasShiftDown();
+		// Modifier keys on their own (and Ctrl+Space / Shift+Space under an input-method language) belong to the system's input-method switching.
 		if (key == GLFW.GLFW_KEY_LEFT_CONTROL || key == GLFW.GLFW_KEY_RIGHT_CONTROL || key == GLFW.GLFW_KEY_LEFT_SHIFT || key == GLFW.GLFW_KEY_RIGHT_SHIFT
 				|| key == GLFW.GLFW_KEY_LEFT_ALT || key == GLFW.GLFW_KEY_RIGHT_ALT || key == GLFW.GLFW_KEY_LEFT_SUPER || key == GLFW.GLFW_KEY_RIGHT_SUPER
-				|| key == GLFW.GLFW_KEY_CAPS_LOCK || key == GLFW.GLFW_KEY_NUM_LOCK || key == GLFW.GLFW_KEY_SCROLL_LOCK) return true;
+				|| key == GLFW.GLFW_KEY_CAPS_LOCK || key == GLFW.GLFW_KEY_NUM_LOCK || key == GLFW.GLFW_KEY_SCROLL_LOCK) return false;
+		if (key == GLFW.GLFW_KEY_SPACE && (ctrl || shift) && LuaUiText.imeLanguage()) return false;
 		if (ctrl && shift && key == GLFW.GLFW_KEY_C || ctrl && !shift && key == GLFW.GLFW_KEY_INSERT || ctrl && !shift && !alt && key == GLFW.GLFW_KEY_C && tab.hasSelection()) { copy(tab); return true; }
 		if (ctrl && shift && key == GLFW.GLFW_KEY_V || shift && !ctrl && key == GLFW.GLFW_KEY_INSERT) { paste(tab); return true; }
 		if (shift && !ctrl && (key == GLFW.GLFW_KEY_PAGE_UP || key == GLFW.GLFW_KEY_PAGE_DOWN)) {

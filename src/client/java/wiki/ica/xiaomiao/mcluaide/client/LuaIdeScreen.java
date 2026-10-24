@@ -4317,6 +4317,8 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 	private Map<String, LuaArgumentCompletion.Choice> moduleChoices(String source, int cursor, String prefix) {
 		if (prefix.isEmpty()) return Map.of();
 		Map<String, LuaArgumentCompletion.Choice> result = new LinkedHashMap<>();
+		// event.xxx, position.xxx, entry.xxx and s:upper: members of variables whose shape is known statically.
+		for (var choice : LuaMemberCompletion.choices(source, cursor, prefix)) result.putIfAbsent(choice.insertion(), choice);
 		for (var variable : LuaCodeAnalyzer.visibleVariableValues(source, cursor).entrySet()) {
 			String alias = variable.getKey(), module = variable.getValue().moduleName();
 			if (module == null || !(prefix.startsWith(alias + ".") || prefix.startsWith(alias + ":"))) continue;

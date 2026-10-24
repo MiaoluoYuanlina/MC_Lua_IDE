@@ -343,7 +343,29 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         conflictDialog();
         if (crossFiles != null) crossFiles.draw();
         motion.drawGhosts();
+        syncTextInput();
         ImGui.popFont();
+    }
+
+    private boolean textInputActive;
+    /**
+     * The game switches the operating system's input method (Chinese, Japanese, ...) on only while a text field has focus and
+     * tells the window where the caret is. ImGui draws its own text fields, so the game has to be told whenever one is active.
+     */
+    private void syncTextInput() {
+        var client = Minecraft.getInstance();
+        boolean wanted = ImGui.getIO().getWantTextInput();
+        if (wanted != textInputActive) { textInputActive = wanted; client.onTextInputFocusChange(this, wanted); }
+        if (wanted && tools != null && tools.codeArea.focused()) {
+            float[] caret = tools.codeArea.caret();
+            float scale = Math.max(1, client.getWindow().getGuiScale());
+            client.textInputManager().setTextInputArea(Math.round(caret[0] / scale), Math.round(caret[1] / scale), 1, Math.max(1, Math.round(caret[2] / scale)));
+        }
+    }
+    private void releaseTextInput() {
+        if (!textInputActive) return;
+        textInputActive = false;
+        Minecraft.getInstance().onTextInputFocusChange(this, false);
     }
 
     private void menuBar() {
@@ -1061,7 +1083,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         }
         if (ctrl && key == GLFW.GLFW_KEY_N) { createDialog(ImGuiIdeDocument.Kind.LUA, "file", ""); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_I) { ImGuiIdeRuntime.inContext(() -> { idShortcutClose = true; openInsert(true); }); return true; }
-        if (ctrl && key == GLFW.GLFW_KEY_SPACE) { completionRequested = true; return true; }
+        // Ctrl+Space toggles Chinese/Japanese/Korean input methods, so there completion uses Alt+/ only.
+        if (ctrl && key == GLFW.GLFW_KEY_SPACE && !LuaUiText.imeLanguage() || (event.modifiers() & GLFW.GLFW_MOD_ALT) != 0 && !ctrl && key == GLFW.GLFW_KEY_SLASH) { completionRequested = true; return true; }
         if (ctrl && key == GLFW.GLFW_KEY_F1) { show("api"); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_F3) { show("logs"); return true; }
         if (ctrl && key == GLFW.GLFW_KEY_SLASH && current != null) { ImGuiIdeRuntime.inContext(() -> current.widget().toggleComments()); return true; }
@@ -1082,6 +1105,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         else ImGuiIdeRuntime.scroll(horizontal, vertical); return true;
     }
     @Override public void removed() {
+        releaseTextInput();
         if (!suspended) WindowChrome.release();
         if (suspended) { ImGuiIdeRuntime.clearInput(); return; }
         if (disposed) return;

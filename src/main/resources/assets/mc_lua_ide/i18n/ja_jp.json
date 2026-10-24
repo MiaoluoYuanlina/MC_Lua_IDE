@@ -2501,5 +2501,8 @@
   "text JSON": "テキスト JSON",
   "Allow connections from non-local IP addresses (any device can connect)": "本機以外の IP アドレスからの接続を許可（どのデバイスでも接続可能）",
   "Remote connections are allowed: any device that knows the address and token can call MCP, and the token travels over plain HTTP. Use it only on a trusted network and mind your firewall.": "本機以外からの接続を許可中: アドレスとトークンを知っているデバイスなら誰でも MCP を呼び出せ、トークンは平文の HTTP で送られます。信頼できるネットワークでのみ使用し、ファイアウォールにも注意してください。",
-  "By default only this computer (127.0.0.1) is listened on.": "既定ではこのコンピューター（127.0.0.1）のみで待ち受けます。"
+  "By default only this computer (127.0.0.1) is listened on.": "既定ではこのコンピューター（127.0.0.1）のみで待ち受けます。",
+  "Settings changed; click \"Enable / apply settings\" to take effect.": "設定が変更されました。「有効化 / 設定を適用」をクリックすると反映されます。",
+  "yaw is -180 to 180 degrees (0 faces south, 90 west, -90 east, ±180 north) and pitch is -90 (up) to 90 (down); direction is one of north, south, east or west, the closest to the horizontal facing.": "yaw は -180～180 度（0 が南、90 が西、-90 が東、±180 が北）、pitch は -90（上）～90（下）です。direction は水平方向の向きに最も近い north・south・east・west のいずれかです。",
+  "direction is front, back, left or right. plane is horizontal (only the horizontal facing, yaw), vertical (only the vertical facing, pitch: front/back move up or down; not allowed with left/right) or both (front/back follow the full view direction, left/right stay horizontal). distance is in blocks, may be negative, and at most 100000 in absolute value. The start is the player's current position (feet). This only calculates; it does not check whether the position is loaded or placeable.": "direction は front・back・left・right。plane は horizontal（水平の向き yaw のみ）、vertical（垂直の向き pitch のみ。front／back は上下に移動し、left／right では使えません）、both（front／back は視線方向全体、left／right は水平のまま）。distance はブロック数で、負の値も可、絶対値は 100000 以下です。起点はプレイヤーの現在位置（足元）です。計算のみで、その位置が読み込み済みか設置可能かは確認しません。"
 }

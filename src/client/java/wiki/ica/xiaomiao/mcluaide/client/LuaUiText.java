@@ -25,6 +25,11 @@ final class LuaUiText {
 	}
 
 	static boolean chinese() { return chinese(language()); }
+	/** Languages typed through an input method; their Ctrl+Space / Shift+Space / Ctrl+Shift belong to the IME, not to editor shortcuts. */
+	static boolean imeLanguage() {
+		String normalized = language() == null ? "" : language().toLowerCase(Locale.ROOT).replace('-', '_');
+		return chinese() || japanese() || normalized.equals("ko") || normalized.startsWith("ko_");
+	}
 	static boolean japanese() { return japanese(language()); }
 	static boolean japanese(String language) {
 		if (language == null) return false;

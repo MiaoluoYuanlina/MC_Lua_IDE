@@ -19,6 +19,13 @@ public final class ImGuiMcSurface implements AutoCloseable {
     private TextureTarget target;
     private final GuiRenderState state = new GuiRenderState();
     public static RenderTarget activeTarget() { return activeTarget; }
+    private static float activeDensity = 1;
+    /** Entity renders scale by the window's GUI scale themselves, so inside a surface drawn at another density their scale must be corrected. */
+    static float entityScale(float scale) {
+        if (activeTarget == null) return scale;
+        float guiScale = Minecraft.getInstance().gameRenderer.getGameRenderState().windowRenderState.guiScale;
+        return guiScale <= 0 ? scale : scale * activeDensity / guiScale;
+    }
 
     long render(int logicalWidth, int logicalHeight, float density, int mouseX, int mouseY, Consumer<GuiGraphicsExtractor> extract) {
         var client = Minecraft.getInstance();
@@ -35,10 +42,11 @@ public final class ImGuiMcSurface implements AutoCloseable {
         var previousState = access.mcLuaIde$state();
         int draw = GL30.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING), read = GL30.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
         var previousTarget = activeTarget;
+        float previousDensity = activeDensity;
         RenderSystem.backupProjectionMatrix();
         try {
             windowState.width = w; windowState.height = h;
-            activeTarget = target; access.mcLuaIde$state(state); state.reset();
+            activeTarget = target; activeDensity = density; access.mcLuaIde$state(state); state.reset();
             RenderSystem.getDevice().createCommandEncoder().clearColorAndDepthTextures(target.getColorTexture(), 0xff111925, target.getDepthTexture(), 1);
             var graphics = new GuiGraphicsExtractor(client, state, mouseX, mouseY);
             graphics.pose().scale(density / windowState.guiScale, density / windowState.guiScale);
@@ -49,7 +57,7 @@ public final class ImGuiMcSurface implements AutoCloseable {
             windowState.width = originalWidth; windowState.height = originalHeight;
             try { renderer.endFrame(); }
             finally {
-                access.mcLuaIde$state(previousState); activeTarget = previousTarget;
+                access.mcLuaIde$state(previousState); activeTarget = previousTarget; activeDensity = previousDensity;
                 state.reset(); RenderSystem.restoreProjectionMatrix();
                 GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, draw); GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, read);
             }

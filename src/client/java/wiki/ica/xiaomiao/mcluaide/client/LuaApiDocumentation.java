@@ -206,6 +206,15 @@ final class LuaApiDocumentation {
 					print(position.x, position.y, position.z)
 					print(position.yaw, position.pitch, position.dimension)
 					""";
+			case "MC.Player.facing" -> """
+					local facing = MC.Player.facing("玩家UUID")
+					print(facing.yaw, facing.pitch, facing.direction)
+					""";
+			case "MC.Player.relativePosition" -> """
+					-- 玩家正前方 5 格（只按水平朝向），例如放置方块
+					local target = MC.Player.relativePosition("玩家UUID", "front", "horizontal", 5)
+					MC.Block.set(target.blockX, target.blockY, target.blockZ, "minecraft:stone")
+					""";
 			case "MC.Player.health" -> """
 					local health = MC.Player.health("玩家UUID")
 					print("生命值：", health.current, "/", health.max)
@@ -621,6 +630,13 @@ final class LuaApiDocumentation {
 		add(entries, "MC.Player.uuid", "MC.Player.uuid(name)", "按在线玩家名称查询 UUID", "UUID 字符串或 nil", "local uuid = MC.Player.uuid(\"Steve\")", false);
 		add(entries, "MC.Player.name", "MC.Player.name(uuid)", "按 UUID 获取在线玩家名称", "字符串", "print(MC.Player.name(uuid))", false);
 		add(entries, "MC.Player.position", "MC.Player.position(uuid)", "读取指定玩家位置和朝向", "{x, y, z, yaw, pitch, dimension}", "local p = MC.Player.position(uuid)", false);
+		entries.put("MC.Player.facing", new Entry("MC.Player.facing(uuid)", "读取玩家当前水平和垂直朝向角度", "{yaw, pitch, direction}",
+				"local f = MC.Player.facing(uuid); print(f.yaw, f.pitch, f.direction)", false,
+				"yaw 为 -180～180 度（0 朝南，90 朝西，-90 朝东，±180 朝北），pitch 为 -90（朝上）～90（朝下）；direction 是 north、south、east、west 之一，按水平朝向取最接近的方向。"));
+		entries.put("MC.Player.relativePosition", new Entry("MC.Player.relativePosition(uuid, direction, plane, distance)",
+				"计算玩家前、后、左、右指定距离处的坐标", "{x, y, z, blockX, blockY, blockZ, dimension}",
+				"local p = MC.Player.relativePosition(uuid, \"front\", \"horizontal\", 5)", false,
+				"direction 为 front、back、left、right；plane 为 horizontal（只按水平朝向 yaw）、vertical（只按垂直朝向 pitch，front／back 沿上下移动，不能用于 left／right）或 both（front／back 按完整视线方向，left／right 保持水平）。distance 为方块数，可为负数，绝对值不超过 100000；起点是玩家当前位置（脚部）。只做计算，不检查该位置是否已加载或可放置。"));
 		add(entries, "MC.Player.health", "MC.Player.health(uuid)", "读取指定玩家生命值", "{current, max}", "local hp = MC.Player.health(uuid)", false);
 		add(entries, "MC.Player.gameMode", "MC.Player.gameMode(uuid)", "读取指定玩家游戏模式", "模式名称字符串", "print(MC.Player.gameMode(uuid))", false);
 		add(entries, "MC.Player.teleport", "MC.Player.teleport(uuid, x, y, z, dimension?)", "由服务端传送指定玩家", "是否成功", "MC.Player.teleport(uuid, 0, 80, 0)", false);
@@ -973,8 +989,33 @@ final class LuaApiDocumentation {
 		entries.put(symbol, new Entry(signature, summary, returns, example, singleplayerOnly, details));
 	}
 
+	private static final class EventPayloads {
+		static final Map<String, String> BY_SYMBOL = new java.util.concurrent.ConcurrentHashMap<>();
+	}
+
+	/** Field names of the {@code event} table passed to a callback of {@code MC.Event.on<Name>}; "type" is always present. */
+	static List<String> eventFields(String eventName) {
+		if (eventName == null || eventName.isBlank()) return List.of("type");
+		find("MC.Event.on"); // makes sure the documentation (and with it the payload list) is built
+		String name = Character.toUpperCase(eventName.charAt(0)) + eventName.substring(1);
+		String payload = switch (name) {
+			case "ScriptStarted" -> "registrationId, scriptName, ownerUuid, startedAt, elapsedMs";
+			case "ScriptStopped" -> "registrationId, scriptName, ownerUuid, startedAt, elapsedMs, reason, stopped, success, error";
+			case "Interval" -> "registrationId, intervalMs, count, scheduledCount, elapsedMs, deltaMs, actualElapsedMs, actualDeltaMs, lateMs, skippedCount, totalSkippedCount";
+			default -> EventPayloads.BY_SYMBOL.get("MC.Event.on" + name);
+		};
+		List<String> fields = new ArrayList<>(List.of("type"));
+		if (payload == null) return fields;
+		for (String part : payload.split("[,，、]")) {
+			var matcher = java.util.regex.Pattern.compile("^\s*([A-Za-z_][A-Za-z0-9_]*)").matcher(part);
+			if (matcher.find() && !fields.contains(matcher.group(1))) fields.add(matcher.group(1));
+		}
+		return fields;
+	}
+
 	private static void addEvent(Map<String, Entry> entries, String symbol, String signature, String summary,
 			String returns, String payload) {
+		EventPayloads.BY_SYMBOL.put(symbol, payload);
 		String eventName = symbol.equals("MC.Event.on") ? "" : symbol.substring("MC.Event.on".length());
 		String example = symbol.equals("MC.Event.on")
 				? "MC.Event.on(\"blockBroken\", function(event) print(event.blockId) end)"

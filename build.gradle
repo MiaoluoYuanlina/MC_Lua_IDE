@@ -882,3 +882,19 @@ tasks.register("commandReferenceSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.server.CommandReferenceSmoke"
 }
 check.dependsOn commandReferenceSmoke
+tasks.register("memberCompletionSmoke", JavaExec) {
+	dependsOn clientClasses
+	group = "verification"
+	description = "Checks completion of members after variable. (event fields, API results, loop entries, strings)."
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.client.LuaMemberCompletionSmoke"
+}
+check.dependsOn memberCompletionSmoke
+tasks.register("relativePositionSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks the player-relative coordinate maths and facing summary."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.RelativePositionSmoke"
+}
+check.dependsOn relativePositionSmoke
