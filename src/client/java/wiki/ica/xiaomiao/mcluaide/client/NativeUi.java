@@ -65,8 +65,10 @@ final class NativeUi {
         ImGui.beginChild(id+"##log",-1,height,true);
         boolean atBottom=ImGui.getScrollY()>=ImGui.getScrollMaxY()-4;
         for(String line:lines)ImGui.textWrapped(line);
+        // The view follows the output while it sits at the bottom (the log is capped, so the line count alone can stay constant).
         int previous=logSizes.getOrDefault(key,-1);
-        if(previous!=lines.size()){ logSizes.put(key,lines.size()); if(atBottom||previous<0||lines.size()<previous)ImGui.setScrollHereY(1f); }
+        logSizes.put(key,lines.size());
+        if(atBottom||previous<0||lines.size()<previous)ImGui.setScrollHereY(1f);
         if(ImGui.beginPopupContextWindow()){ if(ImGui.menuItem(LuaUiText.text("复制全部")))copy(String.join("\n",lines)); ImGui.endPopup(); }
         ImGui.endChild();
     }

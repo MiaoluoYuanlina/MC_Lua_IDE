@@ -461,6 +461,21 @@ final class NativeCodeArea {
 			}
 			if (hovered && !overMinimap && my >= y && my < y + lineHeight) hoverOffset = offsetAt(row, mx - x, false);
 		}
+		if (scrollX > 0) {
+			// Scrolled sideways, code runs under the fixed gutter: repaint the gutter (numbers, breakpoints, fold arrows) above it.
+			float numberX = originX + scrollX + 4;
+			draw.addRectFilled(left, top, originX + scrollX + gutter - 7, bottom, NativeUi.rgba(settings.theme.background()));
+			for (int index = first; index < last; index++) {
+				var row = rows.get(index);
+				if (index > 0 && rows.get(index - 1).line == row.line) continue;
+				float y = originY + index * lineHeight;
+				boolean error = errors.stream().anyMatch(d -> d.line() == row.line && d.severity() == LuaCodeAnalyzer.Severity.ERROR);
+				draw.addText(numberX, y, error ? 0xFF7777FF : ImGui.getColorU32(ImGuiCol.TextDisabled), Integer.toString(row.line));
+				if (breakpoints.contains(row.line)) drawBreakpointMarker(draw, numberX + gutter - 28, y + lineHeight * .4f, breakpointOptions.get(row.line));
+				var fold = folds == null ? null : folds.model(source).atLine(row.line);
+				if (fold != null) draw.addText(numberX + gutter - 18, y, ImGui.getColorU32(ImGuiCol.Text), folds.collapsed(fold) ? ">" : "v");
+			}
+		}
 		if (minimap) drawMinimap(draw, settings, left, top, right, bottom, accent);
 		draw.popClipRect();
 		handleMouse(folds, selection, top, bottom, mx, my, overMinimap);
