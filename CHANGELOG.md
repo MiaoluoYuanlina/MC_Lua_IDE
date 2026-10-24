@@ -2,6 +2,19 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-10-23
+
+### Added
+- Completion after `variable.`: the `event` parameter of `MC.Event` callbacks offers its fields, and so do results of MC API calls that return a table, `MC.Player.list` / `MC.Entity.list` loop entries, table constructors, and strings (`s:upper`).
+- `MC.Player.facing(uuid)` (yaw, pitch and compass direction) and `MC.Player.relativePosition(uuid, direction, plane, distance)` (coordinates in front of, behind, left or right of a player, horizontally, vertically or both).
+
+### Fixed
+- The MCP "allow non-local IP addresses" toggle (and the write/execute toggles) no longer switch themselves off before they are applied.
+- Sideways-scrolled code no longer runs over the line numbers, breakpoint markers and fold arrows.
+- The run log follows new output even when it has reached its line cap.
+- Entity icons in the insert window are drawn at the right scale instead of showing only a quarter.
+- Input methods: the game is told when an ImGui text field is active, modifier keys in the terminal and Ctrl+Space under Chinese, Japanese and Korean are left to the input method (completion is Alt+/ there).
+
 ## [1.0.3] - 2026-10-23
 
 ### Added
@@ -78,6 +91,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.4]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.4
 [1.0.3]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.3
 [1.0.2]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.2
 [1.0.1]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.1
