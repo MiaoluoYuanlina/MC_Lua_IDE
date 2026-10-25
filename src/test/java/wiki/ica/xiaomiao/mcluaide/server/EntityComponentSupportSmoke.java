@@ -28,6 +28,7 @@ public final class EntityComponentSupportSmoke {
 		catch (IllegalArgumentException expected) { checks++; }
 		var plain = LuaEntityNbtConfig.convert(com.google.gson.JsonParser.parseString("{\"a\":2,\"b\":1.5,\"c\":true,\"d\":\"x\"}"), null, "root");
 		require(plain.toString().contains("a:2") && plain.toString().contains("b:1.5d") && plain.toString().contains("c:1b") && plain.toString().contains("d:\"x\""), "untyped values: " + plain); checks++;
+		require(LuaEntityNbtLabels.LABELS.containsKey("Motion") && LuaEntityNbtLabels.LABELS.containsKey("ExplosionPower") && LuaEntityNbtLabels.LABELS.size() > 40, "NBT field labels"); checks++;
 		System.out.println("Entity component support smoke passed: " + checks + " checks");
 	}
 

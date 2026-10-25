@@ -56,7 +56,8 @@ final class LuaEntityNbtConfig {
 		for (String key : new java.util.TreeSet<>(tag.keySet())) {
 			if (EXCLUDED.contains(key) || key.indexOf(':') >= 0 || alreadyOffered.contains(key)) continue;
 			JsonElement value = NbtOps.INSTANCE.convertTo(JsonOps.INSTANCE, tag.get(key));
-			result.add(new LuaDisplayEntityConfig.Field(key, key, "实体 NBT 字段（原样写入实体数据，保持原有数值类型）", value.deepCopy(),
+			String[] known = LuaEntityNbtLabels.LABELS.get(key);
+			result.add(new LuaDisplayEntityConfig.Field(key, known == null ? key : known[0], known == null ? "实体 NBT 字段（原样写入实体数据，保持原有数值类型）" : known[1], value.deepCopy(),
 					ComponentTreeSchema.observed(key, value)));
 		}
 		return List.copyOf(result);
