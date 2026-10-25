@@ -479,6 +479,42 @@ final class MinecraftLuaApi {
 			result.set("direction", facing.direction());
 			return result;
 		});
+		bind(api, "lookDirection", args -> {
+			UUID uuid = playerUuid(args, 1);
+			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));
+			var direction = LuaRelativePosition.lookVector(snapshot.yaw(), snapshot.pitch());
+			LuaTable result = new LuaTable();
+			result.set("x", direction.x());
+			result.set("y", direction.y());
+			result.set("z", direction.z());
+			return result;
+		});
+		bind(api, "lookingAt", args -> {
+			UUID uuid = playerUuid(args, 1);
+			boolean infinite = args.optboolean(2, false);
+			return onServer(server, current -> {
+				ServerPlayer player = player(current, uuid);
+				net.minecraft.world.phys.Vec3 eye = player.getEyePosition(), look = player.getLookAngle();
+				double range = infinite ? MAX_LOOK_RANGE : player.blockInteractionRange();
+				net.minecraft.world.phys.Vec3 end = eye.add(look.scale(range));
+				var hit = player.level().clip(new net.minecraft.world.level.ClipContext(eye, end,
+						net.minecraft.world.level.ClipContext.Block.OUTLINE, net.minecraft.world.level.ClipContext.Fluid.NONE, player));
+				if (hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) return LuaValue.NIL;
+				net.minecraft.world.phys.Vec3 point = hit.getLocation();
+				LuaTable result = new LuaTable();
+				result.set("x", point.x);
+				result.set("y", point.y);
+				result.set("z", point.z);
+				result.set("blockX", hit.getBlockPos().getX());
+				result.set("blockY", hit.getBlockPos().getY());
+				result.set("blockZ", hit.getBlockPos().getZ());
+				result.set("face", hit.getDirection().getName());
+				result.set("blockId", net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(hit.getBlockPos()).getBlock()).toString());
+				result.set("distance", eye.distanceTo(point));
+				result.set("dimension", player.level().dimension().identifier().toString());
+				return result;
+			});
+		});
 		bind(api, "relativePosition", args -> {
 			UUID uuid = playerUuid(args, 1);
 			String direction = args.checkjstring(2), plane = args.checkjstring(3);
@@ -804,6 +840,9 @@ final class MinecraftLuaApi {
 	private interface LuaCallable {
 		Varargs invoke(Varargs args);
 	}
+
+	/** Blocks a crosshair query reaches when "infinite" is requested; unloaded chunks still end the search. */
+	private static final double MAX_LOOK_RANGE = 1024;
 
 	private record PlayerSnapshot(double x, double y, double z, float yaw, float pitch,
 			float health, float maxHealth, String dimension) {

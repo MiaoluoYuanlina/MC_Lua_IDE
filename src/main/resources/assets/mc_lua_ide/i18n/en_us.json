@@ -2172,5 +2172,7 @@
   "显示密码": "Show password",
   "已关闭密码保护：能访问该端口的任何人都可以调用 MCP；若同时允许了非本机连接和运行脚本，等同于公开了世界的控制权。": "Password protection is off: anyone who can reach the port can call MCP. Together with non-local connections and script execution this hands out control of your world.",
   "每次重置令牌都会生成新的随机令牌。": "Resetting the token generates a new random token each time.",
-  "密码须为 4～128 个可见 ASCII 字符（不含空格）": "The password must be 4–128 visible ASCII characters (no spaces)"
+  "密码须为 4～128 个可见 ASCII 字符（不含空格）": "The password must be 4–128 visible ASCII characters (no spaces)",
+  "返回长度为 1 的方向向量（x 向东、y 向上、z 向南），例如玩家朝东略向上看时约为 {x = 0.98, y = 0.2, z = 0}。这是方向而不是目标点：要得到玩家前方某处的坐标，用 玩家位置 + 方向 × 距离，或 MC.Player.relativePosition。": "Returns a direction vector of length 1 (x east, y up, z south); for example a player looking east and slightly up gets about {x = 0.98, y = 0.2, z = 0}. It is a direction, not a target point: for the coordinates of a spot in front of the player use player position + direction × distance, or MC.Player.relativePosition.",
+  "infinite 为 false 或省略时只检测玩家的方块交互距离，为 true 时最远检测 1024 格（仍受已加载区块限制）。从玩家眼睛出发，忽略流体，命中方块的碰撞轮廓；face 是被命中的面（north、south、east、west、up、down）。准星指向实体时不计入。没有命中任何方块时返回 nil，使用前请判空。": "With infinite false or omitted, only the player's block interaction range is checked; with true, up to 1024 blocks (still limited by loaded chunks). The ray starts at the player's eyes, ignores fluids and hits the block's outline; face is the face that was hit (north, south, east, west, up, down). Entities under the crosshair are not counted. Returns nil when no block is hit, so check the result before using it."
 }

@@ -215,6 +215,15 @@ final class LuaApiDocumentation {
 					local target = MC.Player.relativePosition("玩家UUID", "front", "horizontal", 5)
 					MC.Block.set(target.blockX, target.blockY, target.blockZ, "minecraft:stone")
 					""";
+			case "MC.Player.lookDirection" -> """
+					local look = MC.Player.lookDirection("玩家UUID")
+					print(look.x, look.y, look.z)
+					""";
+			case "MC.Player.lookingAt" -> """
+					-- 准星指向的精确坐标；第二个参数 true 表示不限距离
+					local hit = MC.Player.lookingAt("玩家UUID", false)
+					if hit then print(hit.x, hit.y, hit.z, hit.blockId, hit.face) end
+					""";
 			case "MC.Player.health" -> """
 					local health = MC.Player.health("玩家UUID")
 					print("生命值：", health.current, "/", health.max)
@@ -633,6 +642,13 @@ final class LuaApiDocumentation {
 		entries.put("MC.Player.facing", new Entry("MC.Player.facing(uuid)", "读取玩家当前水平和垂直朝向角度", "{yaw, pitch, direction}",
 				"local f = MC.Player.facing(uuid); print(f.yaw, f.pitch, f.direction)", false,
 				"yaw 为 -180～180 度（0 朝南，90 朝西，-90 朝东，±180 朝北），pitch 为 -90（朝上）～90（朝下）；direction 是 north、south、east、west 之一，按水平朝向取最接近的方向。"));
+		entries.put("MC.Player.lookDirection", new Entry("MC.Player.lookDirection(uuid)", "读取玩家当前三维视线方向", "{x, y, z}",
+				"local look = MC.Player.lookDirection(uuid); print(look.x, look.y, look.z)", false,
+				"返回长度为 1 的方向向量（x 向东、y 向上、z 向南），例如玩家朝东略向上看时约为 {x = 0.98, y = 0.2, z = 0}。这是方向而不是目标点：要得到玩家前方某处的坐标，用 玩家位置 + 方向 × 距离，或 MC.Player.relativePosition。"));
+		entries.put("MC.Player.lookingAt", new Entry("MC.Player.lookingAt(uuid, infinite?)", "读取玩家准星指向的方块上的精确坐标（带小数）",
+				"{x, y, z, blockX, blockY, blockZ, face, blockId, distance, dimension}；没有命中时为 nil",
+				"local hit = MC.Player.lookingAt(uuid, false); if hit then print(hit.x, hit.y, hit.z) end", false,
+				"infinite 为 false 或省略时只检测玩家的方块交互距离，为 true 时最远检测 1024 格（仍受已加载区块限制）。从玩家眼睛出发，忽略流体，命中方块的碰撞轮廓；face 是被命中的面（north、south、east、west、up、down）。准星指向实体时不计入。没有命中任何方块时返回 nil，使用前请判空。"));
 		entries.put("MC.Player.relativePosition", new Entry("MC.Player.relativePosition(uuid, direction, plane, distance)",
 				"计算玩家前、后、左、右指定距离处的坐标", "{x, y, z, blockX, blockY, blockZ, dimension}",
 				"local p = MC.Player.relativePosition(uuid, \"front\", \"horizontal\", 5)", false,

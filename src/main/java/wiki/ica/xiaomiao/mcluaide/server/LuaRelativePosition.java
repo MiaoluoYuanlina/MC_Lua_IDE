@@ -49,6 +49,12 @@ public final class LuaRelativePosition {
 		return new Point(x + dx, y + dy, z + dz);
 	}
 
+	/** The unit vector a player with this yaw and pitch looks along (x east, y up, z south). */
+	public static Point lookVector(double yaw, double pitch) {
+		double yawRadians = Math.toRadians(yaw), pitchRadians = Math.toRadians(pitch);
+		return new Point(-Math.sin(yawRadians) * Math.cos(pitchRadians), -Math.sin(pitchRadians), Math.cos(yawRadians) * Math.cos(pitchRadians));
+	}
+
 	public static Facing facing(double yaw, double pitch) {
 		double normalized = ((yaw % 360) + 540) % 360 - 180; // -180..180
 		String compass = Math.abs(normalized) <= 45 ? "south" : normalized > 45 && normalized <= 135 ? "west" : Math.abs(normalized) >= 135 ? "north" : "east";

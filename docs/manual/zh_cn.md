@@ -996,6 +996,8 @@ end
 - `MC.Player.position(uuid)`：返回 `{x, y, z, yaw, pitch, dimension}`
 - `MC.Player.facing(uuid)`：返回 `{yaw, pitch, direction}`，水平角、垂直角和最接近的方向（north/south/east/west）
 - `MC.Player.relativePosition(uuid, direction, plane, distance)`：计算玩家 `front`/`back`/`left`/`right` 方向 `distance` 格处的坐标；`plane` 为 `horizontal`（只按水平朝向）、`vertical`（只按俯仰，front/back 上下移动）或 `both`（完整视线方向）；返回 `{x, y, z, blockX, blockY, blockZ, dimension}`
+- `MC.Player.lookDirection(uuid)`：返回长度为 1 的视线方向向量 `{x, y, z}`
+- `MC.Player.lookingAt(uuid, infinite?)`：返回准星指向的方块表面的精确坐标 `{x, y, z, blockX, blockY, blockZ, face, blockId, distance, dimension}`，没有命中时为 `nil`；`infinite` 为 `true` 时最远检测 1024 格
 - `MC.Player.health(uuid)`：返回 `{current, max}`
 - `MC.Player.gameMode(uuid)`：返回 `survival`、`creative`、`adventure` 或 `spectator`
 - `MC.Player.teleport(uuid, x, y, z, dimension)`：由服务端传送玩家；省略维度时留在原维度

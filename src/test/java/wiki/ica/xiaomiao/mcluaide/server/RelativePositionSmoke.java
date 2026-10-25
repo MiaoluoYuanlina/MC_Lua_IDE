@@ -29,6 +29,13 @@ public final class RelativePositionSmoke {
 		check(LuaRelativePosition.facing(0, 10).direction().equals("south") && LuaRelativePosition.facing(90, 0).direction().equals("west"), "south and west");
 		check(LuaRelativePosition.facing(-90, 0).direction().equals("east") && LuaRelativePosition.facing(180, 0).direction().equals("north"), "east and north");
 		check(Math.abs(LuaRelativePosition.facing(270, 0).yaw() - (-90)) < 1e-9 && Math.abs(LuaRelativePosition.facing(-190, 0).yaw() - 170) < 1e-9, "yaw wraps into -180..180");
+		// The look vector is a unit vector: south for yaw 0, west for 90, up for pitch -90.
+		near(LuaRelativePosition.lookVector(0, 0), 0, 0, 1);
+		near(LuaRelativePosition.lookVector(90, 0), -1, 0, 0);
+		near(LuaRelativePosition.lookVector(-90, 0), 1, 0, 0);
+		near(LuaRelativePosition.lookVector(0, -90), 0, 1, 0);
+		var tilted = LuaRelativePosition.lookVector(-90, -11.536959032815489);
+		check(Math.abs(Math.sqrt(tilted.x() * tilted.x() + tilted.y() * tilted.y() + tilted.z() * tilted.z()) - 1) < 1e-9 && tilted.y() > 0.19 && tilted.y() < 0.21, "unit length and upward tilt: " + tilted);
 		System.out.println("Relative position smoke passed: " + checks + " checks");
 	}
 
