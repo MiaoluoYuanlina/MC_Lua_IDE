@@ -2162,5 +2162,15 @@
   "无重力（NoGravity）": "No gravity (NoGravity)",
   "实体是否不受重力影响": "Whether gravity does not affect the entity",
   "发光（Glowing）": "Glowing",
-  "实体是否显示发光轮廓": "Whether the entity shows a glowing outline"
+  "实体是否显示发光轮廓": "Whether the entity shows a glowing outline",
+  "访问密码": "Access password",
+  "自动生成令牌": "Generated token",
+  "自定义密码": "Custom password",
+  "无密码": "No password",
+  "留空保留已保存的密码": "Leave blank to keep the saved password",
+  "输入 4～128 位密码（可见 ASCII，不含空格）": "Enter a 4–128 character password (visible ASCII, no spaces)",
+  "显示密码": "Show password",
+  "已关闭密码保护：能访问该端口的任何人都可以调用 MCP；若同时允许了非本机连接和运行脚本，等同于公开了世界的控制权。": "Password protection is off: anyone who can reach the port can call MCP. Together with non-local connections and script execution this hands out control of your world.",
+  "每次重置令牌都会生成新的随机令牌。": "Resetting the token generates a new random token each time.",
+  "密码须为 4～128 个可见 ASCII 字符（不含空格）": "The password must be 4–128 visible ASCII characters (no spaces)"
 }

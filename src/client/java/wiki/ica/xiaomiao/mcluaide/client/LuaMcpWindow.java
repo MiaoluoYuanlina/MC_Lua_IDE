@@ -26,6 +26,21 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
         if(dirty)imgui.ImGui.textColored(1f,.83f,.4f,1f,LuaUiText.text("设置已更改，点击“开启 / 应用配置”后生效。"));
         if(remote)imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("已允许非本机连接：知道地址和令牌的任何设备都能调用 MCP，令牌以明文 HTTP 传输；只在可信网络使用，并注意防火墙。"));
         else imgui.ImGui.textDisabled(LuaUiText.text("默认只监听本机 127.0.0.1。"));
+        imgui.ImGui.separator();
+        imgui.ImGui.text(LuaUiText.text("访问密码"));
+        if(imgui.ImGui.radioButton(LuaUiText.text("自动生成令牌")+"##auth_generated",authMode.equals(LuaMcpSettings.AUTH_GENERATED))){authMode=LuaMcpSettings.AUTH_GENERATED;dirty=true;}
+        imgui.ImGui.sameLine();
+        if(imgui.ImGui.radioButton(LuaUiText.text("自定义密码")+"##auth_custom",authMode.equals(LuaMcpSettings.AUTH_CUSTOM))){authMode=LuaMcpSettings.AUTH_CUSTOM;dirty=true;}
+        imgui.ImGui.sameLine();
+        if(imgui.ImGui.radioButton(LuaUiText.text("无密码")+"##auth_none",authMode.equals(LuaMcpSettings.AUTH_NONE))){authMode=LuaMcpSettings.AUTH_NONE;dirty=true;}
+        if(authMode.equals(LuaMcpSettings.AUTH_CUSTOM)){
+            imgui.ImGui.setNextItemWidth(Math.max(120,imgui.ImGui.getContentRegionAvailX()-150));
+            if(imgui.ImGui.inputTextWithHint("##mcp_password",LuaUiText.text(data!=null&&data.settings().authMode().equals(LuaMcpSettings.AUTH_CUSTOM)?"留空保留已保存的密码":"输入 4～128 位密码（可见 ASCII，不含空格）"),passwordField,showPassword?0:imgui.flag.ImGuiInputTextFlags.Password))dirty=true;
+            imgui.ImGui.sameLine();
+            showPassword=NativeUi.check("显示密码",showPassword);
+        }else if(authMode.equals(LuaMcpSettings.AUTH_NONE))
+            imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("已关闭密码保护：能访问该端口的任何人都可以调用 MCP；若同时允许了非本机连接和运行脚本，等同于公开了世界的控制权。"));
+        else imgui.ImGui.textDisabled(LuaUiText.text("每次重置令牌都会生成新的随机令牌。"));
         imgui.ImGui.textColored(1,.4f,.4f,1,LuaUiText.text("高危：执行可改变世界，令牌不要发给不可信的人。"));
         NativeUi.action("开启 / 应用配置",()->apply(true,false));imgui.ImGui.sameLine();NativeUi.action("关闭服务",()->apply(false,false));NativeUi.action("重置令牌",()->apply(data!=null&&data.running(),true));
         if(data!=null){
@@ -42,6 +57,9 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
     private final EditBox port;
     private int width = 500, height = 340, scroll;
     private boolean write, execute, remote, busy, disposed, dirty;
+    private String authMode = LuaMcpSettings.AUTH_GENERATED;
+    private final imgui.type.ImString passwordField = new imgui.type.ImString(128);
+    private boolean showPassword;
     private LuaMcpStatus data;
     private String notice = "正在读取 MCP 配置…";
     private long refreshed;
@@ -58,7 +76,7 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
                     if (disposed) return;
                     if (error != null) { notice = LuaUiText.text("读取失败：") + ScriptManager.message(error); return; }
                     data = value;
-                    if (reset || !dirty && !port.isFocused()) { port.setValue(Integer.toString(value.settings().port())); write = value.settings().allowWrite(); execute = value.settings().allowExecution(); remote = value.settings().allowRemote(); dirty = false; }
+                    if (reset || !dirty && !port.isFocused()) { port.setValue(Integer.toString(value.settings().port())); write = value.settings().allowWrite(); execute = value.settings().allowExecution(); remote = value.settings().allowRemote(); authMode = value.settings().authMode(); passwordField.set(""); dirty = false; }
                     if (reset) notice = value.problem().isBlank() ? "初次默认关闭；启停配置保存，下次启动恢复" : value.problem();
                 }));
     }
@@ -107,9 +125,13 @@ final class LuaMcpWindow implements McLuaIdeWindowApi.NativeContent {
     private static boolean inside(double x, double y, int left, int top, int w, int h) { return x >= left && x < left + w && y >= top && y < top + h; }
     private void apply(boolean enabled, boolean rotate) {
         if (busy || data == null) return;
+        String password = passwordField.get();
+        if (authMode.equals(LuaMcpSettings.AUTH_CUSTOM) && (password.isEmpty() ? !data.settings().authMode().equals(LuaMcpSettings.AUTH_CUSTOM) : !LuaMcpSettings.validPassword(password))) {
+            notice = LuaUiText.text("密码须为 4～128 个可见 ASCII 字符（不含空格）"); return;
+        }
         try {
             int value = Integer.parseInt(port.getValue()); new LuaMcpSettings(false, value, write, execute, data.settings().token(), "", ""); busy = true;
-            (server ? ScriptManager.configureMcpServer(enabled, value, write, execute, rotate, remote) : LuaClientMcpService.configure(enabled, value, write, execute, rotate, remote))
+            (server ? ScriptManager.configureMcpServer(enabled, value, write, execute, rotate, remote, authMode, password.isEmpty() ? null : password) : LuaClientMcpService.configure(enabled, value, write, execute, rotate, remote, authMode, password.isEmpty() ? null : password))
                     .whenComplete((result, error) -> context.minecraft().execute(() -> {
                         if (disposed) return; busy = false;
                         if (error != null) notice = "配置失败：" + ScriptManager.message(error);

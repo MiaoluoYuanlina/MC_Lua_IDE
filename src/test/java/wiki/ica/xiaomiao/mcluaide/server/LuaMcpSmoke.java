@@ -32,6 +32,33 @@ public final class LuaMcpSmoke {
                 require(send(remoteConfig, "POST", "{}", null, remoteConfig.token(), "https://other.example", null).statusCode() != 403, "Remote mode still blocked a foreign origin");
                 require(LuaMcpServer.prompt(remoteConfig, true).contains("127.0.0.1"), "Prompt lost the address hint");
             }
+            LuaMcpSettings customAuth = config.withAuth(LuaMcpSettings.AUTH_CUSTOM, "my pass".replace(' ', '-') + "123");
+            require(customAuth.token().equals("my-pass123") && customAuth.passwordRequired(), "Custom password becomes the bearer secret");
+            require(customAuth.withAuth(LuaMcpSettings.AUTH_CUSTOM, "").token().equals("my-pass123"), "A blank password keeps the saved one");
+            customAuth.save(root.resolve("custom.properties"));
+            require(LuaMcpSettings.load(root.resolve("custom.properties"), false).equals(customAuth), "Custom password lost after restart");
+            for (String bad : new String[] {"abc", "has space", "tab\there", "", "x".repeat(129), "中文密码1234"})
+                require(!LuaMcpSettings.validPassword(bad), "Invalid password accepted: " + bad);
+            boolean refused = false; try { config.withAuth(LuaMcpSettings.AUTH_CUSTOM, "bad pw"); } catch (IllegalArgumentException expected) { refused = true; }
+            require(refused, "A password with a space was accepted");
+            require(!customAuth.update(true, customAuth.port(), false, false, customAuth.ownerUuid(), customAuth.scope(), true).token().equals(config.token()), "Rotating must not restore a generated token over a custom password");
+            require(customAuth.update(true, customAuth.port(), false, false, customAuth.ownerUuid(), customAuth.scope(), true).token().equals("my-pass123"), "Rotating changed the custom password");
+            LuaMcpSettings open = config.withAuth(LuaMcpSettings.AUTH_NONE, null);
+            require(!open.passwordRequired() && LuaMcpSettings.load(root.resolve("settings.properties"), false).passwordRequired(), "No-password mode flag");
+            require(config.withAuth(LuaMcpSettings.AUTH_GENERATED, null).token().equals(config.token()), "Generated token stays while in generated mode");
+            require(!customAuth.withAuth(LuaMcpSettings.AUTH_GENERATED, null).token().equals("my-pass123"), "Back to generated must discard the custom password");
+            require(!LuaMcpServer.prompt(open, false).contains("Bearer"), "Open mode prompt must not claim a token");
+            try (LuaMcpServer secured = new LuaMcpServer("custom", (tool, values) -> CompletableFuture.completedFuture(LuaMcpTools.text("ok")))) {
+                LuaMcpSettings withPassword = config.update(true, freePort(), false, false, config.ownerUuid(), config.scope(), false).withAuth(LuaMcpSettings.AUTH_CUSTOM, "open-sesame");
+                secured.start(withPassword);
+                require(send(withPassword, "POST", "{}", null, withPassword.token(), null, null).statusCode() != 401, "The custom password was rejected");
+                require(send(withPassword, "POST", "{}", null, config.token(), null, null).statusCode() == 401, "The old generated token still works after setting a password");
+            }
+            try (LuaMcpServer unprotected = new LuaMcpServer("open", (tool, values) -> CompletableFuture.completedFuture(LuaMcpTools.text("ok")))) {
+                LuaMcpSettings noPassword = config.update(true, freePort(), false, false, config.ownerUuid(), config.scope(), false).withAuth(LuaMcpSettings.AUTH_NONE, null);
+                unprotected.start(noPassword);
+                require(send(noPassword, "POST", "{}", null, "anything", null, null).statusCode() != 401, "Open mode still demanded a password");
+            }
             AtomicInteger calls = new AtomicInteger();
             try (LuaMcpServer endpoint = new LuaMcpServer("smoke", (tool, values) -> { calls.incrementAndGet(); return CompletableFuture.completedFuture(LuaMcpTools.text("ok")); })) {
                 endpoint.start(config);

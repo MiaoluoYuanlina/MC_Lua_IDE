@@ -2606,5 +2606,15 @@
   "No gravity (NoGravity)": "重力なし（NoGravity）",
   "Whether gravity does not affect the entity": "重力の影響を受けないか",
   "Glowing": "発光（Glowing）",
-  "Whether the entity shows a glowing outline": "エンティティが発光の輪郭を表示するか"
+  "Whether the entity shows a glowing outline": "エンティティが発光の輪郭を表示するか",
+  "Access password": "アクセスパスワード",
+  "Generated token": "自動生成トークン",
+  "Custom password": "カスタムパスワード",
+  "No password": "パスワードなし",
+  "Leave blank to keep the saved password": "空欄のままだと保存済みのパスワードを維持します",
+  "Enter a 4–128 character password (visible ASCII, no spaces)": "4～128 文字のパスワードを入力（表示可能な ASCII、空白なし）",
+  "Show password": "パスワードを表示",
+  "Password protection is off: anyone who can reach the port can call MCP. Together with non-local connections and script execution this hands out control of your world.": "パスワード保護がオフです: ポートに到達できる人は誰でも MCP を呼び出せます。本機以外からの接続とスクリプト実行を許可していると、ワールドの操作権限を公開するのと同じです。",
+  "Resetting the token generates a new random token each time.": "トークンをリセットするたびに新しいランダムなトークンが生成されます。",
+  "The password must be 4–128 visible ASCII characters (no spaces)": "パスワードは 4～128 文字の表示可能な ASCII 文字（空白なし）にしてください"
 }

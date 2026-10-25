@@ -89,6 +89,7 @@ public final class LuaServerMcpService {
                 args.get("allowWrite").getAsBoolean(), args.get("allowExecution").getAsBoolean(), player.getUUID().toString(), "server",
                 args.has("rotate") && args.get("rotate").getAsBoolean(),
                 args.has("allowRemote") ? args.get("allowRemote").getAsBoolean() : service.settings.allowRemote());
+        if (args.has("authMode")) next = next.withAuth(args.get("authMode").getAsString(), args.has("password") && !args.get("password").isJsonNull() ? args.get("password").getAsString() : null);
         next.save(service.file); service.settings = next; service.restore(); return service.status();
     }
     public static LuaMcpStatus clearLogs(MinecraftServer server) { var service = get(server); service.history = List.of(); if (service.endpoint != null) service.endpoint.clearLogs(); return service.status(); }
