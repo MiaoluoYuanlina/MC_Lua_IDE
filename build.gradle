@@ -898,3 +898,11 @@ tasks.register("relativePositionSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.server.RelativePositionSmoke"
 }
 check.dependsOn relativePositionSmoke
+tasks.register("entityComponentSupportSmoke", JavaExec) {
+	dependsOn testClasses
+	group = "verification"
+	description = "Checks that entity classes are scanned for the data components they support."
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "wiki.ica.xiaomiao.mcluaide.server.EntityComponentSupportSmoke"
+}
+check.dependsOn entityComponentSupportSmoke

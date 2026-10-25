@@ -337,8 +337,7 @@ final class LuaComponentEditorCatalog {
 				.orElseThrow(() -> new IllegalArgumentException("未知实体：" + requested));
 		Entity entity = createEntity(server, type);
 		Map<String, JsonElement> defaults = encodedEntityDefaults(server, type, entity);
-		Set<String> applicable = new HashSet<>(defaults.keySet());
-		applicable.addAll(BASE_ENTITY_COMPONENTS);
+		Set<String> applicable = applicableEntityComponents(defaults, entity);
 
 		List<ComponentEntry> entries = new ArrayList<>();
 		Map<String, ComponentTreeSchema.Node> displaySchemas = new HashMap<>();
@@ -438,8 +437,7 @@ final class LuaComponentEditorCatalog {
 		EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id)
 				.orElseThrow(() -> new IllegalArgumentException("未知实体：" + id));
 		Entity entity = createEntity(server, type);
-		Set<String> applicable = new HashSet<>(encodedEntityDefaults(server, type, entity).keySet());
-		applicable.addAll(BASE_ENTITY_COMPONENTS);
+		Set<String> applicable = applicableEntityComponents(encodedEntityDefaults(server, type, entity), entity);
 		JsonElement raw = JsonParser.parseString(rawPatch);
 		if (!raw.isJsonObject()) throw new IllegalArgumentException("实体配置必须是对象");
 		JsonObject config = raw.getAsJsonObject();
@@ -534,12 +532,25 @@ final class LuaComponentEditorCatalog {
 		};
 	}
 
+	/** Components with a current value, the always-available ones, and every component the entity class handles (even while absent). */
+	private static Set<String> applicableEntityComponents(Map<String, JsonElement> defaults, Entity entity) {
+		Set<String> applicable = new HashSet<>(defaults.keySet());
+		applicable.addAll(BASE_ENTITY_COMPONENTS);
+		applicable.addAll(LuaEntityComponentSupport.supported(entity));
+		return applicable;
+	}
+
 	private static Entity createEntity(MinecraftServer server, EntityType<?> type) {
-		try {
-			return type.create(server.overworld(), EntitySpawnReason.COMMAND);
-		} catch (RuntimeException ignored) {
-			return null;
+		// Some types refuse one spawn reason; try the others so their components can still be listed.
+		for (EntitySpawnReason reason : new EntitySpawnReason[] {EntitySpawnReason.COMMAND, EntitySpawnReason.SPAWN_ITEM_USE, EntitySpawnReason.LOAD, EntitySpawnReason.NATURAL}) {
+			try {
+				Entity entity = type.create(server.overworld(), reason);
+				if (entity != null) return entity;
+			} catch (RuntimeException ignored) {
+				// try the next reason
+			}
 		}
+		return null;
 	}
 
 	private static Map<String, JsonElement> encodedDefaults(MinecraftServer server, ItemStack stack) {
