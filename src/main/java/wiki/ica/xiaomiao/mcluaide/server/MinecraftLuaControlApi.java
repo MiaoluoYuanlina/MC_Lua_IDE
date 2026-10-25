@@ -953,7 +953,7 @@ final class MinecraftLuaControlApi {
 				if (name.equals(LuaEntityAttachments.FIELD)) continue;
 				if (name.indexOf(':') > 0) patchTable.set(name, components.get(key));
 				else if (!Set.of("health", "equipment", "glowing", "invulnerable", "noGravity").contains(name)
-						&& !LuaDisplayEntityConfig.supports(entity, name) && !LuaItemEntityConfig.supports(entity, name))
+						&& !LuaDisplayEntityConfig.supports(entity, name) && !LuaItemEntityConfig.supports(entity, name) && !LuaEntityNbtConfig.supports(server, entity, name))
 					throw new LuaError("未知实体配置字段：" + name);
 			}
 			patchValue = patchTable;
@@ -1009,6 +1009,11 @@ final class MinecraftLuaControlApi {
 				if (LuaItemEntityConfig.supports(entity, field.getKey())) itemValues.add(field.getKey(), field.getValue().deepCopy());
 			LuaItemEntityConfig.apply(server, entity, itemValues);
 		}
+		JsonObject nbtValues = new JsonObject();
+		for (var field : JsonParser.parseString(rawConfig).getAsJsonObject().entrySet())
+			if (LuaEntityNbtConfig.supports(server, entity, field.getKey()) && !LuaItemEntityConfig.supports(entity, field.getKey())
+					&& !LuaDisplayEntityConfig.supports(entity, field.getKey())) nbtValues.add(field.getKey(), field.getValue().deepCopy());
+		LuaEntityNbtConfig.apply(server, entity, nbtValues);
 	}
 
 	private static LuaValue mutateEntity(MinecraftServer server, Varargs args, java.util.function.Consumer<Entity> mutation) {

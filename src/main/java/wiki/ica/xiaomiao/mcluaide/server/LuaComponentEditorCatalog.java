@@ -346,6 +346,9 @@ final class LuaComponentEditorCatalog {
 				1, new JsonObject()));
 		List<LuaDisplayEntityConfig.Field> specialFields = new ArrayList<>(LuaDisplayEntityConfig.fields(entity));
 		specialFields.addAll(LuaItemEntityConfig.fields(server, entity));
+		Set<String> offered = new HashSet<>();
+		for (var special : specialFields) offered.add(special.id());
+		specialFields.addAll(LuaEntityNbtConfig.fields(server, entity, offered));
 		for (LuaDisplayEntityConfig.Field field : specialFields) {
 			String editor = switch (field.schema().kind()) {
 				case "boolean", "integer", "number" -> field.schema().kind();
@@ -444,6 +447,7 @@ final class LuaComponentEditorCatalog {
 		JsonObject componentValues = new JsonObject();
 		JsonObject displayValues = new JsonObject();
 		JsonObject droppedItemValues = new JsonObject();
+		JsonObject nbtValues = new JsonObject();
 		for (var field : config.entrySet()) {
 			String name = field.getKey();
 			JsonElement value = field.getValue();
@@ -457,6 +461,10 @@ final class LuaComponentEditorCatalog {
 			}
 			if (LuaDisplayEntityConfig.supports(entity, name)) {
 				displayValues.add(name, value.deepCopy());
+				continue;
+			}
+			if (LuaEntityNbtConfig.supports(server, entity, name)) {
+				nbtValues.add(name, value.deepCopy());
 				continue;
 			}
 			if (name.startsWith("minecraft:") || name.indexOf(':') > 0) {
@@ -491,6 +499,7 @@ final class LuaComponentEditorCatalog {
 		}
 		if (!displayValues.isEmpty()) LuaDisplayEntityConfig.apply(server, entity, displayValues);
 		if (!droppedItemValues.isEmpty()) LuaItemEntityConfig.apply(server, entity, droppedItemValues);
+		if (!nbtValues.isEmpty()) LuaEntityNbtConfig.apply(server, entity, nbtValues);
 		DataComponentPatch parsed = decodePatch(server, componentValues.toString());
 		for (Map.Entry<DataComponentType<?>, java.util.Optional<?>> entry : parsed.entrySet()) {
 			Identifier componentId = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(entry.getKey());

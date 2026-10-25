@@ -18,6 +18,16 @@ public final class EntityComponentSupportSmoke {
 		require(axolotl.contains("minecraft:axolotl/variant"), "Axolotl components: " + axolotl); checks++;
 		require(!sheep.contains("minecraft:cat/variant") && !cat.contains("minecraft:sheep/color"), "Components do not leak between unrelated entities"); checks++;
 		require(LuaEntityComponentSupport.supported((net.minecraft.world.entity.Entity) null).isEmpty(), "No entity, no components"); checks++;
+		// NBT fields keep the type the entity saved: Motion is a list of doubles, ExplosionPower a byte.
+		var motionTemplate = new net.minecraft.nbt.ListTag(); motionTemplate.add(net.minecraft.nbt.DoubleTag.valueOf(0));
+		var motion = LuaEntityNbtConfig.convert(com.google.gson.JsonParser.parseString("[1.0, 0, 0.5]"), motionTemplate, "Motion");
+		require(motion.toString().equals("[1.0d,0.0d,0.5d]"), "Motion stays doubles: " + motion); checks++;
+		var power = LuaEntityNbtConfig.convert(com.google.gson.JsonParser.parseString("3"), net.minecraft.nbt.ByteTag.valueOf((byte) 1), "ExplosionPower");
+		require(power instanceof net.minecraft.nbt.ByteTag byteTag && byteTag.byteValue() == 3, "ExplosionPower stays a byte: " + power); checks++;
+		try { LuaEntityNbtConfig.convert(com.google.gson.JsonParser.parseString("300"), net.minecraft.nbt.ByteTag.valueOf((byte) 1), "ExplosionPower"); throw new AssertionError("byte overflow accepted"); }
+		catch (IllegalArgumentException expected) { checks++; }
+		var plain = LuaEntityNbtConfig.convert(com.google.gson.JsonParser.parseString("{\"a\":2,\"b\":1.5,\"c\":true,\"d\":\"x\"}"), null, "root");
+		require(plain.toString().contains("a:2") && plain.toString().contains("b:1.5d") && plain.toString().contains("c:1b") && plain.toString().contains("d:\"x\""), "untyped values: " + plain); checks++;
 		System.out.println("Entity component support smoke passed: " + checks + " checks");
 	}
 
