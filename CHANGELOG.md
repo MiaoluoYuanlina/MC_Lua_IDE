@@ -2,6 +2,16 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] - 2026-10-25
+
+### Added
+- `MC.Player.lookDirection(uuid)` (the 3D view direction as a unit vector) and `MC.Player.lookingAt(uuid, infinite?)` (the exact fractional coordinates of the block surface under the crosshair, optionally with unlimited range).
+- MCP access password: keep the generated token, set your own password, or turn password protection off.
+- Data component editor: entities list every data component their class handles, plus their NBT fields (such as `Motion` and `ExplosionPower`) with Chinese, English and Japanese labels for the common ones.
+
+### Fixed
+- Gutter: sideways-scrolled code no longer overlaps line numbers and fold arrows.
+
 ## [1.0.4] - 2026-10-23
 
 ### Added
@@ -91,6 +101,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.5]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.5
 [1.0.4]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.4
 [1.0.3]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.3
 [1.0.2]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.2
