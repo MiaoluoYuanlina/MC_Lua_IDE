@@ -422,7 +422,7 @@ final class NativeCodeArea {
 			for (var mark : marks) {
 				int a = Math.max(row.start, mark.start()), b = Math.min(row.end, mark.end());
 				if (a >= b) continue;
-				rect(draw, row, a, b, x, y, switch (mark.severity()) { case "error" -> 0x667257E9; case "warning" -> 0x6646AAD7; case "mcp" -> 0x66A5B943; default -> 0x66C78455; });
+				rect(draw, row, a, b, x, y, switch (mark.severity()) { case "error" -> 0x667257E9; case "warning" -> 0x6646AAD7; case "mcp" -> 0x99A5B943; default -> 0x66C78455; });
 				if (hovered && !ImGui.isMouseDown(0) && my >= y && my < y + lineHeight && mx >= x + advance(row, a) && mx < x + advance(row, b)) hoveredMark = mark;
 			}
 			for (var diagnostic : errors) {
@@ -490,7 +490,11 @@ final class NativeCodeArea {
 		}
 		if (!hovered || hoverOffset < 0) hoverExpression = "";
 		if (hovered && ImGui.isMouseClicked(1)) contextOffset = hoverOffset;
-		if (hoveredMark != null) ImGui.setTooltip(hoveredMark.message() + "\nEsc · " + LuaUiText.text("清除全部标记"));
+		if (hoveredMark != null) {
+			boolean mcp = hoveredMark.severity().equals("mcp");
+			if (mcp) ImGui.setMouseCursor(imgui.flag.ImGuiMouseCursor.Hand);
+			ImGui.setTooltip(hoveredMark.message() + (mcp ? "\n" + LuaUiText.text("点击选中修改的代码") : "") + "\nEsc · " + LuaUiText.text("清除全部标记"));
+		}
 		else if (hovered && !overMinimap && hoverOffset >= 0 && !ImGui.isMouseDown(0)) {
 			var api = LuaApiDocumentation.find(symbolAt(hoverOffset));
 			if (api != null) {
@@ -635,6 +639,12 @@ final class NativeCodeArea {
 		draw.popClipRect();
 	}
 
+	/** The MCP highlight covering an offset, if any. */
+	private LuaAiAgent.Mark mcpMarkAt(int offset) {
+		for (var mark : model.nativeMarks()) if (mark.severity().equals("mcp") && offset >= mark.start() && offset <= mark.end()) return mark;
+		return null;
+	}
+
 	private void handleMouse(LuaFunctionFolding.State folds, int selection, float top, float bottom, float mx, float my, boolean overMinimap) {
 		if (minimap && (overMinimap && hovered && ImGui.isMouseClicked(0) || minimapDragging)) {
 			if (ImGui.isMouseClicked(0)) minimapDragging = true;
@@ -664,6 +674,11 @@ final class NativeCodeArea {
 					else goToDefinitionAt(hit);
 				} else if (alt) extraCarets.add(new Caret(hit, hit));
 				else if (ImGui.isMouseDoubleClicked(0)) model.nativeSmartSelect(offsetAt(row, mx - (originX + gutter), false));
+				else if (!ImGui.getIO().getKeyShift() && mcpMarkAt(offsetAt(row, mx - (originX + gutter), false)) instanceof LuaAiAgent.Mark mark) {
+					// Clicking code that MCP wrote selects the whole changed range; Esc (while hovering) clears the highlight.
+					extraCarets.clear(); snippetStops = new ArrayList<>();
+					model.nativeSelect(mark.start(), mark.end()); reveal = true;
+				}
 				else {
 					extraCarets.clear(); snippetStops = new ArrayList<>();
 					anchor = ImGui.getIO().getKeyShift() ? selection : hit;

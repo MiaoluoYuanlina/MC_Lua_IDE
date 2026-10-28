@@ -1217,25 +1217,10 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 			var update = LuaMcpFileSync.latest(document.name);
 			if (update == null || update.revision() <= document.mcpRevision) continue;
 			document.mcpRevision = update.revision();
-			if (document.dirty() && !document.source.equals(update.change().source())) {
-				minecraft.setScreen(new net.minecraft.client.gui.screens.ConfirmScreen(useMcp -> {
-					var latest = LuaMcpFileSync.latest(document.name);
-					if (latest != null && openDocuments.containsValue(document)) {
-						document.mcpRevision = latest.revision();
-						if (useMcp) applyMcpUpdate(document, latest);
-						else {
-							document.savedSource = latest.change().source(); document.mcpMarks = List.of();
-							if (document == currentDocument) lastSavedSource = document.savedSource;
-						}
-					}
-					minecraft.setScreen(this);
-					status = useMcp ? LuaUiText.text("已同步 MCP 修改 · 原内容可 Ctrl+Z 撤销找回") : "已保留未保存内容；服务器文件已由 MCP 修改，保存将覆盖服务器版本";
-				}, Component.literal(LuaUiText.text("MCP 修改了 ") + document.displayName()),
-						Component.literal(LuaUiText.text("此文件有未保存内容。载入 MCP 最新版本吗？原内容将保留在撤销记录中。保留草稿不会改写服务器文件。")),
-						Component.literal(LuaUiText.text("载入 MCP 版本")), Component.literal(LuaUiText.text("保留未保存内容"))));
-				return;
-			}
+			// Never a dialog: the IDE stays usable. Unsaved edits are not lost, they stay in undo, and the changed code is highlighted.
+			boolean overUnsaved = document.dirty() && !document.source.equals(update.change().source());
 			applyMcpUpdate(document, update);
+			if (overUnsaved) status = LuaUiText.text("MCP 修改了 ") + document.displayName() + " · " + LuaUiText.text("未保存的内容可用 Ctrl+Z 找回，修改处已标色，悬浮按 Esc 清除");
 		}
 	}
 	private void applyMcpUpdate(OpenDocument document, LuaMcpFileSync.Update update) {

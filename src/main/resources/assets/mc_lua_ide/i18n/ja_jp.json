@@ -2622,5 +2622,7 @@
   "Listens for any projectile (arrow, trident, snowball, fireball, wind charge and modded projectiles) hitting a block, raised before the projectile reacts": "あらゆる飛び道具（矢・トライデント・雪玉・ファイアボール・ウィンドチャージ・Mod の飛び道具）がブロックに当たったときを監視します。飛び道具が反応する前に発生します",
   "Listens for any projectile hitting an entity, raised before the projectile reacts": "あらゆる飛び道具がエンティティに当たったときを監視します。飛び道具が反応する前に発生します",
   "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; hitX, hitY and hitZ are the exact hit point, x, y and z are the coordinates of the block that was hit, and face is the face that was hit": "hasOwner が false の場合 owner* フィールドはありません。playerUuid と playerName は射手がプレイヤーのときだけあります。hitX・hitY・hitZ は正確な命中点、x・y・z は当たったブロックの座標、face は当たった面です",
-  "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; targetIsPlayer is true with a targetPlayerName when a player was hit": "hasOwner が false の場合 owner* フィールドはありません。playerUuid と playerName は射手がプレイヤーのときだけあります。プレイヤーに当たった場合は targetIsPlayer が true になり targetPlayerName が付きます"
+  "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; targetIsPlayer is true with a targetPlayerName when a player was hit": "hasOwner が false の場合 owner* フィールドはありません。playerUuid と playerName は射手がプレイヤーのときだけあります。プレイヤーに当たった場合は targetIsPlayer が true になり targetPlayerName が付きます",
+  "Click to select the changed code": "クリックで変更されたコードを選択",
+  "Unsaved content can be recovered with Ctrl+Z; the changes are highlighted, hover and press Esc to clear": "未保存の内容は Ctrl+Z で復元できます。変更箇所は色付き表示で、ホバーして Esc で解除します"
 }

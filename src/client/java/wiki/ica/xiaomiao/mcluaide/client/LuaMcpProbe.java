@@ -197,26 +197,18 @@ final class LuaMcpProbe {
             return get(docs.get("lua:" + background), "source").equals("print('new')");
         }, "Background tab was not updated");
         onClient(client, () -> { require(get(get(ide, "currentDocument"), "name").equals(name) && editor().getValue().equals(updated), "Background synchronization switched active tab"); return null; }).get();
-        // Unsaved drafts require a choice, and both choices must survive IDE rebuild.
-        for (boolean useMcp : new boolean[]{false, true}) {
-            String draft = updated + "-- unsaved " + useMcp + "\n", incoming = updated + "-- MCP " + useMcp + "\n";
-            onClient(client, () -> { editor().setValue(draft); return null; }).get();
-            connection.call("lua_save_script", object("name", name, "source", incoming));
-            waitClient(client, () -> client.screen instanceof net.minecraft.client.gui.screens.ConfirmScreen, "Unsaved draft overwritten without confirmation");
-            onClient(client, () -> {
-                var prompt = client.screen;
-                Button choice = prompt.children().stream().filter(Button.class::isInstance).map(Button.class::cast)
-                        .filter(b -> b.getMessage().getString().equals(useMcp ? "载入 MCP 版本" : "保留未保存内容")).findFirst().orElseThrow();
-                choice.onPress(new KeyEvent(257, 0, 0));
-                require(client.screen == ide && editor().getValue().equals(useMcp ? incoming : draft), "Conflict choice lost on returning to IDE");
-                require(get(get(ide, "currentDocument"), "savedSource").equals(incoming), "Conflict choice has stale server baseline");
-                if (useMcp) {
-                    var undo = LuaIdeScreen.class.getDeclaredMethod("undo"); undo.setAccessible(true); undo.invoke(ide);
-                    require(editor().getValue().equals(draft), "Accepting MCP discarded unsaved draft undo");
-                }
-                editor().setValue(incoming); return null;
-            }).get();
-        }
+        // An MCP change over unsaved edits is applied right away (no dialog, the old text stays in undo) and the changed code is marked.
+        String draft = updated + "-- unsaved\n", incoming = updated + "-- MCP\n";
+        onClient(client, () -> { editor().setValue(draft); return null; }).get();
+        connection.call("lua_save_script", object("name", name, "source", incoming));
+        waitClient(client, () -> { try { return editor().getValue().equals(incoming); } catch (Exception failure) { return false; } }, "MCP change over an unsaved draft was not applied");
+        onClient(client, () -> {
+            require(client.screen == ide && !(client.screen instanceof net.minecraft.client.gui.screens.ConfirmScreen), "A confirmation screen replaced the IDE");
+            require(get(get(ide, "currentDocument"), "savedSource").equals(incoming), "Applied MCP change has a stale server baseline");
+            var undo = LuaIdeScreen.class.getDeclaredMethod("undo"); undo.setAccessible(true); undo.invoke(ide);
+            require(editor().getValue().equals(draft), "Applying MCP discarded the unsaved draft's undo");
+            editor().setValue(incoming); return null;
+        }).get();
     }
     private static net.minecraft.client.gui.components.MultiLineEditBox editor() throws Exception { return (net.minecraft.client.gui.components.MultiLineEditBox) get(ide, "editor"); }
     private static net.minecraft.client.gui.components.MultilineTextField field() throws Exception { return ((wiki.ica.xiaomiao.mcluaide.client.mixin.MultiLineEditBoxAccessor) editor()).mcLuaIde$getTextField(); }

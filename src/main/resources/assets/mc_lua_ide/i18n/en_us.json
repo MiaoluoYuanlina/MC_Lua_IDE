@@ -2178,5 +2178,7 @@
   "监听任意弹射物（箭、三叉戟、雪球、火球、风弹及模组弹射物）击中方块，在弹射物作出反应之前触发": "Listens for any projectile (arrow, trident, snowball, fireball, wind charge and modded projectiles) hitting a block, raised before the projectile reacts",
   "监听任意弹射物击中实体，在弹射物作出反应之前触发": "Listens for any projectile hitting an entity, raised before the projectile reacts",
   "hasOwner 为 false 时没有 owner* 字段；射击者是玩家时才有 playerUuid／playerName；hitX／hitY／hitZ 是精确命中点，x／y／z 是被击中方块的坐标，face 是被击中的面": "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; hitX, hitY and hitZ are the exact hit point, x, y and z are the coordinates of the block that was hit, and face is the face that was hit",
-  "hasOwner 为 false 时没有 owner* 字段；射击者是玩家时才有 playerUuid／playerName；被击中的是玩家时 targetIsPlayer 为 true 并带有 targetPlayerName": "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; targetIsPlayer is true with a targetPlayerName when a player was hit"
+  "hasOwner 为 false 时没有 owner* 字段；射击者是玩家时才有 playerUuid／playerName；被击中的是玩家时 targetIsPlayer 为 true 并带有 targetPlayerName": "When hasOwner is false there are no owner* fields; playerUuid and playerName exist only when the shooter is a player; targetIsPlayer is true with a targetPlayerName when a player was hit",
+  "点击选中修改的代码": "Click to select the changed code",
+  "未保存的内容可用 Ctrl+Z 找回，修改处已标色，悬浮按 Esc 清除": "Unsaved content can be recovered with Ctrl+Z; the changes are highlighted, hover and press Esc to clear"
 }
