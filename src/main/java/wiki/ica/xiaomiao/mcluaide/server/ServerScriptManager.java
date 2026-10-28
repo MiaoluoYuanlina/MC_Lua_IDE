@@ -47,6 +47,7 @@ public final class ServerScriptManager {
 			"blockPlaced", "blockBroken", "blockAttacked", "blockUsed", "itemUsed",
 			"entityAttacked", "entityUsed", "entityLoaded", "entityUnloaded", "entityChangedDimension",
 			"entityDamaged", "entityDied", "entityKilledOther", "equipmentChanged",
+			"projectileHitBlock", "projectileHitEntity",
 			"playerJoined", "playerLeft", "playerDied", "playerRespawned", "playerChangedDimension",
 			"effectAdded", "effectRemoved", "sleepStarted", "sleepStopped",
 			"chunkLoaded", "chunkGenerated", "chunkUnloaded", "levelLoaded", "levelUnloaded",

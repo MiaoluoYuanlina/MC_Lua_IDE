@@ -14,7 +14,8 @@
     "ServerCommonPacketListenerMixin",
     "ServerTickRateManagerDebuggerMixin",
     "ServerDebuggerMovementMixin",
-    "DebuggerEntityMovementMixin"
+    "DebuggerEntityMovementMixin",
+    "ProjectileHitMixin"
   ],
   "injectors": {
     "defaultRequire": 1

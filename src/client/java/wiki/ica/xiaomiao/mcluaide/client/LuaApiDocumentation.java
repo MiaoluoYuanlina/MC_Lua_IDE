@@ -398,6 +398,10 @@ final class LuaApiDocumentation {
 			case "MC.Event.onPlayerDied" -> "print(event.playerName, event.x, event.y, event.z, event.dimension, event.deathMessage)";
 			case "MC.Event.onEntityKilledOther" ->
 					"print(event.killerName, \"击杀\", event.killedName, event.damageType)";
+			case "MC.Event.onProjectileHitBlock" ->
+					"print(event.projectileType, event.blockId, event.hitX, event.hitY, event.hitZ, event.face)";
+			case "MC.Event.onProjectileHitEntity" ->
+					"print(event.projectileType, event.targetName, event.playerName)";
 			case "MC.Event.onEquipmentChanged" ->
 					"print(event.entityName, event.slot, event.oldItemId, event.newItemId)";
 			case "MC.Event.onPlayerJoined", "MC.Event.onPlayerLeft", "MC.Event.onPlayerRespawned" ->
@@ -960,6 +964,10 @@ final class LuaApiDocumentation {
 		addEvent(entries, "MC.Event.onEntityDamaged", "MC.Event.onEntityDamaged(callback)", "监听有生命实体（LivingEntity，包括玩家）伤害结算后的结果；致死伤害使用 onEntityDied", "事件注册 ID（整数）", "entity* 字段, damageType, baseDamage, damageTaken, blocked, remainingHealth，以及可选 attacker*/direct* 字段");
 		addEvent(entries, "MC.Event.onEntityDied", "MC.Event.onEntityDied(callback)", "监听实体死亡（仅 LivingEntity 死亡流程，包括玩家）；不包括掉落物、展示实体等的移除，也不包括直接移除或区块卸载；只监听玩家请使用 onPlayerDied", "事件注册 ID（整数）", "entity* 字段, dimension, damageType，以及可选 attacker*/direct* 字段");
 		addEvent(entries, "MC.Event.onEntityKilledOther", "MC.Event.onEntityKilledOther(callback)", "监听实体杀死另一个有生命实体（LivingEntity，包括玩家）", "事件注册 ID（整数）", "killer* 字段, killed* 字段, damageType, dimension，以及可选 attacker*/direct* 字段");
+		addEvent(entries, "MC.Event.onProjectileHitBlock", "MC.Event.onProjectileHitBlock(callback)", "监听任意弹射物（箭、三叉戟、雪球、火球、风弹及模组弹射物）击中方块，在弹射物作出反应之前触发", "事件注册 ID（整数）",
+				"projectileUuid, projectileType, projectileName, projectileRuntimeId, projectileX, projectileY, projectileZ, hasOwner, ownerUuid, ownerType, ownerName, ownerRuntimeId, ownerX, ownerY, ownerZ, playerUuid, playerName, hitX, hitY, hitZ, blockId, x, y, z, face, inside, dimension。hasOwner 为 false 时没有 owner* 字段；射击者是玩家时才有 playerUuid／playerName；hitX／hitY／hitZ 是精确命中点，x／y／z 是被击中方块的坐标，face 是被击中的面");
+		addEvent(entries, "MC.Event.onProjectileHitEntity", "MC.Event.onProjectileHitEntity(callback)", "监听任意弹射物击中实体，在弹射物作出反应之前触发", "事件注册 ID（整数）",
+				"projectileUuid, projectileType, projectileName, projectileRuntimeId, projectileX, projectileY, projectileZ, hasOwner, ownerUuid, ownerType, ownerName, ownerRuntimeId, ownerX, ownerY, ownerZ, playerUuid, playerName, hitX, hitY, hitZ, targetUuid, targetType, targetName, targetRuntimeId, targetX, targetY, targetZ, targetIsPlayer, targetPlayerName, dimension。hasOwner 为 false 时没有 owner* 字段；射击者是玩家时才有 playerUuid／playerName；被击中的是玩家时 targetIsPlayer 为 true 并带有 targetPlayerName");
 		addEvent(entries, "MC.Event.onEquipmentChanged", "MC.Event.onEquipmentChanged(callback)", "监听有生命实体（LivingEntity，包括玩家）装备槽发生变化", "事件注册 ID（整数）", "entity* 字段, slot, oldItemId, oldItemCount, oldItemComponents, oldCount, newItemId, newItemCount, newItemComponents, newCount, dimension");
 		addEvent(entries, "MC.Event.onPlayerJoined", "MC.Event.onPlayerJoined(callback)", "监听玩家加入服务器", "事件注册 ID（整数）", "playerUuid, playerName, x, y, z, dimension");
 		addEvent(entries, "MC.Event.onPlayerLeft", "MC.Event.onPlayerLeft(callback)", "监听玩家离开服务器", "事件注册 ID（整数）", "playerUuid, playerName, x, y, z, dimension");

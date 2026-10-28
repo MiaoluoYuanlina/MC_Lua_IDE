@@ -1799,6 +1799,8 @@ end)
 - `entityDamaged` / `onEntityDamaged`：有生命实体（`LivingEntity`，包括玩家）结算伤害后；`entity*, damageType, baseDamage, damageTaken, blocked, remainingHealth`，以及可选伤害来源字段。致死伤害使用死亡监听
 - `entityDied` / `onEntityDied`：实体死亡（仅 `LivingEntity` 死亡流程，包括玩家）；`entity*, dimension, damageType`，以及可选伤害来源字段。**不是全部实体的删除监听**：掉落物、展示实体等被移除、调用 `MC.Entity.remove` 或区块卸载不会触发此事件；不死图腾等阻止死亡时也不会触发。只需玩家死亡请使用 `onPlayerDied`
 - `entityKilledOther` / `onEntityKilledOther`：实体击杀另一个有生命实体（`LivingEntity`，包括玩家）；`killer*, killed*, damageType, dimension`，以及可选伤害来源字段
+- `projectileHitBlock` / `onProjectileHitBlock`：任意弹射物（箭、三叉戟、雪球、火球、风弹及模组弹射物）击中方块，在弹射物作出反应之前触发。字段：`projectile*`（UUID／类型／名称／位置）、`hasOwner` 及 `owner*`、射击者是玩家时的 `playerUuid`／`playerName`、精确命中点 `hitX`／`hitY`／`hitZ`、被击中方块 `blockId`／`x`／`y`／`z`、被击中的面 `face`、`inside`、`dimension`
+- `projectileHitEntity` / `onProjectileHitEntity`：任意弹射物击中实体。字段：`projectile*`、`hasOwner` 及 `owner*`、`playerUuid`／`playerName`、`hitX`／`hitY`／`hitZ`、被击中实体 `target*`、`targetIsPlayer`（为 true 时有 `targetPlayerName`）、`dimension`
 - `equipmentChanged` / `onEquipmentChanged`：有生命实体（`LivingEntity`，包括玩家）装备槽变化；`entity*, slot, oldItemId, oldItemCount, oldItemComponents, oldCount, newItemId, newItemCount, newItemComponents, newCount, dimension`
 
 ```lua
