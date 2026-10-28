@@ -2,6 +2,18 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] - 2026-10-28
+
+### Added
+- Events `projectileHitBlock` / `projectileHitEntity` (`MC.Event.onProjectileHitBlock`, `MC.Event.onProjectileHitEntity`) for any projectile, with the projectile, its owner, the exact hit point and the block or target.
+
+### Changed
+- An MCP change to a file with unsaved edits is applied at once (no dialog); the unsaved text stays in undo, the changed code is highlighted, clicking it selects the change and Esc clears the highlight.
+- The insert window and the data component editor opened with Ctrl+I stay open after an insertion.
+
+### Fixed
+- Importing code through MCP could open the old window and leave the IDE stuck.
+
 ## [1.0.5] - 2026-10-25
 
 ### Added
@@ -101,6 +113,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.6]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.6
 [1.0.5]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.5
 [1.0.4]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.4
 [1.0.3]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.3
