@@ -685,7 +685,6 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         } else target.insert("\"" + value + "\"");
         selectTab = current = target;
         show("editor");
-        if (idShortcutClose) windows.get("insert").set(false);
     }
     private boolean idShortcutClose;
 
@@ -1066,7 +1065,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
             if (tools!=null&&tools.codeArea.dismissMarks())return true;
             if (completionOpen) completionOpen = false;
             else if(tools!=null&&tools.escape())return true;
-            else if (windows.get("insert").get() && idShortcutClose) windows.get("insert").set(false);
+            else if (windows.get("insert").get() && idShortcutClose) { windows.get("insert").set(false); idShortcutClose = false; }
             else onClose(); return true;
         }
         if (tools != null) {boolean[] handled={false};ImGuiIdeRuntime.inContext(()->handled[0]=tools.key(event,false));if(handled[0])return true;}

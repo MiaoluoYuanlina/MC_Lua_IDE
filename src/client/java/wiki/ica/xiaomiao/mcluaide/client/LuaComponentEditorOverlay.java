@@ -175,12 +175,12 @@ final class LuaComponentEditorOverlay {
 		Category preferredCategory = Category.from(preferredKind);
 		if (preferredCategory == null) {
 			open();
-			closeAfterInsert = true;
+			closeAfterInsert = false; // stays open so several components can be inserted; close it with its X or Esc
 			return;
 		}
 		open = true;
 		openRevision++;
-		closeAfterInsert = true;
+		closeAfterInsert = false;
 		keyboardFocused = true;
 		category = preferredCategory;
 		targetQuery = "";
