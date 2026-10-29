@@ -2,6 +2,18 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.10] - 2026-10-29
+
+### Added
+- `MC.Team.aggressive(entityUuid, enabled?)`: makes a mob actively attack players who are not on its team and living entities on other teams (a mob without a team attacks players only; creative and spectator players are left alone). Without `enabled` it only reports the current state. The setting is kept in memory and cleared when the server stops.
+- Data component tree: Home / End jump to the first / last row and F2 edits the selected value.
+
+### Fixed
+- Data component tree: two highlight indicators could show at once (the selected row and the keyboard cursor on another row); the cursor now follows the selection.
+
+### Tested
+- `MC.Team.aggressive` was run in a real game world: a red zombie targets a blue zombie, ignores a teammate, and stops when switched off; players are rejected.
+
 ## [1.0.9] - 2026-10-28
 
 ### Fixed
@@ -137,6 +149,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.10]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.10
 [1.0.9]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.9
 [1.0.8]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.8
 [1.0.7]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.7

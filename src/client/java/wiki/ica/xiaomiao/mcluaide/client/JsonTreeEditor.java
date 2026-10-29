@@ -48,9 +48,13 @@ final class JsonTreeEditor {
 			
 				// The tree takes the keyboard: Up/Down/Left/Right move and fold through ImGui navigation, Enter opens the editing panel.
 				boolean enterOpens=false;
-				if(refocusTree&&selected.equals(row.path())){ imgui.ImGui.setWindowFocus(); imgui.ImGui.setKeyboardFocusHere(-1); refocusTree=false; navPath=row.path(); }
+				// The highlighted row and the keyboard cursor must be one row: a selection changed by code or mouse pulls the cursor onto it.
+				if((refocusTree||popupMode==PopupMode.NONE&&!selected.equals(navPath))&&selected.equals(row.path())){ imgui.ImGui.setWindowFocus(); imgui.ImGui.setKeyboardFocusHere(-1); refocusTree=false; navPath=row.path(); }
 				if(imgui.ImGui.isItemFocused()&&popupMode==PopupMode.NONE) {
 					if(!row.path().equals(navPath)){ navPath=row.path(); selected=row.path(); }
+					if(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Home,false)&&!rows.isEmpty()){ selected=rows.get(0).path(); refocusTree=true; }
+					if(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.End,false)&&!rows.isEmpty()){ selected=rows.get(rows.size()-1).path(); refocusTree=true; }
+					if(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.F2,false)&&!row.container()&&!row.addAction()){ selected=row.path(); beginEdit(); }
 					if(!imgui.ImGui.getIO().getKeyCtrl()&&(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter,false)||imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.KeypadEnter,false))) {
 						enterOpens=true; selected=row.path();
 						if(row.addAction()){selected=selected.parent();beginAdd();}else if(row.container())beginAdd();else beginEdit();

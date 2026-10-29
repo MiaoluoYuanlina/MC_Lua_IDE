@@ -553,6 +553,14 @@ final class MinecraftLuaControlApi {
 				return LuaValue.valueOf(team != null && scoreboard.getPlayersTeam(teamHolder(current, holder)) == team);
 			});
 		});
+		bind(api, "aggressive", args -> {
+			UUID uuid = UUID.fromString(args.checkjstring(1));
+			boolean query = args.arg(2).isnil(), enabled = !query && args.checkboolean(2);
+			return onServer(server, current -> {
+				if (!query) LuaTeamAggression.set(requireEntity(current, uuid), enabled);
+				return LuaValue.valueOf(LuaTeamAggression.enabled(uuid));
+			});
+		});
 		bind(api, "color", args -> teamModify(server, args, "color", safeToken(args.checkjstring(2), "颜色")));
 		bind(api, "friendlyFire", args -> teamModify(server, args, "friendlyFire", Boolean.toString(args.checkboolean(2))));
 		bind(api, "prefix", args -> teamModify(server, args, "prefix", LuaTextComponentCodec.commandJson(server, args.arg(2))));

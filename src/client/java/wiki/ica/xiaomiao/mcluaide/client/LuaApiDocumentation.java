@@ -824,7 +824,8 @@ final class LuaApiDocumentation {
 		add(entries, "MC.Team.has", "MC.Team.has(team, holder)", "查询任意实体是否属于指定队伍；支持在线玩家、生物、掉落物、展示实体的 UUID，也兼容玩家名和虚拟名称", "boolean；属于指定队伍返回 true，否则返回 false；队伍不存在也返回 false", "local entityUuid = MC.Entity.spawn(\"minecraft:pig\", 0, 64, 0)\nMC.Team.create(\"red\")\nMC.Team.join(\"red\", entityUuid)\nprint(MC.Team.has(\"red\", entityUuid)) -- true", false);
 		add(entries, "MC.Team.color", "MC.Team.color(team, color)", "设置队伍颜色", "true；命令已提交", "MC.Team.color(\"red\", \"red\")", false);
 		add(entries, "MC.Team.friendlyFire", "MC.Team.friendlyFire(team, enabled)", "设置队伍友军伤害", "true；命令已提交", "MC.Team.friendlyFire(\"red\", false)", false);
-		add(entries, "MC.Team.prefix", "MC.Team.prefix(team, textOrJson)", "设置队伍名称前缀；支持文本组件 JSON 或 Lua 表", "true；命令已提交", "MC.Team.prefix(\"red\", {text = \"[红队] \", color = \"#FF5555\", bold = true})", false);
+		add(entries, "MC.Team.aggressive", "MC.Team.aggressive(entityUuid, enabled?)", "设置指定 UUID 的生物是否主动攻击其他队伍的生物和不属于本队的玩家；生物没有队伍时只主动攻击玩家；创造和旁观模式的玩家不会被攻击；不传 enabled 时只查询。设置只保存在内存中，服务器关闭后失效", "boolean；当前是否处于主动攻击状态；目标不是生物时报错", "local zombie = MC.Entity.spawn(\"minecraft:zombie\", 0, 64, 0)\nMC.Team.create(\"red\")\nMC.Team.join(\"red\", zombie)\nprint(MC.Team.aggressive(zombie, true)) -- true\nprint(MC.Team.aggressive(zombie)) -- 查询当前状态", false);
+		add(entries, "MC.Team.prefix","MC.Team.prefix(team, textOrJson)", "设置队伍名称前缀；支持文本组件 JSON 或 Lua 表", "true；命令已提交", "MC.Team.prefix(\"red\", {text = \"[红队] \", color = \"#FF5555\", bold = true})", false);
 		add(entries, "MC.Team.suffix", "MC.Team.suffix(team, textOrJson)", "设置队伍名称后缀；支持文本组件 JSON 或 Lua 表", "true；命令已提交", "MC.Team.suffix(\"red\", {text = \" ★\", color = \"#FFFF55\"})", false);
 
 		add(entries, "MC.GameRule.names", "MC.GameRule.names()", "列出当前版本注册的全部游戏规则资源 ID", "字符串数组", "for _, id in ipairs(MC.GameRule.names()) do print(id) end", false);

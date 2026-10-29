@@ -53,6 +53,8 @@ final class LuaEntitySpawnProbe {
                     try {
                         verifyData(server, owner);
                         System.out.println("data labels stage passed");
+                        verifyAggression(server, owner);
+                        System.out.println("team aggression stage passed");
                         verify(server, owner, false); verify(server, owner, true);
                         verifyAttachments(server, owner, false); verifyAttachments(server, owner, true);
 						verifyDroppedItems(server, owner, false); verifyDroppedItems(server, owner, true);
@@ -117,6 +119,68 @@ final class LuaEntitySpawnProbe {
                 print('spawn-uuid-ok')
                 """.formatted(owner);
         verifySource(server, owner, debug, source, "spawn-uuid-ok");
+    }
+
+    /** Runs LuaTeamAggression (behind MC.Team.aggressive) on real zombies: other team targeted, own team and disabled state ignored. */
+    private static void verifyAggression(MinecraftServer server, UUID owner) throws Exception {
+        Class<?> type = Class.forName("wiki.ica.xiaomiao.mcluaide.server.LuaTeamAggression");
+        Method set = type.getDeclaredMethod("set", net.minecraft.world.entity.Entity.class, boolean.class);
+        Method enabled = type.getDeclaredMethod("enabled", UUID.class);
+        set.setAccessible(true); enabled.setAccessible(true);
+        var fixtures = new net.minecraft.world.entity.Mob[3];
+        server.submit(() -> {
+            try {
+                var level = server.overworld();
+                var player = server.getPlayerList().getPlayer(owner);
+                var board = server.getScoreboard();
+                var red = board.getPlayerTeam("probe_red") != null ? board.getPlayerTeam("probe_red") : board.addPlayerTeam("probe_red");
+                var blue = board.getPlayerTeam("probe_blue") != null ? board.getPlayerTeam("probe_blue") : board.addPlayerTeam("probe_blue");
+                for (int i = 0; i < 3; i++) {
+                    var zombie = net.minecraft.world.entity.EntityType.ZOMBIE.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                    zombie.setPos(player.getX() + i, player.getY() + 12, player.getZ() + 6);
+                    zombie.setNoGravity(true); zombie.setNoAi(true); zombie.setPersistenceRequired();
+                    if (!level.addFreshEntity(zombie)) throw new AssertionError("Zombie fixture rejected");
+                    fixtures[i] = zombie;
+                }
+                board.addPlayerToTeam(fixtures[0].getScoreboardName(), red);
+                board.addPlayerToTeam(fixtures[1].getScoreboardName(), blue);
+                board.addPlayerToTeam(fixtures[2].getScoreboardName(), red);
+                set.invoke(null, fixtures[0], true);
+                if (!(boolean) enabled.invoke(null, fixtures[0].getUUID())) throw new AssertionError("aggressive state not stored");
+                return null;
+            } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+        }).get(20, TimeUnit.SECONDS);
+        try {
+            Thread.sleep(2500);
+            server.submit(() -> {
+                if (fixtures[0].getTarget() != fixtures[1])
+                    throw new AssertionError("Red zombie should target the blue zombie, got " + fixtures[0].getTarget());
+                return null;
+            }).get(20, TimeUnit.SECONDS);
+            server.submit(() -> {
+                try {
+                    set.invoke(null, fixtures[0], false);
+                    fixtures[0].setTarget(null);
+                    if ((boolean) enabled.invoke(null, fixtures[0].getUUID())) throw new AssertionError("aggressive state not cleared");
+                    try { set.invoke(null, server.getPlayerList().getPlayer(owner), true); throw new AssertionError("Player accepted"); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { }
+                    return null;
+                } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+            }).get(20, TimeUnit.SECONDS);
+            Thread.sleep(1500);
+            server.submit(() -> {
+                if (fixtures[0].getTarget() != null) throw new AssertionError("Disabled zombie still picked a target");
+                if (fixtures[2].getTarget() != null) throw new AssertionError("Teammate/non-aggressive zombie picked a target");
+                return null;
+            }).get(20, TimeUnit.SECONDS);
+        } finally {
+            server.submit(() -> {
+                for (var zombie : fixtures) if (zombie != null) zombie.discard();
+                server.getScoreboard().removePlayerTeam(server.getScoreboard().getPlayerTeam("probe_red"));
+                server.getScoreboard().removePlayerTeam(server.getScoreboard().getPlayerTeam("probe_blue"));
+                return null;
+            }).get(20, TimeUnit.SECONDS);
+        }
     }
 
     /** Runs LuaDataLabels (behind MC.Entity.addData / hideData and MC.Block.addData / hideData) on real server objects. */

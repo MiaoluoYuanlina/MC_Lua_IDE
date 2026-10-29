@@ -201,6 +201,7 @@ public final class LuaFabricEventBridge {
 		ServerLevelEvents.LOAD.register((server, level) -> emit("levelLoaded", levelData(level)));
 		ServerLevelEvents.UNLOAD.register((server, level) -> emit("levelUnloaded", levelData(level)));
 		ServerTickEvents.START_SERVER_TICK.register(ServerScriptManager::tickDebugger);
+		ServerTickEvents.END_SERVER_TICK.register(LuaTeamAggression::tick);
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			Map<String, Object> data = new LinkedHashMap<>();
 			data.put("tick", server.getTickCount());

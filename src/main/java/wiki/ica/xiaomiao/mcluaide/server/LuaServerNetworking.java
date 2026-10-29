@@ -82,6 +82,7 @@ public final class LuaServerNetworking {
 		ServerLifecycleEvents.SERVER_STOPPING.register(LuaServerMcpService::stopped);
 		ServerLifecycleEvents.SERVER_STOPPED.register(LuaServerMcpService::stopped);
 		ServerLifecycleEvents.SERVER_STOPPED.register(LuaServerPackService::stopped);
+		ServerLifecycleEvents.SERVER_STOPPED.register(server -> LuaTeamAggression.clear());
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> GitHubWorkspaceService.stopped());
 		ServerLifecycleEvents.SERVER_STOPPING.register(ServerScriptManager::shutdownDebugger);
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> ServerTerminalService.shutdown());
