@@ -45,7 +45,18 @@ final class JsonTreeEditor {
 			imgui.ImGui.setNextItemOpen(!collapsed.contains(row.path()),imgui.flag.ImGuiCond.Always);
 			imgui.ImGui.treeNodeEx(translatedRowLabel(row)+"  "+(row.container()?"":scalarText(row.value())),flags);
 			if(imgui.ImGui.isItemClicked())selected=row.path();
-			if(imgui.ImGui.isItemToggledOpen())toggleCollapsed(row.path());
+			
+				// The tree takes the keyboard: Up/Down/Left/Right move and fold through ImGui navigation, Enter opens the editing panel.
+				boolean enterOpens=false;
+				if(refocusTree&&selected.equals(row.path())){ imgui.ImGui.setWindowFocus(); imgui.ImGui.setKeyboardFocusHere(-1); refocusTree=false; navPath=row.path(); }
+				if(imgui.ImGui.isItemFocused()&&popupMode==PopupMode.NONE) {
+					if(!row.path().equals(navPath)){ navPath=row.path(); selected=row.path(); }
+					if(!imgui.ImGui.getIO().getKeyCtrl()&&(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter,false)||imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.KeypadEnter,false))) {
+						enterOpens=true; selected=row.path();
+						if(row.addAction()){selected=selected.parent();beginAdd();}else if(row.container())beginAdd();else beginEdit();
+					}
+				}
+				if(imgui.ImGui.isItemToggledOpen()&&!enterOpens)toggleCollapsed(row.path());
 			if(imgui.ImGui.isItemHovered()&&imgui.ImGui.isMouseDoubleClicked(0)) {
 				selected=row.path(); if(row.addAction()){selected=selected.parent();beginAdd();}else if(!row.container())beginEdit();
 			}
@@ -62,11 +73,29 @@ final class JsonTreeEditor {
 			imgui.ImGui.unindent(Math.min(row.depth(),MAX_TREE_DEPTH)*12f); imgui.ImGui.popID();
 		}
 		imgui.ImGui.endChild();
-		if(popupMode!=PopupMode.NONE)imgui.ImGui.openPopup("edit_node");
-		imgui.ImGui.setNextWindowSize(580,560,imgui.flag.ImGuiCond.Appearing);
-		if(imgui.ImGui.beginPopupModal("edit_node")) {
+		// The editing panel is an ordinary window, not a modal popup, so the code area stays editable while it is open.
+		popupFocused=false;
+		if(popupMode!=PopupMode.NONE) renderEditPanel(); else if(popupWasOpen){ popupWasOpen=false; refocusTree=true; }
+		imgui.ImGui.popID();
+	}
+	private boolean popupWasOpen, focusPopupField, refocusTree, lastPicker;
+	private Path navPath = Path.root();
+	/** True while the editing panel has the keyboard; the screen then hands Esc to it instead of closing windows. */
+	static volatile boolean popupFocused;
+	private void renderEditPanel() {
+		boolean opening=!popupWasOpen;
+		if(opening){ popupWasOpen=true; focusPopupField=true; lastPicker=registryPickerOpen; imgui.ImGui.setNextWindowFocus(); }
+		var viewport=imgui.ImGui.getMainViewport();
+		imgui.ImGui.setNextWindowPos(viewport.getPosX()+viewport.getSizeX()/2,viewport.getPosY()+viewport.getSizeY()/2,imgui.flag.ImGuiCond.Appearing,.5f,.5f);
+		imgui.ImGui.setNextWindowSize(560,520,imgui.flag.ImGuiCond.Appearing);
+		var openState=new imgui.type.ImBoolean(true);
+		if(imgui.ImGui.begin(LuaUiText.text("编辑节点")+"##edit_node",openState,imgui.flag.ImGuiWindowFlags.NoCollapse)) {
+			popupFocused=imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.RootAndChildWindows);
+			if(registryPickerOpen!=lastPicker){ lastPicker=registryPickerOpen; focusPopupField=true; }
+			boolean focusNow=focusPopupField; focusPopupField=false;
+			boolean keyFirst=needsKeyField()&&inputFocus==InputFocus.KEY;
 			if(registryPickerOpen) {
-				String next=NativeUi.field(fieldPicker?"筛选字段":"筛选注册表",registryQuery);
+				String next=NativeUi.field(fieldPicker?"筛选字段":"筛选注册表",registryQuery,focusNow);
 				if(!next.equals(registryQuery)){registryQuery=next;filterRegistryTypes(true);}
 				imgui.ImGui.beginChild("registries",0,Math.max(80,imgui.ImGui.getContentRegionAvailY()-50),true);
 				for(int i=0;i<registryTypes.size();i++)if(imgui.ImGui.selectable(registryTypes.get(i).display(),i==registryTypeRow)){registryTypeRow=i;applySelectedRegistryType();break;}
@@ -78,7 +107,7 @@ final class JsonTreeEditor {
 					if(!next.equals(keyText)){keyText=next;keyCursor=next.length();refreshIdSuggestions(true);}
 				}
 				if(popupMode!=PopupMode.RAW)draftType=NativeUi.combo("类型",draftType,ValueType.values());
-				String next=popupMode==PopupMode.RAW?NativeUi.multiline("##raw",valueText,220):NativeUi.field("值",valueText);
+				String next=popupMode==PopupMode.RAW?NativeUi.multiline("##raw",valueText,220,focusNow&&!keyFirst):NativeUi.field("值",valueText,focusNow&&!keyFirst);
 				if(imgui.ImGui.isItemActive())inputFocus=InputFocus.VALUE;
 				if(!next.equals(valueText)){valueText=next;valueCursor=next.length();refreshIdSuggestions(true);}
 				NativeUi.action("选择 ID 类型",this::openRegistryPicker);
@@ -87,11 +116,34 @@ final class JsonTreeEditor {
 				for(int i=0;i<suggestions.size();i++)if(imgui.ImGui.selectable(suggestions.get(i).label(),i==suggestionRow)){suggestionRow=i;applySelectedSuggestion();}
 				imgui.ImGui.endChild();
 			}
-			if(imgui.ImGui.button(LuaUiText.text("确定"))){if(registryPickerOpen)applySelectedRegistryType();else confirmPopup();if(popupMode==PopupMode.NONE)imgui.ImGui.closeCurrentPopup();}
-			imgui.ImGui.sameLine(); if(imgui.ImGui.button(LuaUiText.text("取消"))){popupMode=PopupMode.NONE;registryPickerOpen=false;imgui.ImGui.closeCurrentPopup();}
-			imgui.ImGui.endPopup();
+			if(imgui.ImGui.button(LuaUiText.text("确定"))){if(registryPickerOpen)applySelectedRegistryType();else confirmPopup();}
+			imgui.ImGui.sameLine(); if(imgui.ImGui.button(LuaUiText.text("取消"))){popupMode=PopupMode.NONE;registryPickerOpen=false;}
+			if(!opening&&popupFocused&&popupMode!=PopupMode.NONE) panelKeys();
 		}
-		imgui.ImGui.popID();
+		imgui.ImGui.end();
+		if(!openState.get()){ popupMode=PopupMode.NONE; registryPickerOpen=false; fieldPicker=false; }
+	}
+	/** Keys inside the panel: Esc cancels, Enter confirms (Ctrl+Enter in the raw JSON box), Up/Down pick a suggestion. */
+	private void panelKeys() {
+		boolean ctrl=imgui.ImGui.getIO().getKeyCtrl();
+		boolean enter=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter,false)||imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.KeypadEnter,false);
+		if(imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Escape,false)) {
+			if(registryPickerOpen&&!fieldPicker) registryPickerOpen=false;
+			else { popupMode=PopupMode.NONE; registryPickerOpen=false; fieldPicker=false; }
+			return;
+		}
+		if(popupMode==PopupMode.RAW) { if(enter&&ctrl) confirmPopup(); return; }
+		boolean up=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.UpArrow), down=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.DownArrow);
+		if(up||down) {
+			int step=up?-1:1;
+			if(registryPickerOpen){ if(!registryTypes.isEmpty()) registryTypeRow=Math.floorMod(registryTypeRow+step,registryTypes.size()); }
+			else if(!suggestions.isEmpty()&&!suggestionLoading) suggestionRow=Math.floorMod(suggestionRow+step,suggestions.size());
+		}
+		if(enter) {
+			if(registryPickerOpen) applySelectedRegistryType();
+			else if(shouldAcceptSuggestion()) applySelectedSuggestion();
+			else confirmPopup();
+		}
 	}
 	private static final int TOOLBAR_HEIGHT = 22;
 	private static final int ROW_HEIGHT = 18;

@@ -23,9 +23,13 @@ final class NativeUi {
         if(!buffer.get().equals(value)) buffer.set(value,true);
         ImGui.setNextItemWidth(-1); ImGui.inputText(label,buffer,ImGuiInputTextFlags.Password); return buffer.get();
     }
-    static String multiline(String label,String value,float height) { return input(label,value,true,height); }
-    private static String input(String label,String value,boolean multiline,float height) {
+    static String multiline(String label,String value,float height) { return input(label,value,true,height,false); }
+    /** {@code focus} gives the box the keyboard this frame, so the user can type at once. */
+    static String multiline(String label,String value,float height,boolean focus) { return input(label,value,true,height,focus); }
+    private static String input(String label,String value,boolean multiline,float height) { return input(label,value,multiline,height,false); }
+    private static String input(String label,String value,boolean multiline,float height,boolean focus) {
         value=value==null?"":value;
+        if(focus) ImGui.setKeyboardFocusHere();
         var buffer=strings.computeIfAbsent(ImGui.getID(label),id->new ImString(256));
         if(!buffer.get().equals(value)) buffer.set(value,true);
         if(multiline) ImGui.inputTextMultiline(label,buffer,-1,height);
@@ -33,6 +37,7 @@ final class NativeUi {
         return buffer.get();
     }
     static String field(String label,String value) { ImGui.textUnformatted(LuaUiText.text(label)); return input("##"+label,value); }
+    static String field(String label,String value,boolean focus) { ImGui.textUnformatted(LuaUiText.text(label)); return input("##"+label,value,false,0,focus); }
     static boolean check(String label,boolean value) { var state=new ImBoolean(value); ImGui.checkbox(LuaUiText.text(label),state); return state.get(); }
     static int integer(String label,int value,int min,int max) { var state=new ImInt(value); ImGui.textUnformatted(LuaUiText.text(label)); ImGui.setNextItemWidth(-1); ImGui.inputInt("##"+label,state); return Math.clamp(state.get(),min,max); }
     static double number(String label,double value) { var state=new ImDouble(value); ImGui.textUnformatted(LuaUiText.text(label)); ImGui.setNextItemWidth(-1); ImGui.inputDouble("##"+label,state); return state.get(); }

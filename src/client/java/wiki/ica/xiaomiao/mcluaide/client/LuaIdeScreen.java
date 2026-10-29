@@ -8416,7 +8416,8 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 	// The same controllers power both frontends. ImGui owns the frames; no second
 	// copy of pack schemas, image tools, native file choosers or extension logic.
 	private boolean isCurrentIde() {
-		return minecraft.screen == this || nativeOwner != null && minecraft.screen == nativeOwner;
+		// While the game has the controls the IDE screen is closed but still drawn as an overlay, so its windows must keep updating.
+		return minecraft.screen == this || nativeOwner != null && (minecraft.screen == nativeOwner || minecraft.screen == null && GameControl.active());
 	}
 	record NativeTool(String id, String title) { }
 	record NativeDocument(String name, boolean json, boolean resource, String source, String saved, int cursor, boolean binary) { }

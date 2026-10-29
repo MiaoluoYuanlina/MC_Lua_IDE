@@ -2,6 +2,17 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] - 2026-10-28
+
+### Added
+- `MC.Entity.addData` / `MC.Entity.hideData` and `MC.Block.addData` / `MC.Block.hideData`: add (SNBT string or Lua table) or hide top-level data fields on a live entity or a placed block's block entity.
+
+### Changed
+- Data component editor: the tree is keyboard driven (arrow keys move and fold, Enter opens the editing panel with the cursor in its input). The editing panel is no longer modal, so the code area stays editable.
+
+### Fixed
+- The log window and other live windows kept updating while the game had control, instead of freezing and not scrolling.
+
 ## [1.0.6] - 2026-10-28
 
 ### Added
@@ -113,6 +124,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.7]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.7
 [1.0.6]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.6
 [1.0.5]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.5
 [1.0.4]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.4

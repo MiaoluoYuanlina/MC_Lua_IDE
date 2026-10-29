@@ -37,7 +37,7 @@ final class LuaEntityNbtConfig {
 
 	private LuaEntityNbtConfig() { }
 
-	private static CompoundTag saved(MinecraftServer server, Entity entity) {
+	static CompoundTag saved(MinecraftServer server, Entity entity) {
 		TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, server.registryAccess());
 		entity.saveWithoutId(output);
 		return output.buildResult();

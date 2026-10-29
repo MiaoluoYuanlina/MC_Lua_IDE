@@ -1061,6 +1061,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (palette.isOpen()) { palette.close(); return true; }
+            // The component editor's editing panel takes Esc itself (cancel) instead of closing windows or the IDE.
+            if (JsonTreeEditor.popupFocused) { ImGuiIdeRuntime.key(key, event.scancode(), GLFW.GLFW_PRESS, event.modifiers()); return true; }
             if (tools!=null&&tools.endLayoutEditing())return true;
             if (tools!=null&&tools.codeArea.dismissMarks())return true;
             if (completionOpen) completionOpen = false;

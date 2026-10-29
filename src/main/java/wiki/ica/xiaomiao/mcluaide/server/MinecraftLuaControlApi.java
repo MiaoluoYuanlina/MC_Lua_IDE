@@ -102,6 +102,8 @@ final class MinecraftLuaControlApi {
 			return LuaValue.valueOf(Component.translatable(block.getDescriptionId()).getString());
 		});
 		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.BLOCK));
+		bind(api, "addData", args -> blockData(server, args, true));
+		bind(api, "hideData", args -> blockData(server, args, false));
 		bind(api, "fill", args -> fillBlocks(server, args, false));
 		bind(api, "replace", args -> fillBlocks(server, args, true));
 		bind(api, "clone", args -> cloneBlocks(server, args));
@@ -375,6 +377,18 @@ final class MinecraftLuaControlApi {
 		});
 		bind(api, "addTag", args -> tagEntity(server, args, true));
 		bind(api, "removeTag", args -> tagEntity(server, args, false));
+		bind(api, "addData", args -> {
+			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
+			LuaValue data = args.arg(2);
+			onServer(server, current -> { LuaDataLabels.entity(current, requireEntity(current, uuid), data, true); return true; });
+			return LuaValue.TRUE;
+		});
+		bind(api, "hideData", args -> {
+			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
+			LuaValue keys = args.arg(2);
+			onServer(server, current -> { LuaDataLabels.entity(current, requireEntity(current, uuid), keys, false); return true; });
+			return LuaValue.TRUE;
+		});
 		return api;
 	}
 
@@ -1025,6 +1039,20 @@ final class MinecraftLuaControlApi {
 	@SuppressWarnings({"rawtypes", "unchecked"})
 	private static void setEntityComponent(Entity entity, DataComponentType type, Object value) {
 		entity.setComponent(type, value);
+	}
+
+	/** {@code MC.Block.addData(x, y, z, data[, dimension])} / {@code hideData(x, y, z, keys[, dimension])} on the block entity at a position. */
+	private static LuaValue blockData(MinecraftServer server, Varargs args, boolean add) {
+		BlockPos pos = new BlockPos(integer(args, 1), integer(args, 2), integer(args, 3));
+		LuaValue data = args.arg(4);
+		Identifier dimension = optionalDimension(args, 5);
+		onServer(server, current -> {
+			ServerLevel level = level(current, dimension);
+			if (!level.isInWorldBounds(pos) || !level.hasChunkAt(pos)) throw new LuaRecoverableError("方块所在区块尚未加载或超出世界边界");
+			LuaDataLabels.block(current, level, pos, data, add);
+			return true;
+		});
+		return LuaValue.TRUE;
 	}
 
 	private static LuaValue tagEntity(MinecraftServer server, Varargs args, boolean add) {
