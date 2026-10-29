@@ -951,7 +951,7 @@ final class MinecraftLuaControlApi {
 		}
 	}
 
-	private static void applyEntityComponents(MinecraftServer server, Entity entity, LuaValue components) {
+	static void applyEntityComponents(MinecraftServer server, Entity entity, LuaValue components) {
 		if (components == null || components.isnil()) return;
 		String rawConfig = components.istable()
 				? LuaItemStackCodec.objectToJson(components).toString()

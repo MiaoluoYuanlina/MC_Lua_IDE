@@ -720,8 +720,8 @@ final class LuaApiDocumentation {
 		add(entries, "MC.Block.random", "MC.Block.random()", "从当前服务端全部已注册方块（含其他模组）中随机取得一个 ID", "方块资源 ID 字符串", "local blockId = MC.Block.random()", false);
 		add(entries, "MC.Block.fill", "MC.Block.fill(x1, y1, z1, x2, y2, z2, blockId, dimension?)", "直接填充长方体区域，不受原版命令方块数量上限影响", "是否至少修改一个方块", "MC.Block.fill(0, 64, 0, 4, 68, 4, \"minecraft:stone\")", false);
 		add(entries, "MC.Block.replace", "MC.Block.replace(x1, y1, z1, x2, y2, z2, fromId, toId, dimension?)", "直接替换区域内指定方块，不修改原版命令实现", "是否至少修改一个方块", "MC.Block.replace(0, 64, 0, 8, 72, 8, \"minecraft:dirt\", \"minecraft:grass_block\")", false);
-		add(entries, "MC.Block.addData", "MC.Block.addData(x, y, z, data, dimension?)", "向方块的方块实体添加或覆盖 SNBT 数据（Lua 表或 SNBT 字符串，已有字段保持原数值类型）", "成功返回 true", "MC.Block.addData(0, 64, 0, \"{CustomName:'\\\"宝箱\\\"'}\")", false);
-		add(entries, "MC.Block.hideData", "MC.Block.hideData(x, y, z, keys, dimension?)", "隐藏（移除）方块实体的顶层数据字段，游戏会按默认值读取；id、x、y、z 不可隐藏", "成功返回 true", "MC.Block.hideData(0, 64, 0, {\"CustomName\", \"Lock\"})", false);
+		add(entries, "MC.Block.addData", "MC.Block.addData(x, y, z, data, dimension?)", "向方块的方块实体添加数据：Lua 表里带命名空间的键（如 minecraft:custom_name）是数据组件，其余键是 NBT 字段（也可传 SNBT 字符串）", "成功返回 true", "MC.Block.addData(0, 64, 0, {\n    [\"minecraft:custom_name\"] = \"宝箱\",\n})", false);
+		add(entries, "MC.Block.hideData", "MC.Block.hideData(x, y, z, keys, dimension?)", "隐藏（移除）方块实体的数据组件（如 minecraft:custom_name）或顶层 NBT 字段，游戏会按默认值读取；id、x、y、z 不可隐藏", "成功返回 true", "MC.Block.hideData(0, 64, 0, {\"minecraft:custom_name\"})", false);
 		add(entries, "MC.Block.clone","MC.Block.clone(x1, y1, z1, x2, y2, z2, toX, toY, toZ, dimension?)", "直接复制方块区域并保留方块实体数据，不受原版 clone 数量上限影响", "是否至少修改一个方块", "MC.Block.clone(0, 64, 0, 4, 68, 4, 16, 64, 16)", false);
 
 		add(entries, "MC.Item.exists", "MC.Item.exists(id)", "检查物品资源 ID 是否已注册", "布尔值", "print(MC.Item.exists(\"minecraft:diamond\"))", false);
@@ -768,8 +768,8 @@ final class LuaApiDocumentation {
 		add(entries, "MC.Entity.fire", "MC.Entity.fire(uuid, seconds)", "设置实体燃烧时间；0 表示灭火", "true", "MC.Entity.fire(\"实体UUID\", 5)", false);
 		add(entries, "MC.Entity.tags", "MC.Entity.tags(uuid)", "列出实体的命令标签", "字符串数组", "for _, tag in ipairs(MC.Entity.tags(\"实体UUID\")) do print(tag) end", false);
 		add(entries, "MC.Entity.addTag", "MC.Entity.addTag(uuid, tag)", "添加实体命令标签", "是否发生变化", "MC.Entity.addTag(\"实体UUID\", \"boss\")", false);
-		add(entries, "MC.Entity.addData", "MC.Entity.addData(uuid, data)", "向已存在的实体添加或覆盖 SNBT 数据（Lua 表或 SNBT 字符串，已有字段保持原数值类型；不含玩家）", "成功返回 true", "MC.Entity.addData(\"实体UUID\", \"{Fuse:40s}\")", false);
-		add(entries, "MC.Entity.hideData", "MC.Entity.hideData(uuid, keys)", "隐藏（移除）实体的顶层数据字段，游戏会按默认值读取；id、UUID、Pos、Passengers 不可隐藏", "成功返回 true", "MC.Entity.hideData(\"实体UUID\", {\"CustomName\", \"Tags\"})", false);
+		add(entries, "MC.Entity.addData", "MC.Entity.addData(uuid, data)", "向已存在的实体添加数据：Lua 表里带命名空间的键（如 minecraft:custom_name）是数据组件，其余键是 NBT 字段（也可传 SNBT 字符串；不含玩家）", "成功返回 true", "MC.Entity.addData(entityUuid, {\n    [\"minecraft:custom_name\"] = \"队伍\",\n})", false);
+		add(entries, "MC.Entity.hideData", "MC.Entity.hideData(uuid, keys)", "隐藏（移除）实体的数据组件（如 minecraft:custom_name）或顶层 NBT 字段，游戏会按默认值读取；id、UUID、Pos、Passengers 不可隐藏", "成功返回 true", "MC.Entity.hideData(entityUuid, {\"minecraft:custom_name\"})", false);
 		add(entries, "MC.Entity.removeTag","MC.Entity.removeTag(uuid, tag)", "移除实体命令标签", "是否发生变化", "MC.Entity.removeTag(\"实体UUID\", \"boss\")", false);
 
 		add(entries, "MC.World.setTime", "MC.World.setTime(time, dimension?)", "设置世界时间，可传 day/night/noon/midnight 或刻数", "true；命令已提交", "MC.World.setTime(\"day\")", false);

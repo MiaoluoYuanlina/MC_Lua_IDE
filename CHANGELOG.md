@@ -2,6 +2,11 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.8] - 2026-10-28
+
+### Changed
+- `MC.Entity.addData` / `hideData` and `MC.Block.addData` / `hideData` take data components: table keys with a namespace such as `["minecraft:custom_name"]` are components, other keys stay NBT fields. The API documentation examples use this table form.
+
 ## [1.0.7] - 2026-10-28
 
 ### Added
@@ -124,6 +129,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.8]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.8
 [1.0.7]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.7
 [1.0.6]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.6
 [1.0.5]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.5
