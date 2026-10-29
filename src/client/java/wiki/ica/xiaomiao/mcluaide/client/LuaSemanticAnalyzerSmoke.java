@@ -108,6 +108,11 @@ final class LuaSemanticAnalyzerSmoke {
 		valid("print('\\255', '\\xFF', '中文\\n换行')");
 		valid("MC.Block.set(0,64,0,[[\nminecraft:stone]])");
 		valid("MC.Block.set(0,64,0,[=[\r\nminecraft:stone]=])");
+		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', {\n    [\"minecraft:custom_name\"] = \"队伍\",\n})");
+		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', '{Fuse:40s}')");
+		valid("MC.Entity.hideData('00000000-0000-0000-0000-000000000000', {\"minecraft:custom_name\"})");
+		valid("MC.Block.addData(0, 64, 0, {[\"minecraft:custom_name\"] = \"宝箱\"})");
+		valid("MC.Block.hideData(0, 64, 0, 'minecraft:custom_name')");
 
 		String guarded = "local id = nil; if condition then id = " + SPAWN + " end; ";
 		warning("local condition = true; " + guarded + "MC.Entity.kill(id)", "可能是 nil", "id", 1);

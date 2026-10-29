@@ -834,6 +834,8 @@ final class LuaCodeAnalyzer {
 		if (parameter.equals("callback")) return ExpectedType.FUNCTION;
 		if (TABLE_PARAMETERS.contains(parameter)) return ExpectedType.TABLE;
 		if (parameter.equals("components") || parameter.endsWith("OrJson")) return ExpectedType.TABLE_OR_STRING;
+		// addData takes a Lua table (data components / NBT fields) or an SNBT string; hideData takes a name or a list of names.
+		if ((symbol.endsWith(".addData") && parameter.equals("data")) || (symbol.endsWith(".hideData") && parameter.equals("keys"))) return ExpectedType.TABLE_OR_STRING;
 		if (BOOLEAN_PARAMETERS.contains(parameter)) return ExpectedType.BOOLEAN;
 		if (parameter.equals("slot")) {
 			return symbol.startsWith("MC.Item.") || symbol.startsWith("MC.Container.")

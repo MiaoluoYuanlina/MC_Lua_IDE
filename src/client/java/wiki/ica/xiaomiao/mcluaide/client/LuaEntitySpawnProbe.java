@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 /** Opt-in real Lua/server check in a fresh build/entity-spawn-probe save, never an existing world. */
 final class LuaEntitySpawnProbe {
     private static int stage;
-    private static long started;
+    private static long started, joinedAt;
     private static CompletableFuture<Void> task;
 
     static void tick(Minecraft client) {
@@ -45,10 +45,14 @@ final class LuaEntitySpawnProbe {
             }
             if (stage == 2) {
                 if (client.player == null || client.getSingleplayerServer() == null || !ScriptManager.isServerAvailable()) return;
+                if (joinedAt == 0) joinedAt = System.nanoTime();
+                if (System.nanoTime() - joinedAt < TimeUnit.SECONDS.toNanos(8)) return; // software rendering joins slowly; let the player settle
                 client.setScreen(null);
                 MinecraftServer server = client.getSingleplayerServer(); UUID owner = client.player.getUUID();
                 task = CompletableFuture.runAsync(() -> {
                     try {
+                        verifyData(server, owner);
+                        System.out.println("data labels stage passed");
                         verify(server, owner, false); verify(server, owner, true);
                         verifyAttachments(server, owner, false); verifyAttachments(server, owner, true);
 						verifyDroppedItems(server, owner, false); verifyDroppedItems(server, owner, true);
@@ -75,6 +79,7 @@ final class LuaEntitySpawnProbe {
             if (stage == 3 && task.isDone()) {
                 task.join(); stage = 99;
                 System.out.println("Entity spawn UUID real game probe passed: normal/debug, unique UUIDs, lookup, mutation, living/display components, optional dimension, removal and invalid types");
+                System.out.println("Entity/block addData and hideData real game probe passed: normal/debug, data components, SNBT, NBT fields, hide, protected fields, player and non-block-entity guards");
                 System.out.println("Entity attachment real game probe passed: normal/debug, native persistent attachments, model_id codecs, JSON/Lua inputs, snapshots, equipment/health/position/UUID preservation, missing/transient/type guards");
                 System.out.println("Entity riding real game probe passed: normal/debug, native passenger/vehicle UUIDs, repeat, switching, capacity/cooldown force, stacks, dismount, player passenger, self/cycle/dimension/UUID guards");
                 System.out.println("Player death real game probe passed: dedicated/generic listeners, native player/mob deaths, payload snapshots, exactly once and off");
@@ -114,6 +119,69 @@ final class LuaEntitySpawnProbe {
         verifySource(server, owner, debug, source, "spawn-uuid-ok");
     }
 
+    /** Runs LuaDataLabels (behind MC.Entity.addData / hideData and MC.Block.addData / hideData) on real server objects. */
+    private static void verifyData(MinecraftServer server, UUID owner) throws Exception {
+        server.submit(() -> {
+            try {
+                Class<?> type = Class.forName("wiki.ica.xiaomiao.mcluaide.server.LuaDataLabels");
+                Method entity = type.getDeclaredMethod("entity", MinecraftServer.class, net.minecraft.world.entity.Entity.class, org.luaj.vm2.LuaValue.class, boolean.class);
+                Method block = type.getDeclaredMethod("block", MinecraftServer.class, net.minecraft.server.level.ServerLevel.class, net.minecraft.core.BlockPos.class, org.luaj.vm2.LuaValue.class, boolean.class);
+                entity.setAccessible(true); block.setAccessible(true);
+                var level = server.overworld();
+                var player = server.getPlayerList().getPlayer(owner);
+
+                // MC.Entity.addData(entityUuid, { ["minecraft:custom_name"] = "队伍" })
+                var pig = net.minecraft.world.entity.EntityType.PIG.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                pig.setPos(player.getX(), player.getY() + 4, player.getZ()); pig.setNoGravity(true);
+                if (!level.addFreshEntity(pig)) throw new AssertionError("Pig fixture rejected");
+                try {
+                    var named = new org.luaj.vm2.LuaTable(); named.set("minecraft:custom_name", "队伍");
+                    entity.invoke(null, server, pig, named, true);
+                    if (pig.getCustomName() == null || !pig.getCustomName().getString().equals("队伍"))
+                        throw new AssertionError("Entity custom_name component not added: " + pig.getCustomName());
+                    entity.invoke(null, server, pig, org.luaj.vm2.LuaValue.valueOf("{NoAI:1b}"), true);
+                    if (!((net.minecraft.world.entity.Mob) pig).isNoAi()) throw new AssertionError("SNBT NoAI not applied");
+                    var mixed = new org.luaj.vm2.LuaTable(); mixed.set("NoAI", org.luaj.vm2.LuaValue.FALSE); mixed.set("minecraft:custom_name", "改名");
+                    entity.invoke(null, server, pig, mixed, true);
+                    if (((net.minecraft.world.entity.Mob) pig).isNoAi() || !pig.getCustomName().getString().equals("改名"))
+                        throw new AssertionError("Mixed component + NBT table not applied");
+                    var hideName = new org.luaj.vm2.LuaTable(); hideName.set(1, "minecraft:custom_name");
+                    entity.invoke(null, server, pig, hideName, false);
+                    if (pig.getCustomName() != null) throw new AssertionError("Entity custom_name still present after hideData");
+                    var pos = new org.luaj.vm2.LuaTable(); pos.set("Pos", new org.luaj.vm2.LuaTable());
+                    try { entity.invoke(null, server, pig, pos, true); throw new AssertionError("Protected Pos accepted"); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { }
+                    var playerData = new org.luaj.vm2.LuaTable(); playerData.set("NoAI", org.luaj.vm2.LuaValue.TRUE);
+                    try { entity.invoke(null, server, player, playerData, true); throw new AssertionError("Player data accepted"); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { }
+                } finally { pig.discard(); }
+
+                // MC.Block.addData(x, y, z, { ["minecraft:custom_name"] = "宝箱" }) and hideData
+                var at = net.minecraft.core.BlockPos.containing(player.getX() + 2, player.getY() + 3, player.getZ());
+                level.setBlockAndUpdate(at, net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
+                try {
+                    var chestName = new org.luaj.vm2.LuaTable(); chestName.set("minecraft:custom_name", "宝箱");
+                    block.invoke(null, server, level, at, chestName, true);
+                    String saved = level.getBlockEntity(at).saveCustomOnly(server.registryAccess()).toString();
+                    if (!saved.contains("宝箱")) throw new AssertionError("Block custom_name not added: " + saved);
+                    var hideChest = new org.luaj.vm2.LuaTable(); hideChest.set(1, "minecraft:custom_name");
+                    block.invoke(null, server, level, at, hideChest, false);
+                    saved = level.getBlockEntity(at).saveCustomOnly(server.registryAccess()).toString();
+                    if (saved.contains("宝箱")) throw new AssertionError("Block custom_name still present after hideData: " + saved);
+                    block.invoke(null, server, level, at, org.luaj.vm2.LuaValue.valueOf("{Lock:'key'}"), true);
+                    var hideLock = new org.luaj.vm2.LuaTable(); hideLock.set(1, "Lock");
+                    block.invoke(null, server, level, at, hideLock, false);
+                    var protectedId = new org.luaj.vm2.LuaTable(); protectedId.set("id", "minecraft:furnace");
+                    try { block.invoke(null, server, level, at, protectedId, true); throw new AssertionError("Protected id accepted"); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { }
+                    level.setBlockAndUpdate(at, net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
+                    try { block.invoke(null, server, level, at, chestName, true); throw new AssertionError("Block without block entity accepted"); }
+                    catch (java.lang.reflect.InvocationTargetException expected) { }
+                } finally { level.setBlockAndUpdate(at, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState()); }
+                return true;
+            } catch (ReflectiveOperationException error) { throw new RuntimeException(error); }
+        }).get(20, TimeUnit.SECONDS);
+    }
     private static void verifyAttachments(MinecraftServer server, UUID owner, boolean debug) throws Exception {
         String source = """
                 local p = MC.Player.position('%s')
