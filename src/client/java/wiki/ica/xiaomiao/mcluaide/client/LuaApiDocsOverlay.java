@@ -616,7 +616,7 @@ final class LuaApiDocsOverlay {
 
 		y = drawDetailText(graphics, LuaUiText.text("详细模板"), contentLeft, y, availableWidth, 0xFFD6B7FF, 4);
 		String template = LuaApiDocumentation.usageTemplate(selected.symbol()).stripTrailing();
-		List<String> codeLines = List.of(template.split("\\R", -1));
+		List<String> codeLines = wrapCode(template, availableWidth - 18);
 		int codeHeight = 27 + codeLines.size() * (font.lineHeight + 3) + 7;
 		graphics.fill(contentLeft, y, contentRight, y + codeHeight, 0xFF090D13);
 		graphics.outline(contentLeft, y, availableWidth, codeHeight, 0xFF3E5067);
@@ -687,9 +687,30 @@ final class LuaApiDocsOverlay {
 		renderDetailScrollbar(graphics, left, top, right, bottom);
 	}
 
+	/** Code lines with tabs expanded; a line wider than the box continues on the next row, indented like the original, instead of being cut off. */
+	private List<String> wrapCode(String code, int width) {
+		List<String> result = new ArrayList<>();
+		for (String raw : code.split("\\R", -1)) {
+			String line = raw.replace("\t", "    ");
+			int indent = 0;
+			while (indent < line.length() && line.charAt(indent) == ' ') indent++;
+			String prefix = " ".repeat(Math.min(indent, 16));
+			boolean first = true;
+			while (font.width(line) > width) {
+				int cut = font.plainSubstrByWidth(line, width).length();
+				if (cut <= (first ? 0 : prefix.length())) cut = Math.min(line.length(), (first ? 0 : prefix.length()) + 1);
+				result.add(line.substring(0, cut));
+				line = prefix + line.substring(cut);
+				first = false;
+			}
+			result.add(line);
+		}
+		return result;
+	}
+
 	private int renderPageCode(GuiGraphicsExtractor graphics, int mouseX, int mouseY,
 			String code, int left, int right, int y, int availableWidth) {
-		List<String> lines = List.of(code.split("\\R", -1));
+		List<String> lines = wrapCode(code, availableWidth - 18);
 		int codeHeight = 27 + lines.size() * (font.lineHeight + 3) + 7;
 		graphics.fill(left, y, right, y + codeHeight, 0xFF090D13);
 		graphics.outline(left, y, availableWidth, codeHeight, 0xFF3E5067);
