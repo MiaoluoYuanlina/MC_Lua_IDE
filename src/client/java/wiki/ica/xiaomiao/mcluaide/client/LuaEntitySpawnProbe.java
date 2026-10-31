@@ -139,13 +139,13 @@ final class LuaEntitySpawnProbe {
                 new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND_SWORD, 1))).get(20, TimeUnit.SECONDS);
         var name = new org.luaj.vm2.LuaTable(); name.set("minecraft:custom_name", "神剑");
         var patched = item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(20), name);
-        if (!"minecraft:diamond_sword".equals(patched.get("id").tojstring()) || !patched.get("componentsJson").tojstring().contains("神剑"))
+        if (!"minecraft:diamond_sword".equals(patched.get("id").tojstring()) || patched.get("componentsJson").get("minecraft:custom_name").isnil())
             throw new AssertionError("setSlotComponents result: " + patched.get("componentsJson"));
         String stored = server.submit(() -> server.getPlayerList().getPlayer(owner).getInventory().getItem(20).getHoverName().getString()).get(20, TimeUnit.SECONDS);
         if (!stored.contains("神剑")) throw new AssertionError("inventory slot not changed: " + stored);
         var remove = new org.luaj.vm2.LuaTable(); remove.set("!minecraft:custom_name", new org.luaj.vm2.LuaTable());
         var removed = item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(20), remove);
-        if (removed.get("componentsJson").tojstring().contains("神剑")) throw new AssertionError("component not removed: " + removed.get("componentsJson"));
+        if (!removed.get("componentsJson").get("minecraft:custom_name").isnil()) throw new AssertionError("component not removed: " + removed.get("componentsJson"));
         try { item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(21), name); throw new AssertionError("empty slot accepted"); }
         catch (org.luaj.vm2.LuaError expected) { }
         var zombie = new net.minecraft.world.entity.LivingEntity[1];

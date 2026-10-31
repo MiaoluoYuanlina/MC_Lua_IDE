@@ -73,8 +73,9 @@ final class LuaItemStackCodec {
 			result.set("maxStack", 0);
 			result.set("damage", 0);
 			result.set("maxDamage", 0);
-			result.set("components", new LuaTable());
-			result.set("componentsJson", "{}");
+			LuaTable none = new LuaTable();
+			result.set("components", none);
+			result.set("componentsJson", none); // the same table: structured data, not text
 			return result;
 		}
 
@@ -84,8 +85,9 @@ final class LuaItemStackCodec {
 		result.set("damage", stack.getDamageValue());
 		result.set("maxDamage", stack.getMaxDamage());
 		JsonElement patch = encodePatch(registries, stack);
-		result.set("components", jsonToLua(patch));
-		result.set("componentsJson", patch.toString());
+		LuaValue components = jsonToLua(patch);
+		result.set("components", components);
+		result.set("componentsJson", components); // the same table: structured data, not text
 		return result;
 	}
 
@@ -122,8 +124,9 @@ final class LuaItemStackCodec {
 		DataComponentPatch patch = decodePatch(registries, value);
 		JsonElement json = encodePatch(registries, patch);
 		LuaTable result = new LuaTable();
-		result.set("components", jsonToLua(json));
-		result.set("componentsJson", json.toString());
+		LuaValue components = jsonToLua(json);
+		result.set("components", components);
+		result.set("componentsJson", components); // the same table: structured data, not text
 		return result;
 	}
 

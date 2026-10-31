@@ -57,7 +57,7 @@ public final class LuaItemFilterSmoke {
 		slots = new ArrayList<>(List.of(actual.copy(), ItemStack.EMPTY, ItemStack.EMPTY));
 		require(LuaInventoryTrade.apply(slots, List.of(), List.of(new LuaInventoryTrade.Request(ordinary, 3, false))) == null
 				&& slots.get(0).getCount() == 8 && slots.get(1).getCount() == 3 && !slots.get(1).has(DataComponents.CUSTOM_DATA), "Rewards incorrectly merged across components");
-		String saved = LuaItemStackCodec.normalizeComponents(registries, fromLua).get("componentsJson").tojstring();
+		String saved = LuaItemStackCodec.objectToJson(LuaItemStackCodec.normalizeComponents(registries, fromLua).get("componentsJson")).toString();
 		require(saved.contains("fire_charge") && !saved.contains("item_model"), "Compiling filter mutated caller input");
 		System.out.println("Item filter smoke passed: " + checks + " checks; supplied components only, nested NBT subset, Lua/JSON, defaults, removals, ID/type safety, trade costs and exact reward merging");
 	}

@@ -2,6 +2,12 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.14] - 2026-11-01
+
+### Changed
+- `componentsJson`, `entityDataJson`, `blockEntityDataJson` and `itemComponentsJson` (returned by `MC.Item.held`, `MC.Item.getSlot`, `MC.Item.equipment`, `MC.Entity.equipment`, `MC.Entity.components`, `MC.Block.get`, `MC.Item.validate` and the other item-stack functions) are now Lua tables, the same table as `components`, `entityData`, `blockEntityData` and `itemComponents`, instead of JSON text. Scripts that searched these fields as strings (for example `:find(...)`) need to read the table instead; passing them back as `components` still works.
+- Shorter API descriptions for 57 functions in Chinese, with the matching English and Japanese texts. The scope wording that the checks require (for example LivingEntity) is kept.
+
 ## [1.0.13] - 2026-10-31
 
 ### Added
@@ -183,6 +189,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.14]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.14
 [1.0.13]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.13
 [1.0.12]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.12
 [1.0.11]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.11

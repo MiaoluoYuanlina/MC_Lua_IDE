@@ -70,7 +70,8 @@ final class LuaComponentSnapshots {
     private static void putJson(LuaTable result, String field, JsonObject value) {
         String json = value.toString();
         if (json.length() > 262_144) throw new LuaError("读取的 " + field + " 数据超过 262144 字符，请改为读取指定装备／容器槽位");
-        result.set(field, LuaItemStackCodec.jsonObjectToLua(json));
-        result.set(field + "Json", json);
+        LuaValue table = LuaItemStackCodec.jsonObjectToLua(json);
+        result.set(field, table);
+        result.set(field + "Json", table); // the same table: structured data, not text
     }
 }

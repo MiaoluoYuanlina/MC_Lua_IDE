@@ -33,13 +33,13 @@ public final class LuaItemStackCodecSmoke {
 		components.set("minecraft:unbreakable", new LuaTable());
 
 		LuaTable encoded = LuaItemStackCodec.normalizeComponents(registries, components);
-		String json = encoded.get("componentsJson").checkjstring();
+		String json = LuaItemStackCodec.objectToJson(encoded.get("componentsJson")).toString();
 		if (!json.contains("minecraft:custom_name") || !json.contains("minecraft:unbreakable")) {
 			throw new AssertionError("组件编码结果缺少预期字段：" + json);
 		}
 
 		LuaTable decoded = LuaItemStackCodec.normalizeComponents(registries, LuaValue.valueOf(json));
-		if (!json.equals(decoded.get("componentsJson").checkjstring())) {
+		if (!json.equals(LuaItemStackCodec.objectToJson(decoded.get("componentsJson")).toString())) {
 			throw new AssertionError("物品堆组件 JSON 往返后不一致");
 		}
 		System.out.println("Item component codec smoke test passed: " + json);
