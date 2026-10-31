@@ -2,6 +2,17 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.15] - 2026-11-01
+
+### Added
+- `MC.Event.onBlockAttacked`, `MC.Event.onEntityAttacked` and `MC.Event.onBlockBroken` now carry the held item as `itemId`, `itemCount` and `itemComponents`, the same fields as `onItemUsed`, so a script can read `event.itemComponents["minecraft:custom_data"]["new_type"]` without calling `MC.Item.held`.
+
+### Fixed
+- Code editor find bar (Ctrl+F): the replace row (Replace / Replace all) is shown by default, and the buttons on the right are no longer pushed out of the bar.
+
+### Tested
+- The held-item fields were read back from a real `blockAttacked` event table in a game world, and the find bar was checked in a screenshot of the editor.
+
 ## [1.0.14] - 2026-11-01
 
 ### Changed
@@ -189,6 +200,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.15]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.15
 [1.0.14]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.14
 [1.0.13]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.13
 [1.0.12]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.12

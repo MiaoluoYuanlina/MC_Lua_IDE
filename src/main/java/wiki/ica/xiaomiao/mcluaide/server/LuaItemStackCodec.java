@@ -92,8 +92,12 @@ final class LuaItemStackCodec {
 	}
 
 	static Object toJavaComponents(MinecraftServer server, ItemStack stack) {
+		return toJavaComponents(server.registryAccess(), stack);
+	}
+
+	static Object toJavaComponents(HolderLookup.Provider registries, ItemStack stack) {
 		if (stack == null || stack.isEmpty()) return Map.of();
-		return jsonToJava(encodePatch(server.registryAccess(), stack));
+		return jsonToJava(encodePatch(registries, stack));
 	}
 
 	/** A filter is the explicit patch, not a constructed stack: prototypes must not add conditions. */

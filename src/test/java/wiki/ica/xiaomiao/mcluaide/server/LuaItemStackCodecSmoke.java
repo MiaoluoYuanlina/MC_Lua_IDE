@@ -42,6 +42,13 @@ public final class LuaItemStackCodecSmoke {
 		if (!json.equals(LuaItemStackCodec.objectToJson(decoded.get("componentsJson")).toString())) {
 			throw new AssertionError("物品堆组件 JSON 往返后不一致");
 		}
+		// A script reads event.itemComponents["minecraft:custom_data"]["new_type"] and item.components[...] as nested tables.
+		LuaTable customData = new LuaTable();
+		customData.set("new_type", "abc");
+		LuaTable dataComponents = new LuaTable();
+		dataComponents.set("minecraft:custom_data", customData);
+		LuaValue read = LuaItemStackCodec.normalizeComponents(registries, dataComponents).get("components").get("minecraft:custom_data").get("new_type");
+		if (!"abc".equals(read.tojstring())) throw new AssertionError("components[custom_data][new_type] 读取失败：" + read);
 		System.out.println("Item component codec smoke test passed: " + json);
 	}
 }

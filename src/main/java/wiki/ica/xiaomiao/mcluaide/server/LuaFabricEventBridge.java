@@ -71,6 +71,7 @@ public final class LuaFabricEventBridge {
 				putBlock(data, pos, serverLevel.getBlockState(pos), serverLevel);
 				data.put("hand", hand(hand));
 				data.put("face", direction.getSerializedName());
+				putItem(data, "item", player.getItemInHand(hand), serverLevel);
 				emit("blockAttacked", data);
 			}
 			return InteractionResult.PASS;
@@ -99,10 +100,11 @@ public final class LuaFabricEventBridge {
 		});
 
 		AttackEntityCallback.EVENT.register((player, level, hand, target, hit) -> {
-			if (level instanceof ServerLevel && player instanceof ServerPlayer serverPlayer) {
+			if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
 				Map<String, Object> data = playerData(serverPlayer);
 				data.put("hand", hand(hand));
 				putEntity(data, "target", target);
+				putItem(data, "item", player.getItemInHand(hand), serverLevel);
 				emit("entityAttacked", data);
 			}
 			return InteractionResult.PASS;
@@ -278,6 +280,7 @@ public final class LuaFabricEventBridge {
 		Map<String, Object> data = playerData(player);
 		putBlock(data, pos, state, level);
 		data.put("hadBlockEntity", hadBlockEntity);
+		putItem(data, "item", player.getMainHandItem(), level);
 		emit("blockBroken", data);
 	}
 

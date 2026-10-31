@@ -39,7 +39,7 @@ final class NativeCodeArea {
 	private float fontSize;
 
 	// --- find / replace
-	private boolean searchOpen, replaceMode, searchFocus, caseSensitive, wholeWord, regexMode;
+	private boolean searchOpen, replaceMode = true, searchFocus, caseSensitive, wholeWord, regexMode;
 	private String search = "", replacement = "", searchError = "", matchKey = "", searchNotice = "";
 	private List<EditorSearch.Match> matches = List.of();
 
@@ -103,7 +103,7 @@ final class NativeCodeArea {
 	void find() { openFind(false); }
 	void findAndReplace() { openFind(true); }
 	private void openFind(boolean replace) {
-		searchOpen = true; replaceMode = replace; searchFocus = true; searchNotice = "";
+		searchOpen = true; replaceMode = replace || replaceMode; searchFocus = true; searchNotice = ""; // the replace row stays visible unless the user folds it
 		int a = model.nativeAnchor(), b = model.nativeCursor();
 		String text = currentText();
 		if (a != b && Math.abs(a - b) < 200 && !text.substring(Math.min(a, b), Math.max(a, b)).contains("\n"))
@@ -270,8 +270,14 @@ final class NativeCodeArea {
 		refreshMatches(doc);
 		ImGui.pushID("find_bar");
 		if (searchFocus) { ImGui.setKeyboardFocusHere(); searchFocus = false; }
-		ImGui.setNextItemWidth(Math.max(120, ImGui.getContentRegionAvailX() - 360));
-		String typed = NativeUi.input("##find", search);
+		// The input takes what is left after every button on the row, measured, so the right-hand buttons are never pushed out of the window.
+		int current = currentMatch();
+		String status = search.isEmpty() ? "" : matches.isEmpty() ? LuaUiText.text("无结果", "No results")
+				: (current >= 0 ? String.valueOf(current + 1) : "?") + "/" + matches.size() + (matches.size() >= EditorSearch.MAX_MATCHES ? "+" : "");
+		float gap = ImGui.getStyle().getItemSpacingX(), pad = ImGui.getStyle().getFramePaddingX() * 2;
+		float rest = ImGui.calcTextSizeX(status) + 8 * gap + 8;
+		for (String label : new String[] {"Aa", "W", ".*", "↑", "↓", replaceMode ? "▾" : "▸", "×"}) rest += ImGui.calcTextSizeX(label) + pad;
+		String typed = NativeUi.input("##find", search, Math.max(80, ImGui.getContentRegionAvailX() - rest));
 		boolean enter = ImGui.isItemFocused() && ImGui.isKeyPressed(ImGuiKey.Enter);
 		if (!typed.equals(search)) { search = typed; matchKey = ""; searchNotice = ""; }
 		boolean shift = ImGui.getIO().getKeyShift();
@@ -279,19 +285,17 @@ final class NativeCodeArea {
 		ImGui.sameLine(); wholeWord = toggle("W", wholeWord, LuaUiText.text("全字匹配", "Whole word"));
 		ImGui.sameLine(); regexMode = toggle(".*", regexMode, LuaUiText.text("正则表达式", "Regular expression"));
 		ImGui.sameLine();
-		int current = currentMatch();
-		ImGui.textDisabled(search.isEmpty() ? "" : matches.isEmpty() ? LuaUiText.text("无结果", "No results")
-				: (current >= 0 ? String.valueOf(current + 1) : "?") + "/" + matches.size() + (matches.size() >= EditorSearch.MAX_MATCHES ? "+" : ""));
+		ImGui.textDisabled(status);
 		ImGui.sameLine(); if (ImGui.smallButton("↑##prev")) stepMatch(-1);
 		ImGui.sameLine(); if (ImGui.smallButton("↓##next")) stepMatch(1);
 		ImGui.sameLine(); if (ImGui.smallButton(replaceMode ? "▾##mode" : "▸##mode")) replaceMode = !replaceMode;
 		ImGui.sameLine(); if (ImGui.smallButton("×##close")) { searchOpen = false; matches = List.of(); matchKey = ""; }
 		if (enter) { stepMatch(shift ? -1 : 1); searchFocus = true; }
 		if (replaceMode) {
-			ImGui.setNextItemWidth(Math.max(120, ImGui.getContentRegionAvailX() - 220));
-			replacement = NativeUi.input("##replace", replacement);
-			ImGui.sameLine(); if (ImGui.smallButton(LuaUiText.text("替换", "Replace") + "##one")) replaceCurrent();
-			ImGui.sameLine(); if (ImGui.smallButton(LuaUiText.text("全部替换", "Replace all") + "##all")) replaceEverything();
+			String one = LuaUiText.text("替换", "Replace"), all = LuaUiText.text("全部替换", "Replace all");
+			replacement = NativeUi.input("##replace", replacement, Math.max(80, ImGui.getContentRegionAvailX() - (ImGui.calcTextSizeX(one) + ImGui.calcTextSizeX(all) + 2 * pad + 2 * gap + 8)));
+			ImGui.sameLine(); if (ImGui.smallButton(one + "##one")) replaceCurrent();
+			ImGui.sameLine(); if (ImGui.smallButton(all + "##all")) replaceEverything();
 		}
 		if (!searchError.isEmpty()) ImGui.textColored(1f, .45f, .4f, 1f, searchError);
 		else if (!searchNotice.isEmpty()) ImGui.textDisabled(searchNotice);

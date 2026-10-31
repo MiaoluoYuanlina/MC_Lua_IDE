@@ -386,7 +386,7 @@ final class LuaApiDocumentation {
 		String preview = switch (symbol) {
 			case "MC.Event.onBlockPlaced", "MC.Event.onBlockBroken", "MC.Event.onBlockAttacked",
 					"MC.Event.onBlockUsed" -> "print(event.playerName, event.blockId, event.x, event.y, event.z)";
-			case "MC.Event.onItemUsed" -> "print(event.playerName, event.itemId, event.count, event.hand)";
+			case "MC.Event.onItemUsed" -> "print(event.playerName, event.itemId, event.count, event.hand)\nlocal data = event.itemComponents[\"minecraft:custom_data\"]\nif data ~= nil and data.new_type ~= nil then print(data.new_type) end";
 			case "MC.Event.onEntityAttacked", "MC.Event.onEntityUsed" ->
 					"print(event.playerName, event.targetType, event.targetUuid)";
 			case "MC.Event.onEntityLoaded", "MC.Event.onEntityUnloaded",
@@ -949,14 +949,14 @@ final class LuaApiDocumentation {
 				+ "受服务器事件权限、监听数量和执行队列容量限制；普通玩家不需要客户端模组。"));
 		add(entries, "MC.Event.names", "MC.Event.names()", "列出当前支持的全部事件名称", "事件名称字符串数组", "for _, name in ipairs(MC.Event.names()) do print(name) end", false);
 		addEvent(entries, "MC.Event.onBlockPlaced", "MC.Event.onBlockPlaced(callback)", "监听玩家成功放置方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, x, y, z, dimension, hand, itemId, itemCount, itemComponents");
-		addEvent(entries, "MC.Event.onBlockBroken", "MC.Event.onBlockBroken(callback)", "监听玩家成功破坏方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, x, y, z, dimension, hadBlockEntity");
+		addEvent(entries, "MC.Event.onBlockBroken", "MC.Event.onBlockBroken(callback)", "监听玩家成功破坏方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, x, y, z, dimension, hadBlockEntity, itemId, itemCount, itemComponents（主手物品）");
 		Entry blockBroken = entries.get("MC.Event.onBlockBroken");
 		entries.put("MC.Event.onBlockBroken", new Entry(blockBroken.signature(), blockBroken.summary, blockBroken.rawReturns(),
 				blockBroken.example(), false, blockBroken.rawDetails()
 				+ "；包括创造模式挖床头／床尾等联动拆除，每次操作按玩家实际挖掘位置触发一次，使用破坏前的方块 ID 和坐标。"
 				+ "兼容 Axiom 的特殊挖掘路径；普通编辑、命令和脚本移除方块不算玩家挖掘，仍遵守模组原有的权限和取消结果。"
 				+ "另一半自动消失不额外触发；被取消、权限拒绝或挖空气不触发，不改变原版掉落和拆除行为。"));
-		addEvent(entries, "MC.Event.onBlockAttacked", "MC.Event.onBlockAttacked(callback)", "监听玩家左键攻击方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, x, y, z, dimension, hand, face");
+		addEvent(entries, "MC.Event.onBlockAttacked", "MC.Event.onBlockAttacked(callback)", "监听玩家左键攻击方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, x, y, z, dimension, hand, face, itemId, itemCount, itemComponents");
 		addEvent(entries, "MC.Event.onBlockUsed", "MC.Event.onBlockUsed(callback)", "监听玩家右键使用方块", "事件注册 ID（整数）", "playerUuid, playerName, blockId, itemId, itemCount, itemComponents, x, y, z, dimension, hand, face");
 		addEvent(entries, "MC.Event.onItemUsed", "MC.Event.onItemUsed(callback)", "监听玩家使用手中物品", "事件注册 ID（整数）", "playerUuid, playerName, itemId, itemCount, itemComponents, count, hand, x, y, z, dimension");
 		addEvent(entries, "MC.Event.onContainerClicked", "MC.Event.onContainerClicked(callback)", "监听玩家点击容器／背包菜单（含只读虚拟商店）；不代表成功拿取。回调异步执行，不支持事后取消点击；只读模式在服务端原子阻止全部取放。clickType=PICKUP/QUICK_MOVE/SWAP/THROW/QUICK_CRAFT/CLONE/PICKUP_ALL", "事件注册 ID（整数）", "playerUuid, playerName, containerId, containerType, containerTitle（虚拟箱子）, virtual, readOnly, slotId（0起）, containerSlotId, slotArea（container/inventory/outside）, clickType, button, changed, itemId, count, itemComponents, item, cursorBefore, cursorAfter, x/y/z/dimension（无世界位置时 nil）, playerX/playerY/playerZ/playerDimension");
@@ -964,7 +964,7 @@ final class LuaApiDocumentation {
 		addEvent(entries, "MC.Event.onContainerItemPlaced", "MC.Event.onContainerItemPlaced(callback)", "监听玩家操作导致的容器槽位物品实际增加；count 为本次放入量而非最终总量。无坐标的虚拟菜单返回 nil 坐标；纯 API 修改、漏斗、未改变物品的点击不触发", "事件注册 ID（整数）", "playerUuid, playerName, containerId, containerType, virtual, slotId, containerSlotId, clickedSlotId, itemId, count, itemComponents, item, before, after, cursorBefore, cursorAfter, clickType, button, x/y/z/dimension（无世界位置 nil）");
 		addEvent(entries, "MC.Event.onContainerItemToCursor", "MC.Event.onContainerItemToCursor(callback)", "监听物品从非玩家背包的容器格子实际进入鼠标光标；Shift 快移／数字键只进背包而不进鼠标时不触发；右键分半、换持不同物品、双击从多个格子归拢时按来源格子报告", "事件注册 ID（整数）", "playerUuid, playerName, containerId, containerType, slotId, containerSlotId, itemId, count（本次进入光标数量）, itemComponents, item, before, after, cursorBefore, cursorAfter, clickType, button, x/y/z/dimension（无世界位置 nil）");
 		addEvent(entries, "MC.Event.onInventoryItemToCursor", "MC.Event.onInventoryItemToCursor(callback)", "监听玩家从自己的背包格子把物品实际拿到鼠标上；在普通背包及打开其他容器时均生效。slotId 为当前菜单槽号，containerSlotId 为背包实际槽号；不是玩家拾取地上的掉落物事件", "事件注册 ID（整数）", "playerUuid, playerName, containerId, containerType, slotId, containerSlotId, slotArea=inventory, itemId, count, itemComponents, item, before, after, cursorBefore, cursorAfter, clickType, button, x/y/z/dimension（背包自身无世界位置时 nil）");
-		addEvent(entries, "MC.Event.onEntityAttacked", "MC.Event.onEntityAttacked(callback)", "监听玩家攻击实体", "事件注册 ID（整数）", "playerUuid, playerName, hand, targetUuid, targetType, targetName, targetRuntimeId, targetX, targetY, targetZ");
+		addEvent(entries, "MC.Event.onEntityAttacked", "MC.Event.onEntityAttacked(callback)", "监听玩家攻击实体", "事件注册 ID（整数）", "playerUuid, playerName, hand, itemId, itemCount, itemComponents, targetUuid, targetType, targetName, targetRuntimeId, targetX, targetY, targetZ");
 		addEvent(entries, "MC.Event.onEntityUsed", "MC.Event.onEntityUsed(callback)", "监听玩家右键交互实体", "事件注册 ID（整数）", "playerUuid, playerName, hand, itemId, itemCount, itemComponents，以及 target* 实体字段");
 		addEvent(entries, "MC.Event.onEntityLoaded", "MC.Event.onEntityLoaded(callback)", "监听实体加载到服务端世界", "事件注册 ID（整数）", "entityUuid, entityType, entityName, entityRuntimeId, entityX, entityY, entityZ, dimension");
 		addEvent(entries, "MC.Event.onEntityUnloaded", "MC.Event.onEntityUnloaded(callback)", "监听实体从服务端世界卸载", "事件注册 ID（整数）", "entityUuid, entityType, entityName, entityRuntimeId, entityX, entityY, entityZ, dimension");

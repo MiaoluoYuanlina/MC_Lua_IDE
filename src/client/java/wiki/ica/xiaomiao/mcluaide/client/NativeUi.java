@@ -35,6 +35,14 @@ final class NativeUi {
         else { ImGui.setNextItemWidth(-1); ImGui.inputText(label,buffer); }
         return buffer.get();
     }
+    /** A single-line input of the given width, for rows that carry buttons beside the field. */
+    static String input(String label,String value,float width) {
+        value=value==null?"":value;
+        var buffer=strings.computeIfAbsent(ImGui.getID(label),id->new ImString(256));
+        if(!buffer.get().equals(value)) buffer.set(value,true);
+        ImGui.setNextItemWidth(width); ImGui.inputText(label,buffer);
+        return buffer.get();
+    }
     static String field(String label,String value) { ImGui.textUnformatted(LuaUiText.text(label)); return input("##"+label,value); }
     static String field(String label,String value,boolean focus) { ImGui.textUnformatted(LuaUiText.text(label)); return input("##"+label,value,false,0,focus); }
     static boolean check(String label,boolean value) { var state=new ImBoolean(value); ImGui.checkbox(LuaUiText.text(label),state); return state.get(); }

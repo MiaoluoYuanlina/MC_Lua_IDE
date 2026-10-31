@@ -51,6 +51,8 @@ final class LuaEntitySpawnProbe {
                 MinecraftServer server = client.getSingleplayerServer(); UUID owner = client.player.getUUID();
                 task = CompletableFuture.runAsync(() -> {
                     try {
+                        verifyEventComponents(server);
+                        System.out.println("event components stage passed");
                         verifyData(server, owner);
                         System.out.println("data labels stage passed");
                         verifyAggression(server, owner);
@@ -125,6 +127,32 @@ final class LuaEntitySpawnProbe {
                 print('spawn-uuid-ok')
                 """.formatted(owner);
         verifySource(server, owner, debug, source, "spawn-uuid-ok");
+    }
+
+    /** Builds the real onItemUsed event table for an item with custom_data and reads event.itemComponents["minecraft:custom_data"]["new_type"]. */
+    private static void verifyEventComponents(MinecraftServer server) throws Exception {
+        org.luaj.vm2.LuaValue[] read = new org.luaj.vm2.LuaValue[1];
+        server.submit(() -> {
+            try {
+                var tag = new net.minecraft.nbt.CompoundTag(); tag.putString("new_type", "abc");
+                var stack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STICK);
+                stack.set(net.minecraft.core.component.DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(tag));
+                // The same helper onBlockAttacked / onItemUsed / onEntityAttacked use for the held item.
+                Method putItem = Class.forName("wiki.ica.xiaomiao.mcluaide.server.LuaFabricEventBridge").getDeclaredMethod("putItem",
+                        java.util.Map.class, String.class, net.minecraft.world.item.ItemStack.class, net.minecraft.server.level.ServerLevel.class);
+                putItem.setAccessible(true);
+                java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+                putItem.invoke(null, data, "item", stack, server.overworld());
+                Class<?> eventType = Class.forName("wiki.ica.xiaomiao.mcluaide.server.ServerScriptManager$GameEvent");
+                var constructor = eventType.getDeclaredConstructor(String.class, java.util.Map.class); constructor.setAccessible(true);
+                Object event = constructor.newInstance("blockAttacked", java.util.Map.copyOf(data));
+                Method toLua = eventType.getDeclaredMethod("toLuaTable"); toLua.setAccessible(true);
+                var table = (org.luaj.vm2.LuaTable) toLua.invoke(event);
+                read[0] = table.get("itemId").tojstring().equals("minecraft:stick") ? table.get("itemComponents").get("minecraft:custom_data").get("new_type") : table.get("itemId");
+                return null;
+            } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+        }).get(20, TimeUnit.SECONDS);
+        if (!"abc".equals(read[0].tojstring())) throw new AssertionError("event.itemComponents[custom_data][new_type] = " + read[0]);
     }
 
     /** Calls the real MC.Item.setSlotComponents / MC.Entity.setEquipmentComponents bindings on a real player slot and a real zombie. */
