@@ -875,6 +875,8 @@ final class MinecraftLuaControlApi {
 		Identifier fromId = replaceOnly ? id(args, 7) : null;
 		Identifier toId = id(args, replaceOnly ? 8 : 7);
 		Identifier dimension = optionalDimension(args, replaceOnly ? 9 : 8);
+		// fill only: keepExisting leaves every non-air block alone, dropItems destroys replaced blocks so they drop their loot.
+		boolean keepExisting = !replaceOnly && args.arg(9).toboolean(), dropItems = !replaceOnly && args.arg(10).toboolean();
 		return onServerBulk(server, current -> {
 			ServerLevel level = level(current, dimension);
 			var toBlock = BuiltInRegistries.BLOCK.getOptional(toId)
@@ -890,7 +892,12 @@ final class MinecraftLuaControlApi {
 			for(long zz=minZ; zz<=maxZ; zz++) {
 				BlockPos pos=new BlockPos((int)xx,(int)yy,(int)zz);
 				if(replaceOnly && level.getBlockState(pos).getBlock()!=fromBlock) continue;
-				if(level.setBlockAndUpdate(pos,toBlock.defaultBlockState())) changed++;
+				{
+						BlockState existing=level.getBlockState(pos);
+						if(keepExisting && !existing.isAir()) continue;
+						if(dropItems && !existing.isAir() && existing.getBlock()!=toBlock) level.destroyBlock(pos,true);
+						if(level.setBlockAndUpdate(pos,toBlock.defaultBlockState())) changed++;
+					}
 			}
 			return LuaValue.valueOf(changed>0);
 		});

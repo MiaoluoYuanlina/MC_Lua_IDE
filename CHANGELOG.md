@@ -2,6 +2,17 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.12] - 2026-10-31
+
+### Added
+- `MC.Block.fill(..., dimension?, keepExisting?, dropItems?)`: `keepExisting` fills only air and leaves existing blocks alone; `dropItems` destroys replaced blocks so they drop their loot instead of vanishing. Both default to false, so existing scripts behave as before.
+
+### Changed
+- `MC.apiVersion()` now returns the MC Lua IDE mod version (for example `"1.0.12"`) instead of the fixed string `"1"`. Scripts that compared it with `"1"` need updating.
+
+### Tested
+- `MC.Block.fill` with `keepExisting` and `dropItems` was run in a real game world: existing blocks kept, replaced blocks dropped items, plain fill dropped nothing.
+
 ## [1.0.11] - 2026-10-30
 
 ### Fixed
@@ -154,6 +165,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.12]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.12
 [1.0.11]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.11
 [1.0.10]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.10
 [1.0.9]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.9

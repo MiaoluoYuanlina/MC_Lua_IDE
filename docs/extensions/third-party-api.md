@@ -19,7 +19,7 @@ Versions:
 | --- | --- | --- |
 | `McLuaIdeWindowApi.EXTENSION_API_VERSION` | `2` | IDE window interface. 2 = native `NativeContent` (Dear ImGui); 1 = legacy `Content`, still works — see [Legacy windows](#6-legacy-windows-content) |
 | `McLuaIdeRegistryApi.EXTENSION_API_VERSION` | constant in the class | Registry annotation interface; use for compatibility checks |
-| `MC.apiVersion()` in Lua | `1` | Lua runtime version, unrelated to the two above |
+| `MC.apiVersion()` in Lua | mod version, e.g. `"1.0.12"` | The MC Lua IDE mod version, unrelated to the two above |
 
 ---
 

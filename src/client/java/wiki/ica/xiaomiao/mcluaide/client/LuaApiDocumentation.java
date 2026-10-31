@@ -612,7 +612,7 @@ final class LuaApiDocumentation {
 
 	private static Map<String, Entry> createEntries() {
 		Map<String, Entry> entries = new LinkedHashMap<>();
-		add(entries, "MC.apiVersion", "MC.apiVersion()", "获取服务端脚本 API 版本；当前版本为 1", "字符串 \"1\"", "print(MC.apiVersion()) -- 1", false);
+		add(entries, "MC.apiVersion", "MC.apiVersion()", "获取 MC Lua IDE 的模组版本", "字符串，例如 \"1.0.12\"", "print(MC.apiVersion()) -- 1.0.12", false);
 		add(entries, "MC.sleep", "MC.sleep(milliseconds)", "仅暂停当前主流程或当前事件回调指定毫秒数，其他事件（包括同一监听的后续触发）仍可执行，不暂停服务器；停止脚本会取消全部等待。各流程共享变量，只在等待处交错执行。单次范围 0–3600000 毫秒，等待计入运行时限；等待流程数量受事件队列容量限制", "true；当前流程等待结束后继续执行", "print(\"开始\"); MC.sleep(1000); print(\"一秒后\")", false);
 
 		add(entries, "MC.Block.get", "MC.Block.get(x, y, z, dimension?)", "读取服务端坐标处真实方块的 ID、方向／开关等 states，以及箱子内容、熔炉进度、告示牌文字等 blockEntityData；不加载未加载区块，不是物品或模板的默认数据。修改返回表不会修改世界", "方块信息表：states、hasBlockEntity、blockEntityData/blockEntityDataJson（无方块实体时为空对象），保留 itemComponents/itemComponentsJson；单个数据字段最多 262144 字符", "local b = MC.Block.get(0, 64, 0); if b then print(b.blockEntityDataJson) end", false);
@@ -718,7 +718,7 @@ final class LuaApiDocumentation {
 		add(entries, "MC.Block.exists", "MC.Block.exists(id)", "检查方块资源 ID 是否已注册", "布尔值", "print(MC.Block.exists(\"minecraft:stone\"))", false);
 		add(entries, "MC.Block.name", "MC.Block.name(id, language?)", "按方块资源 ID 获取指定语言名称，支持其他模组；如 zh_cn/en_us/ja_jp，大小写及横线自动规范化。不填语言保持默认名称行为；不会改变游戏全局语言。首次缺少原版语言文件会从 Mojang 官方资源下载并缓存，不在服务器主线程等待", "名称字符串；指定语言时还返回实际语言代码：目标代码/en_us（英文回退）/literal（固定文本）/untranslated（缺少译名）；资源不可用时 nil, 原因并黄色警告", "local name, language = MC.Block.name(\"minecraft:stone\", \"zh_cn\")\nprint(name, language)", false);
 		add(entries, "MC.Block.random", "MC.Block.random()", "从当前服务端全部已注册方块（含其他模组）中随机取得一个 ID", "方块资源 ID 字符串", "local blockId = MC.Block.random()", false);
-		add(entries, "MC.Block.fill", "MC.Block.fill(x1, y1, z1, x2, y2, z2, blockId, dimension?)", "直接填充长方体区域，不受原版命令方块数量上限影响", "是否至少修改一个方块", "MC.Block.fill(0, 64, 0, 4, 68, 4, \"minecraft:stone\")", false);
+		add(entries, "MC.Block.fill", "MC.Block.fill(x1, y1, z1, x2, y2, z2, blockId, dimension?, keepExisting?, dropItems?)", "直接填充长方体区域，不受原版命令方块数量上限影响。keepExisting 为 true 时只填充空气，保留区域内已有方块（默认 false，直接替换）；dropItems 为 true 时被替换的方块会被破坏并掉落战利品（默认 false，直接消失）。dimension 填 nil 表示当前维度", "是否至少修改一个方块", "MC.Block.fill(0, 64, 0, 4, 68, 4, \"minecraft:stone\")\nMC.Block.fill(0, 64, 0, 4, 68, 4, \"minecraft:glass\", nil, true) -- 只填充空气\nMC.Block.fill(0, 64, 0, 4, 68, 4, \"minecraft:air\", nil, false, true) -- 清空并掉落物品", false);
 		add(entries, "MC.Block.replace", "MC.Block.replace(x1, y1, z1, x2, y2, z2, fromId, toId, dimension?)", "直接替换区域内指定方块，不修改原版命令实现", "是否至少修改一个方块", "MC.Block.replace(0, 64, 0, 8, 72, 8, \"minecraft:dirt\", \"minecraft:grass_block\")", false);
 		add(entries, "MC.Block.addData", "MC.Block.addData(x, y, z, data, dimension?)", "向方块的方块实体添加数据：Lua 表里带命名空间的键（如 minecraft:custom_name）是数据组件，其余键是 NBT 字段（也可传 SNBT 字符串）", "成功返回 true", "MC.Block.addData(0, 64, 0, {\n    [\"minecraft:custom_name\"] = \"宝箱\",\n})", false);
 		add(entries, "MC.Block.hideData", "MC.Block.hideData(x, y, z, keys, dimension?)", "隐藏（移除）方块实体的数据组件（如 minecraft:custom_name）或顶层 NBT 字段，游戏会按默认值读取；id、x、y、z 不可隐藏", "成功返回 true", "MC.Block.hideData(0, 64, 0, {\"minecraft:custom_name\"})", false);

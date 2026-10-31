@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | `McLuaIdeWindowApi.EXTENSION_API_VERSION` | `2` | IDE 窗口接口版本。2 = 新版 `NativeContent`（Dear ImGui）；1 = 旧版 `Content`（仍可用，见[兼容旧版窗口](#兼容旧版窗口content)） |
 | `McLuaIdeRegistryApi.EXTENSION_API_VERSION` | 见类内常量 | 注册表注释接口版本，可用于兼容性检查 |
-| Lua 中的 `MC.apiVersion()` | `1` | Lua 运行环境版本，与上面两项无关 |
+| Lua 中的 `MC.apiVersion()` | 模组版本，如 `"1.0.12"` | MC Lua IDE 的模组版本，与上面两项无关 |
 
 ---
 

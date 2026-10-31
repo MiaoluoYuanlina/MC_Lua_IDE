@@ -44,7 +44,6 @@ import java.util.function.Function;
 
 /** Curated Minecraft/Fabric API backed exclusively by the authoritative server. */
 final class MinecraftLuaApi {
-	private static final String API_VERSION = "1";
 	private static final int API_TIMEOUT_SECONDS = 10;
 	private static final Identifier DEFAULT_DIMENSION = Identifier.withDefaultNamespace("overworld");
 
@@ -78,7 +77,7 @@ final class MinecraftLuaApi {
 			execution.sleepMilliseconds(args.checkint(1));
 			return LuaValue.TRUE;
 		});
-		bind(mc, "apiVersion", args -> LuaValue.valueOf(API_VERSION));
+		bind(mc, "apiVersion", args -> LuaValue.valueOf(modVersion("mc_lua_ide")));
 		globals.set("MC", mc);
 		McLuaIdeApi.installInto(globals, mc, server, execution.name());
 		LuaRuntimeWarnings.install(mc, globals, execution.warnings(), execution::checkRuntime);

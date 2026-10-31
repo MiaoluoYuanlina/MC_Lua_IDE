@@ -6,7 +6,7 @@ import java.util.Map;
 final class LuaApiJapanese {
 	private LuaApiJapanese() {}
 	private static final Map<String, String> SUMMARIES = Map.ofEntries(
-		Map.entry("MC.apiVersion", "Lua API のバージョンを文字列で返します。"),
+		Map.entry("MC.apiVersion", "MC Lua IDE のモッドバージョンを文字列で返します（例：\"1.0.12\"）。"),
 		Map.entry("MC.sleep", "現在の処理だけを指定ミリ秒待機させます。他のコールバックとサーバーは動作し続けます。スクリプトを停止すると待機を取り消します。"),
 		Map.entry("MC.Item.held", "オンラインのプレイヤーのメインハンドにあるアイテムと個数、コンポーネントを取得します。"),
 		Map.entry("MC.Item.count", "インベントリ内の一致するアイテムを数えます。指定したコンポーネントのみ検査し、custom_data は NBT の部分一致で比較します。"),

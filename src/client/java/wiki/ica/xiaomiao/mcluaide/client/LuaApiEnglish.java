@@ -6,7 +6,7 @@ import java.util.Map;
 final class LuaApiEnglish {
 	private LuaApiEnglish() {}
 	private static final Map<String, String> SUMMARIES = Map.ofEntries(
-		Map.entry("MC.apiVersion", "Return the Lua API version as a string."),
+		Map.entry("MC.apiVersion", "Return the MC Lua IDE mod version as a string, for example \"1.0.12\"."),
 		Map.entry("MC.sleep", "Wait for the specified milliseconds in the current coroutine. Other callbacks and the server continue running. Stopping the script cancels pending waits."),
 		Map.entry("MC.Item.held", "Read the online player's main-hand item, including count and data components."),
 		Map.entry("MC.Item.count", "Count matching inventory items. Only supplied components are checked; custom_data supports recursive NBT subset matching."),

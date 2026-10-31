@@ -55,6 +55,8 @@ final class LuaEntitySpawnProbe {
                         System.out.println("data labels stage passed");
                         verifyAggression(server, owner);
                         System.out.println("team aggression stage passed");
+                        verifyFill(server, owner);
+                        System.out.println("block fill stage passed");
                         verify(server, owner, false); verify(server, owner, true);
                         verifyAttachments(server, owner, false); verifyAttachments(server, owner, true);
 						verifyDroppedItems(server, owner, false); verifyDroppedItems(server, owner, true);
@@ -119,6 +121,55 @@ final class LuaEntitySpawnProbe {
                 print('spawn-uuid-ok')
                 """.formatted(owner);
         verifySource(server, owner, debug, source, "spawn-uuid-ok");
+    }
+
+    /** Runs the MC.Block.fill backend with keepExisting and dropItems on real blocks. */
+    private static void verifyFill(MinecraftServer server, UUID owner) throws Exception {
+        Method fill = Class.forName("wiki.ica.xiaomiao.mcluaide.server.MinecraftLuaControlApi")
+                .getDeclaredMethod("fillBlocks", MinecraftServer.class, org.luaj.vm2.Varargs.class, boolean.class);
+        fill.setAccessible(true);
+        var level = server.overworld();
+        int[] origin = server.submit(() -> {
+            var p = server.getPlayerList().getPlayer(owner);
+            return new int[] {(int) p.getX() + 8, (int) p.getY() + 20, (int) p.getZ()};
+        }).get(20, TimeUnit.SECONDS);
+        int x = origin[0], y = origin[1], z = origin[2];
+        var stone = net.minecraft.world.level.block.Blocks.STONE;
+        var glass = net.minecraft.world.level.block.Blocks.GLASS;
+        var dirt = net.minecraft.world.level.block.Blocks.DIRT;
+        java.util.function.BiFunction<String, Object[], org.luaj.vm2.Varargs> call = (block, extra) -> {
+            Object[] values = {x, y, z, x + 2, y, z, block};
+            org.luaj.vm2.LuaValue[] lua = new org.luaj.vm2.LuaValue[7 + extra.length];
+            for (int i = 0; i < 7; i++) lua[i] = values[i] instanceof Integer n ? org.luaj.vm2.LuaValue.valueOf(n) : org.luaj.vm2.LuaValue.valueOf((String) values[i]);
+            for (int i = 0; i < extra.length; i++) lua[7 + i] = extra[i] == null ? org.luaj.vm2.LuaValue.NIL : org.luaj.vm2.LuaValue.valueOf((Boolean) extra[i]);
+            return org.luaj.vm2.LuaValue.varargsOf(lua);
+        };
+        try {
+            server.submit(() -> { level.getChunk(x >> 4, z >> 4); level.setBlockAndUpdate(new net.minecraft.core.BlockPos(x, y, z), stone.defaultBlockState()); return null; }).get(20, TimeUnit.SECONDS);
+            fill.invoke(null, server, call.apply("minecraft:glass", new Object[] {null, true}), false);
+            var states = server.submit(() -> new net.minecraft.world.level.block.Block[] {
+                    level.getBlockState(new net.minecraft.core.BlockPos(x, y, z)).getBlock(),
+                    level.getBlockState(new net.minecraft.core.BlockPos(x + 1, y, z)).getBlock(),
+                    level.getBlockState(new net.minecraft.core.BlockPos(x + 2, y, z)).getBlock()}).get(20, TimeUnit.SECONDS);
+            if (states[0] != stone || states[1] != glass || states[2] != glass) throw new AssertionError("keepExisting: " + java.util.Arrays.toString(states));
+            fill.invoke(null, server, call.apply("minecraft:dirt", new Object[] {null, false, true}), false);
+            Thread.sleep(500);
+            long drops = server.submit(() -> level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                    new net.minecraft.world.phys.AABB(x - 2, y - 2, z - 2, x + 5, y + 3, z + 3)).size()).get(20, TimeUnit.SECONDS);
+            if (drops == 0) throw new AssertionError("dropItems: replaced blocks dropped nothing");
+            var after = server.submit(() -> level.getBlockState(new net.minecraft.core.BlockPos(x, y, z)).getBlock()).get(20, TimeUnit.SECONDS);
+            if (after != dirt) throw new AssertionError("dropItems: block not replaced: " + after);
+            // plain replace stays silent
+            server.submit(() -> level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                    new net.minecraft.world.phys.AABB(x - 2, y - 2, z - 2, x + 5, y + 3, z + 3)).forEach(net.minecraft.world.entity.Entity::discard)).get(20, TimeUnit.SECONDS);
+            fill.invoke(null, server, call.apply("minecraft:stone", new Object[] {}), false);
+            Thread.sleep(500);
+            long silent = server.submit(() -> level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                    new net.minecraft.world.phys.AABB(x - 2, y - 2, z - 2, x + 5, y + 3, z + 3)).size()).get(20, TimeUnit.SECONDS);
+            if (silent != 0) throw new AssertionError("default fill dropped items: " + silent);
+        } finally {
+            server.submit(() -> { for (int i = 0; i < 3; i++) level.setBlockAndUpdate(new net.minecraft.core.BlockPos(x + i, y, z), net.minecraft.world.level.block.Blocks.AIR.defaultBlockState()); return null; }).get(20, TimeUnit.SECONDS);
+        }
     }
 
     /** Runs LuaTeamAggression (behind MC.Team.aggressive) on real zombies: other team targeted, own team and disabled state ignored. */

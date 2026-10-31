@@ -47,7 +47,7 @@ final class LuaCodeAnalyzer {
 			"xpcall", "coroutine", "package", "string", "utf8", "table", "math", "io", "os",
 			"debug", "bit32", "luajava", "unpack", "MC", "mc");
 	private static final Set<String> BOOLEAN_PARAMETERS = Set.of(
-			"drops", "mayFly", "flying", "levels", "visible", "enabled", "showParticles", "force");
+			"drops", "mayFly", "flying", "levels", "visible", "enabled", "showParticles", "force", "keepExisting", "dropItems");
 	private static final Set<String> INTEGER_PARAMETERS = Set.of(
 			"count", "firstSlot", "secondSlot", "food", "ticks", "fuseTicks", "chunkX", "chunkZ",
 			"fadeIn", "stay", "fadeOut", "amplifier", "intervalTicks", "registrationId", "milliseconds", "intervalMs");
