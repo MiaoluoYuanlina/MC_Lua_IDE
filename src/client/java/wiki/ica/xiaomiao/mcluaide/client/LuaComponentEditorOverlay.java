@@ -41,8 +41,8 @@ final class LuaComponentEditorOverlay {
 		String text=NativeUi.field("筛选组件",componentQuery);if(!text.equals(componentQuery)){componentQuery=text;filterComponents();}
 		boolean all=NativeUi.check("显示全部可用字段",showAll);if(all!=showAll){showAll=all;filterComponents();}
 		if(data!=null)treeEditor.renderImGui();else imgui.ImGui.textWrapped(loading?"正在读取游戏组件…":"选择目标以读取可用组件、状态和数据");
-		NativeUi.action("插入",()->export(Export.INSERT));imgui.ImGui.sameLine();NativeUi.action(functionDocument.getAsBoolean()?"复制命令格式":"复制 Lua",()->export(Export.COPY_STACK));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->export(Export.COPY_JSON));
-		if(imgui.ImGui.getIO().getKeyCtrl()&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))export(Export.INSERT);
+		NativeUi.action("插入",()->exportInsert(false));imgui.ImGui.sameLine();NativeUi.action(functionDocument.getAsBoolean()?"复制命令格式":"复制 Lua",()->export(Export.COPY_STACK));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->export(Export.COPY_JSON));
+		if(imgui.ImGui.getIO().getKeyCtrl()&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))exportInsert(true); // Ctrl+Enter inserts and closes
 		NativeUi.status(status);
 	}
 	private static final int TITLE_HEIGHT = 28;
@@ -445,7 +445,7 @@ final class LuaComponentEditorOverlay {
 		if (!open) return false;
 		if (!keyboardFocused) return false;
 		if (event.hasControlDown() && event.key() == InputConstants.KEY_RETURN) {
-			if (treeEditor.commitPendingEdit()) export(Export.INSERT);
+			if (treeEditor.commitPendingEdit()) exportInsert(false);
 			return true;
 		}
 		if (treeEditor.hasPopup() && treeEditor.keyPressed(event)) return true;
@@ -626,7 +626,7 @@ final class LuaComponentEditorOverlay {
 		int available = windowWidth - 20;
 		int buttonWidth = Math.max(72, (available - 8) / 3);
 		if (inside(event.x(), event.y(), x + 10, buttonY, x + 10 + buttonWidth, buttonY + 21)) {
-			export(Export.INSERT);
+			exportInsert(false);
 			return true;
 		}
 		if (inside(event.x(), event.y(), x + 14 + buttonWidth, buttonY,
@@ -846,6 +846,8 @@ final class LuaComponentEditorOverlay {
 	private static boolean usesTreeEditor(LuaComponentEditorData.ComponentInfo component) {
 		return component != null && (component.editor().equals("json") || component.editor().equals("resource"));
 	}
+
+	private void exportInsert(boolean close) { closeAfterInsert = close; export(Export.INSERT); }
 
 	private void export(Export action) {
 		if (data == null || exporting) return;

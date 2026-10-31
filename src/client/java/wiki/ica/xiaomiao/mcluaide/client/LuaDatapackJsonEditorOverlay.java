@@ -37,7 +37,7 @@ final class LuaDatapackJsonEditorOverlay {
 			for(String entry:visibleEntries())if(imgui.ImGui.selectable(showSources?entry:categories.stream().filter(c->c.path().equals(entry)).findFirst().map(c->c.label()+" · "+c.path()).orElse(entry),entry.equals(selectedId)||!showSources&&entry.equals(category)))activateEntry(entry);
 			imgui.ImGui.endChild();imgui.ImGui.tableNextColumn();tree.renderImGui();imgui.ImGui.endTable();
 		}
-		NativeUi.action("插入配置",this::validateAndInsert);imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->NativeUi.copy(PRETTY.toJson(document)));
+		NativeUi.action("插入配置",()->validateAndInsert(false));imgui.ImGui.sameLine();NativeUi.action("复制 JSON",()->NativeUi.copy(PRETTY.toJson(document)));
 		imgui.ImGui.sameLine();NativeUi.action("读取当前文件",()->{String source=currentFileJson.get();if(source!=null)importJson(source);});NativeUi.status(status);
 	}
 	private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().create();
@@ -305,7 +305,10 @@ final class LuaDatapackJsonEditorOverlay {
 		}));
 	}
 
-	private void validateAndInsert() {
+	/** Ctrl+Enter: validates, inserts and then closes the window. */
+	void insertAndClose() { validateAndInsert(true); }
+
+	private void validateAndInsert(boolean closeAfter) {
 		if (validating || !tree.commitPendingEdit()) return;
 		String target = currentTarget.get();
 		if (target == null || target.isBlank()) {
@@ -335,6 +338,7 @@ final class LuaDatapackJsonEditorOverlay {
 			}
 			insert.accept(selectedCategory, json);
 			status = "已插入 JSON；" + result + "。保存后需重载数据包才会生效";
+			if (closeAfter) close();
 		}));
 	}
 
@@ -422,7 +426,7 @@ final class LuaDatapackJsonEditorOverlay {
 	boolean keyPressed(KeyEvent event) {
 		if (!open || !keyboardFocused) return false;
 		if (event.hasControlDown() && event.key() == InputConstants.KEY_RETURN) {
-			validateAndInsert(); return true;
+			validateAndInsert(false); return true;
 		}
 		if (tree.hasPopup()) return tree.keyPressed(event);
 		if (event.key() == InputConstants.KEY_ESCAPE) { close(); return true; }
@@ -498,7 +502,7 @@ final class LuaDatapackJsonEditorOverlay {
 		int buttonY = bottom - 28;
 		int buttonWidth = Math.max(65, (width - 24) / 3);
 		if (inside(event.x(), event.y(), left + 8, buttonY, left + 8 + buttonWidth, buttonY + 20)) {
-			validateAndInsert(); return true;
+			validateAndInsert(false); return true;
 		}
 		if (inside(event.x(), event.y(), left + 12 + buttonWidth, buttonY,
 				left + 12 + buttonWidth * 2, buttonY + 20)) {

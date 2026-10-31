@@ -96,7 +96,7 @@ final class MinecraftLuaApi {
 			removeMethods(mc, "Player", "openChest", "menuItem", "setMenuItem", "carried", "setCarried", "openBlock", "openCrafting", "openEnderChest", "openAnvil",
 					"openEnchanting", "openGrindstone", "openLoom", "openCartography",
 					"openStonecutter", "openSmithing", "closeMenu", "menu");
-			removeMethods(mc, "Entity", "equipment", "setEquipment", "components");
+			removeMethods(mc, "Entity", "equipment", "setEquipment", "setEquipmentComponents", "components");
 		}
 		if (!limits.allowPresentationApi()) removeNamespaces(mc,
 				"Chat", "Sound", "Particle", "Title", "UI", "Client");
@@ -457,6 +457,12 @@ final class MinecraftLuaApi {
 			UUID uuid = playerUuid(args, 1);
 			String name = onServer(server, current -> player(current, uuid).getName().getString());
 			return LuaValue.valueOf(name);
+		});
+		// The forward key as the client last reported it, so it is true even when a wall stops the player and false while knocked or falling forward.
+		bind(api, "movingForward", args -> {
+			UUID uuid = playerUuid(args, 1);
+			boolean forward = onServer(server, current -> player(current, uuid).getLastClientInput().forward());
+			return LuaValue.valueOf(forward);
 		});
 		bind(api, "position", args -> {
 			UUID uuid = playerUuid(args, 1);

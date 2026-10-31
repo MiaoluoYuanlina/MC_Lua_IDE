@@ -204,6 +204,19 @@ final class MinecraftLuaInteractionApi {
 				return stackTable(current, requested, slot);
 			});
 		});
+		bind(api, "setSlotComponents", args -> {
+			UUID uuid = playerUuid(args, 1);
+			int slot = args.checkint(2);
+			return onServer(server, current -> {
+				ServerPlayer player = player(current, uuid);
+				Inventory inventory = player.getInventory();
+				checkSlot(slot, inventory.getContainerSize(), "背包槽位");
+				ItemStack patched = patchedStack(current, inventory.getItem(slot), args.arg(3));
+				inventory.setItem(slot, patched);
+				syncInventory(player);
+				return stackTable(current, patched, slot);
+			});
+		});
 		bind(api, "clearSlot", args -> {
 			UUID uuid = playerUuid(args, 1);
 			int slot = args.checkint(2);
@@ -288,6 +301,16 @@ final class MinecraftLuaInteractionApi {
 				limitStack(requested, requested.getMaxStackSize());
 				entity.setItemSlot(slot, requested);
 				return stackTable(current, requested, slot.getName());
+			});
+		});
+		bind(api, "setEquipmentComponents", args -> {
+			UUID uuid = uuid(args.checkjstring(1), "实体 UUID");
+			EquipmentSlot slot = equipmentSlot(args.checkjstring(2));
+			return onServer(server, current -> {
+				LivingEntity entity = livingEntity(current, uuid);
+				ItemStack patched = patchedStack(current, entity.getItemBySlot(slot), args.arg(3));
+				entity.setItemSlot(slot, patched);
+				return stackTable(current, patched, slot.getName());
 			});
 		});
 		return api;
@@ -435,6 +458,17 @@ final class MinecraftLuaInteractionApi {
 		result.set("walkingSpeed", abilities.getWalkingSpeed());
 		result.set("flyingSpeed", abilities.getFlyingSpeed());
 		return result;
+	}
+
+	/** A copy of {@code stack} with the component patch applied: item and count stay, listed components are set, removed ones are dropped. */
+	private static ItemStack patchedStack(MinecraftServer server, ItemStack stack, LuaValue components) {
+		if (stack == null || stack.isEmpty()) throw new LuaError("该槽位是空的，没有可修改组件的物品");
+		if (components == null || components.isnil()) throw new LuaError("请提供要修改的组件（Lua 表或 JSON 对象字符串）");
+		ItemStack copy = stack.copy();
+		try { copy.applyComponents(LuaItemStackCodec.decodePatch(server.registryAccess(), components)); }
+		catch (LuaError error) { throw error; }
+		catch (RuntimeException error) { throw new LuaError("无法修改物品组件：" + error.getMessage()); }
+		return copy;
 	}
 
 	private static LuaTable stackTable(MinecraftServer server, ItemStack stack, int slot) {

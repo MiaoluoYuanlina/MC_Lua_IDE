@@ -14,7 +14,6 @@ final class NativeUi {
     private static final Map<Integer, ImString> strings = new LinkedHashMap<>(256, .75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<Integer, ImString> eldest) { return size() > MAX_BUFFERS; }
     };
-    private static final Map<Integer, imgui.extension.texteditor.TextEditor> code = new HashMap<>();
     private static final LinkedHashMap<String,ImGuiMcSurface> media = new LinkedHashMap<>(64,.75f,true);
     private NativeUi() { }
     static String input(String label, String value) { return input(label,value,false,0); }
@@ -78,12 +77,26 @@ final class NativeUi {
         ImGui.endChild();
     }
     static void code(String id,String source,float height) {
-        var editor=code.computeIfAbsent(ImGui.getID(id),key->{
-            var result=new imgui.extension.texteditor.TextEditor(); result.setReadOnlyEnabled(true);
-            result.setLanguage(imgui.extension.texteditor.TextEditorLanguage.Lua()); return result;
-        });
-        if(!editor.getText().stripTrailing().equals(source.stripTrailing())) editor.setText(source);
-        editor.render(id,-1,height,true);
+        // Read-only highlighted text drawn run by run with the editor font: the text-editor widget assumed single-width glyphs and garbled Chinese and Japanese.
+        ImGui.pushID(id);
+        ImGui.beginChild("##code",0,height,true,ImGuiWindowFlags.HorizontalScrollbar);
+        ImGuiIdeRuntime.pushEditorFont(ImGui.getFontSize());
+        var draw=ImGui.getWindowDrawList();
+        float left=ImGui.getCursorScreenPosX(),top=ImGui.getCursorScreenPosY(),lineHeight=ImGui.getTextLineHeightWithSpacing(),widest=0;
+        String[] lines=source.replace("\t","    ").stripTrailing().split("\\R",-1);
+        for(int row=0;row<lines.length;row++) {
+            final float y=top+row*lineHeight; final float[] x={left};
+            if(y+lineHeight>=ImGui.getWindowPosY()&&y<=ImGui.getWindowPosY()+ImGui.getWindowHeight()) {
+                LuaSyntaxHighlighter.highlightSnippet(lines[row],LuaSyntaxHighlighter.Theme.DARK).visit((style,text)->{
+                    int color=style.getColor()==null?0xE6E6E6:style.getColor().getValue();
+                    draw.addText(x[0],y,rgba(0xFF000000|color),text); x[0]+=ImGui.calcTextSizeX(text);
+                    return Optional.empty();
+                },net.minecraft.network.chat.Style.EMPTY);
+            } else x[0]+=ImGui.calcTextSizeX(lines[row]);
+            widest=Math.max(widest,x[0]-left);
+        }
+        ImGui.dummy(widest+8,lines.length*lineHeight);
+        ImGui.popFont(); ImGui.endChild(); ImGui.popID();
     }
     static void media(String key,int width,int height,java.util.function.Consumer<net.minecraft.client.gui.GuiGraphicsExtractor> drawing) {
         var surface=media.computeIfAbsent(key,id->new ImGuiMcSurface());
@@ -107,5 +120,5 @@ final class NativeUi {
         if(!ImGui.colorEdit4(label,rgba,ImGuiColorEditFlags.AlphaBar|ImGuiColorEditFlags.DisplayHex))return argb;
         return Math.round(rgba[3]*255)<<24|Math.round(rgba[0]*255)<<16|Math.round(rgba[1]*255)<<8|Math.round(rgba[2]*255);
     }
-    static void clear() { strings.clear(); code.values().forEach(imgui.extension.texteditor.TextEditor::destroy); code.clear(); media.values().forEach(ImGuiMcSurface::close); media.clear(); }
+    static void clear() { strings.clear(); media.values().forEach(ImGuiMcSurface::close); media.clear(); }
 }

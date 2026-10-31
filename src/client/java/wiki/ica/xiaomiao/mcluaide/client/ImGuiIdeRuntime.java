@@ -52,6 +52,10 @@ public final class ImGuiIdeRuntime {
         try { config.setMergeMode(true); io.getFonts().addFontFromFileTTF(path, 17, config, ranges); }
         finally { config.destroy(); }
     }
+    /** Every installed CJK font fills the glyphs the first one lacks, so Japanese kana and kanji render even when the first font is Chinese-only. */
+    private static void mergeOtherCjk(imgui.ImGuiIO io, String except) {
+        for (String candidate : CJK_FONTS) if (!candidate.equals(except) && Files.isRegularFile(Path.of(candidate))) mergeFont(io, candidate, CJK_RANGES);
+    }
     private static void mergeFallbacks(imgui.ImGuiIO io, String except) {
         for (String candidate : FALLBACK_FONTS) if (!candidate.equals(except) && Files.isRegularFile(Path.of(candidate))) mergeFont(io, candidate, SYMBOL_RANGES);
     }
@@ -169,12 +173,12 @@ public final class ImGuiIdeRuntime {
         // Fonts are read from the local OS and never redistributed.
         String base = firstExisting(CJK_FONTS);
         io.setFontDefault(base == null ? io.getFonts().addFontDefault() : io.getFonts().addFontFromFileTTF(base, 17, MAIN_RANGES));
-        if (base != null) mergeFallbacks(io, base);
+        if (base != null) { mergeOtherCjk(io, base); mergeFallbacks(io, base); }
         String mono = firstExisting(MONO_FONTS);
         if (mono != null) {
             editorFont = io.getFonts().addFontFromFileTTF(mono, 17, MONO_RANGES);
             String cjk = firstExisting(CJK_FONTS);
-            if (cjk != null) mergeFont(io, cjk, CJK_RANGES);
+            if (cjk != null) { mergeFont(io, cjk, CJK_RANGES); mergeOtherCjk(io, cjk); }
             mergeFallbacks(io, mono);
         }
         applyModernStyle();

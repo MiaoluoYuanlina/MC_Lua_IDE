@@ -60,7 +60,7 @@ final class LuaInsertOverlay {
             int horizontal=imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.RightArrow)?1:imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.LeftArrow)?-1:0;
             if(horizontal!=0&&!imgui.ImGui.getIO().getWantTextInput())selectKind(LuaInsertCatalog.Kind.values()[Math.floorMod(kind.ordinal()+horizontal,LuaInsertCatalog.Kind.values().length)]);
         }
-        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))insertSelected();
+        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter)&&!imgui.ImGui.getIO().getKeyCtrl())insertSelected();
         imgui.ImGui.beginChild("ids",0,Math.max(60,imgui.ImGui.getContentRegionAvailY()-40));
         float rowHeight=Math.max(28,imgui.ImGui.getTextLineHeightWithSpacing());
         var clipper=new imgui.ImGuiListClipper(); clipper.begin(filtered.size(),rowHeight);
@@ -935,7 +935,7 @@ final class LuaInsertOverlay {
 		else scrollRow = Math.clamp(scrollRow, 0, maxScroll());
 	}
 
-	private boolean insertSelected() {
+	boolean insertSelected() {
 		if (selectedRow < 0 || selectedRow >= filtered.size()) return false;
 		soundPreview.suspend();
 		insertion.accept(filtered.get(selectedRow).entry());

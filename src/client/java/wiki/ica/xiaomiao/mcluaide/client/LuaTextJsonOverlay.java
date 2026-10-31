@@ -1147,7 +1147,7 @@ final class LuaTextJsonOverlay {
 		catch (IllegalArgumentException error) { return LuaUiText.text("错误：") + error.getMessage(); }
 	}
 
-	private void insertJson() {
+	private boolean insertJson() {
 		try {
 			validatedJson();
 			if (functionDocument.getAsBoolean()) {
@@ -1155,16 +1155,21 @@ final class LuaTextJsonOverlay {
 				insertion.accept(LuaTextJsonDocument.build(segments).toString());
 				status = "已插入由 " + segments.size() + " 段组成的文本 JSON";
 				feedback.accept(status);
-				return;
+				return true;
 			}
 			insertion.accept(LuaTextJsonDocument.luaExpression(segments));
 			status = "已插入由 " + segments.size() + " 段组成的"
 					+ (LuaTextJsonDocument.hasVariables(segments) ? " Lua 动态文本拼接表达式" : "文本 JSON 字符串");
 			feedback.accept(status);
+			return true;
 		} catch (IllegalArgumentException error) {
 			status = LuaUiText.text("错误：") + error.getMessage(); feedback.accept(status);
+			return false;
 		}
 	}
+
+	/** Ctrl+Enter: true when the JSON was inserted, so the host may close the window. */
+	boolean insertNow() { return insertJson(); }
 
 	private void copyJson() {
 		try {

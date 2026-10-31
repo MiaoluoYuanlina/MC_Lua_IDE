@@ -109,6 +109,8 @@ final class LuaSemanticAnalyzerSmoke {
 		valid("MC.Block.set(0,64,0,[[\nminecraft:stone]])");
 		valid("MC.Block.set(0,64,0,[=[\r\nminecraft:stone]=])");
 		valid("MC.Block.fill(0, 64, 0, 4, 68, 4, 'minecraft:glass', nil, true, false)");
+		valid("MC.Item.setSlotComponents('00000000-0000-0000-0000-000000000000', 0, {[\"minecraft:custom_name\"] = \"x\"})");
+		valid("MC.Player.movingForward('00000000-0000-0000-0000-000000000000')");
 		valid("MC.Team.aggressive('00000000-0000-0000-0000-000000000000', true)\nlocal state = MC.Team.aggressive('00000000-0000-0000-0000-000000000000')");
 		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', {\n    [\"minecraft:custom_name\"] = \"队伍\",\n})");
 		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', '{Fuse:40s}')");

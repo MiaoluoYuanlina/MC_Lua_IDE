@@ -137,6 +137,13 @@ final class LuaApiDocsOverlay {
 	private final List<SelectableSpan> textSpans = new ArrayList<>();
 	private final StringBuilder selectableText = new StringBuilder();
 	private LuaApiDocumentation.DocumentEntry selected;
+
+	/** Ctrl+Enter: inserts the usage template of the selected method; true when something was inserted. */
+	boolean insertSelectedTemplate() {
+		if (selected == null) return false;
+		insertion.accept(LuaApiDocumentation.usageTemplate(selected.symbol()));
+		return true;
+	}
 	private LuaApiDocumentation.DocumentPage selectedPage;
 	private String pendingSelectedSymbol = "";
 	private String pendingSelectedPageKey = "";

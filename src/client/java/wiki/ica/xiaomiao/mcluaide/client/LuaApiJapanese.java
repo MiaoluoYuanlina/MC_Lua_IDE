@@ -7,6 +7,9 @@ final class LuaApiJapanese {
 	private LuaApiJapanese() {}
 	private static final Map<String, String> SUMMARIES = Map.ofEntries(
 		Map.entry("MC.apiVersion", "MC Lua IDE のモッドバージョンを文字列で返します（例：\"1.0.12\"）。"),
+		Map.entry("MC.Item.setSlotComponents", "プレイヤーのインベントリスロットにある既存アイテムのデータコンポーネントだけを変更します（アイテムと個数はそのまま）。"),
+		Map.entry("MC.Entity.setEquipmentComponents", "エンティティの装備スロットにある既存アイテムのデータコンポーネントだけを変更します（アイテムと個数はそのまま）。"),
+		Map.entry("MC.Player.movingForward", "プレイヤーが前進中（前進キー W を押している）かを、クライアントが最後に報告した入力で確認します。"),
 		Map.entry("MC.sleep", "現在の処理だけを指定ミリ秒待機させます。他のコールバックとサーバーは動作し続けます。スクリプトを停止すると待機を取り消します。"),
 		Map.entry("MC.Item.held", "オンラインのプレイヤーのメインハンドにあるアイテムと個数、コンポーネントを取得します。"),
 		Map.entry("MC.Item.count", "インベントリ内の一致するアイテムを数えます。指定したコンポーネントのみ検査し、custom_data は NBT の部分一致で比較します。"),
@@ -19,7 +22,7 @@ final class LuaApiJapanese {
 		Map.entry("MC.Item.isOnCooldown", "インベントリ内の一致するアイテムが使用クールダウン中かを取得します。対象がなければ false を返します。"),
 		Map.entry("MC.Item.startCooldown", "一致するアイテムの使用クールダウンを開始または再開始します。ticks 省略時は use_cooldown の時間、未設定なら 20 Tick を使用します。0 は即時終了です。"),
 		Map.entry("MC.Item.setCooldown", "現在の残りクールダウンを呼び出し時点から指定 Tick に設定します。0 で即時終了します。将来の既定時間やアイテムのコンポーネントは変更しません。"),
-		Map.entry("MC.Item.clearCooldown", "一致するアイテムのクールダウンを即時終了します。同じクールダウングループのアイテムにも影響します。"),
+		Map.entry("MC.Item.clearCooldown", "プレイヤーのアイテムのクールダウンを即時終了します。"),
 		Map.entry("MC.Player.list", "オンラインの全プレイヤーの名前と UUID を取得します。"),
 		Map.entry("MC.Player.uuid", "オンラインのプレイヤー名から UUID を取得します。"),
 		Map.entry("MC.Player.online", "指定 UUID のプレイヤーがオンラインかを確認します。"),
@@ -27,7 +30,8 @@ final class LuaApiJapanese {
 		Map.entry("MC.Player.facing", "プレイヤーの水平（yaw）と垂直（pitch）の向きの角度と、最も近い方角を取得します。"),
 		Map.entry("MC.Player.lookDirection", "プレイヤーの 3D の視線方向を単位ベクトルで取得します。"),
 		Map.entry("MC.Player.lookingAt", "プレイヤーのクロスヘアが指すブロック表面の正確な（小数を含む）座標を取得します。距離無制限も指定できます。"),
-		Map.entry("MC.Player.relativePosition", "プレイヤーの前・後ろ・左・右の指定距離にある座標を、水平・垂直・両方の向き成分で計算します。"),
+		Map.entry("MC.Player.relativePosition", "プレイヤーから指定距離の座標を計算します。"),
+		Map.entry("MC.Player.carried", "プレイヤーのカーソルに持っているアイテムを読み取ります。"),
 		Map.entry("MC.Player.teleport", "指定プレイヤーをテレポートします。ディメンション省略時は現在のディメンションを維持します。"),
 		Map.entry("MC.Player.openChest", "実際のブロックを必要としないチェスト UI を開きます。1～6 行に対応します。読み取り専用の店には onContainerClicked を使用します。"),
 		Map.entry("MC.Player.openBlock", "実在するブロックのバニラメニューを開きます。通常の距離とディメンション制限は適用されます。"),

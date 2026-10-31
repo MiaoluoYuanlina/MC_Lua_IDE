@@ -290,6 +290,16 @@ final class ImGuiIdeProbe {
             workspace.bind(doc);
             require(workspace.controller.nativeSnapshot().source().contains("--split"), "the main editor sees the split view's edit");
             workspace.close(SplitEditorPane.ID); workspace.close(WelcomePanel.ID); workspace.close(AuditLogPanel.ID); workspace.close(BackupPanel.ID);
+            // API documentation code box: Chinese text next to ASCII, and a line longer than the box.
+            try {
+                var overlayField = LuaIdeScreen.class.getDeclaredField("apiDocsOverlay"); overlayField.setAccessible(true);
+                Object overlay = overlayField.get(workspace.controller);
+                var selectedField = overlay.getClass().getDeclaredField("selected"); selectedField.setAccessible(true);
+                selectedField.set(overlay, LuaApiDocumentation.allEntries().stream().filter(e -> e.symbol().equals("MC.Block.fill")).findFirst().orElseThrow());
+            } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+            workspace.open("API_DOCS"); screenshotName="imgui-apidocs.png"; capture=true; nextFrame=screen.renderedFrames()+90; stage=70;
+        } else if (stage == 70 && screen.renderedFrames() > nextFrame) {
+            screen.probeWorkspace().close("API_DOCS");
             screen.probeScale(10); nextFrame=screen.renderedFrames()+15; stage=12;
         } else if (stage == 12&& screen.renderedFrames() > nextFrame) {
             require(client.screen==screen && ImGuiIdeRuntime.available(),"10% UI scale failed");

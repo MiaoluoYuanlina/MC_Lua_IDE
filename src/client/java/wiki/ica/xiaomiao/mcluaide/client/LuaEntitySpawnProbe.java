@@ -57,6 +57,10 @@ final class LuaEntitySpawnProbe {
                         System.out.println("team aggression stage passed");
                         verifyFill(server, owner);
                         System.out.println("block fill stage passed");
+                        verifyMovingForward(server, owner);
+                        System.out.println("moving forward stage passed");
+                        verifyComponentPatch(server, owner);
+                        System.out.println("component patch stage passed");
                         verify(server, owner, false); verify(server, owner, true);
                         verifyAttachments(server, owner, false); verifyAttachments(server, owner, true);
 						verifyDroppedItems(server, owner, false); verifyDroppedItems(server, owner, true);
@@ -121,6 +125,58 @@ final class LuaEntitySpawnProbe {
                 print('spawn-uuid-ok')
                 """.formatted(owner);
         verifySource(server, owner, debug, source, "spawn-uuid-ok");
+    }
+
+    /** Calls the real MC.Item.setSlotComponents / MC.Entity.setEquipmentComponents bindings on a real player slot and a real zombie. */
+    private static void verifyComponentPatch(MinecraftServer server, UUID owner) throws Exception {
+        Class<?> type = Class.forName("wiki.ica.xiaomiao.mcluaide.server.MinecraftLuaInteractionApi");
+        Method itemFactory = type.getDeclaredMethod("itemApi", MinecraftServer.class), entityFactory = type.getDeclaredMethod("entityItemApi", MinecraftServer.class);
+        itemFactory.setAccessible(true); entityFactory.setAccessible(true);
+        var item = (org.luaj.vm2.LuaTable) itemFactory.invoke(null, server);
+        var entity = (org.luaj.vm2.LuaTable) entityFactory.invoke(null, server);
+        var player = org.luaj.vm2.LuaValue.valueOf(owner.toString());
+        server.submit(() -> server.getPlayerList().getPlayer(owner).getInventory().setItem(20,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND_SWORD, 1))).get(20, TimeUnit.SECONDS);
+        var name = new org.luaj.vm2.LuaTable(); name.set("minecraft:custom_name", "神剑");
+        var patched = item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(20), name);
+        if (!"minecraft:diamond_sword".equals(patched.get("id").tojstring()) || !patched.get("componentsJson").tojstring().contains("神剑"))
+            throw new AssertionError("setSlotComponents result: " + patched.get("componentsJson"));
+        String stored = server.submit(() -> server.getPlayerList().getPlayer(owner).getInventory().getItem(20).getHoverName().getString()).get(20, TimeUnit.SECONDS);
+        if (!stored.contains("神剑")) throw new AssertionError("inventory slot not changed: " + stored);
+        var remove = new org.luaj.vm2.LuaTable(); remove.set("!minecraft:custom_name", new org.luaj.vm2.LuaTable());
+        var removed = item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(20), remove);
+        if (removed.get("componentsJson").tojstring().contains("神剑")) throw new AssertionError("component not removed: " + removed.get("componentsJson"));
+        try { item.get("setSlotComponents").call(player, org.luaj.vm2.LuaValue.valueOf(21), name); throw new AssertionError("empty slot accepted"); }
+        catch (org.luaj.vm2.LuaError expected) { }
+        var zombie = new net.minecraft.world.entity.LivingEntity[1];
+        server.submit(() -> {
+            var level = server.overworld(); var p = server.getPlayerList().getPlayer(owner);
+            var z = net.minecraft.world.entity.EntityType.ZOMBIE.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+            z.setPos(p.getX(), p.getY() + 30, p.getZ()); z.setNoGravity(true); z.setNoAi(true);
+            z.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_SWORD, 1));
+            level.addFreshEntity(z); zombie[0] = z; return null;
+        }).get(20, TimeUnit.SECONDS);
+        try {
+            var result = entity.get("setEquipmentComponents").call(org.luaj.vm2.LuaValue.valueOf(zombie[0].getUUID().toString()), org.luaj.vm2.LuaValue.valueOf("mainhand"), name);
+            if (!"minecraft:iron_sword".equals(result.get("id").tojstring())) throw new AssertionError("entity item changed: " + result.get("id"));
+            String held = server.submit(() -> zombie[0].getMainHandItem().getHoverName().getString()).get(20, TimeUnit.SECONDS);
+            if (!held.contains("神剑")) throw new AssertionError("entity mainhand not changed: " + held);
+        } finally { server.submit(() -> { zombie[0].discard(); return null; }).get(20, TimeUnit.SECONDS); }
+    }
+
+    /** Calls the real MC.Player.movingForward binding for the joined player with the forward key reported up and down. */
+    private static void verifyMovingForward(MinecraftServer server, UUID owner) throws Exception {
+        Method factory = Class.forName("wiki.ica.xiaomiao.mcluaide.server.MinecraftLuaApi").getDeclaredMethod("playerApi", MinecraftServer.class);
+        factory.setAccessible(true);
+        var api = (org.luaj.vm2.LuaTable) factory.invoke(null, server);
+        var function = api.get("movingForward");
+        var uuid = org.luaj.vm2.LuaValue.valueOf(owner.toString());
+        for (boolean forward : new boolean[] {true, false}) {
+            server.submit(() -> server.getPlayerList().getPlayer(owner).setLastClientInput(
+                    new net.minecraft.world.entity.player.Input(forward, false, false, false, false, false, false))).get(20, TimeUnit.SECONDS);
+            boolean reported = function.call(uuid).toboolean();
+            if (reported != forward) throw new AssertionError("MC.Player.movingForward returned " + reported + " for forward=" + forward);
+        }
     }
 
     /** Runs the MC.Block.fill backend with keepExisting and dropItems on real blocks. */

@@ -8461,6 +8461,20 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 		}
 		hideMenus();
 	}
+	/**
+	 * Ctrl+Enter in an insertable window: inserts what it offers and returns true when the host can close it now. Windows that
+	 * validate first (datapack JSON) close themselves after the insertion; the component editor handles the key itself.
+	 */
+	boolean nativeInsertAndClose(String id) {
+		return switch (id) {
+			case "INSERT" -> insertOverlay.insertSelected();
+			case "TEXT_JSON" -> textJsonOverlay.insertNow();
+			case "MINECRAFT_UI" -> minecraftUiEditorOverlay.insertNow();
+			case "API_DOCS" -> apiDocsOverlay.insertSelectedTemplate();
+			case "DATAPACK_JSON_EDITOR" -> { datapackJsonEditorOverlay.insertAndClose(); yield false; }
+			default -> false;
+		};
+	}
 	void nativeCloseTool(String id) {
 		ToolWindow tool = ToolWindow.valueOf(id);
 		switch (tool.kind) {

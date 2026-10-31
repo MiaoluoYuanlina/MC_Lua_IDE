@@ -2,6 +2,24 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.13] - 2026-10-31
+
+### Added
+- `MC.Player.movingForward(uuid)`: true while the player holds the forward key (W), as the client last reported it.
+- `MC.Item.setSlotComponents(uuid, slot, components)` and `MC.Entity.setEquipmentComponents(uuid, equipmentSlot, components)`: change only the data components of the item already in a player inventory slot or an entity equipment slot (item and count stay; `["!minecraft:xxx"] = {}` removes a component). Reading components already existed (`MC.Item.getSlot`, `MC.Item.equipment`, `MC.Entity.equipment`).
+- Ctrl+Enter in an insertable window (Ctrl+I insert, text JSON, Minecraft UI, API documentation, color picker, data component editor, datapack JSON editor) inserts the current content and closes the window.
+
+### Changed
+- API documentation code boxes use the editor font and scroll sideways, so Chinese and Japanese text no longer garbles and long lines are no longer cut off.
+- Every installed CJK font now fills the glyphs the first one lacks, so Japanese kana and kanji render even when the first font is Chinese-only (this change was already in the working tree, not made by me).
+- Shorter descriptions for `MC.Player.carried`, `MC.Player.relativePosition` and `MC.Item.clearCooldown` in Chinese, English and Japanese.
+
+### Fixed
+- Insert window: Up/Down no longer shows two highlighted rows, and Enter no longer also opens a drop-down list.
+
+### Tested
+- `MC.Player.movingForward`, `MC.Item.setSlotComponents` and `MC.Entity.setEquipmentComponents` were run in a real game world. The window key handling and the new code box were built and run without errors but not checked by eye.
+
 ## [1.0.12] - 2026-10-31
 
 ### Added
@@ -165,6 +183,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.13]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.13
 [1.0.12]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.12
 [1.0.11]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.11
 [1.0.10]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.10

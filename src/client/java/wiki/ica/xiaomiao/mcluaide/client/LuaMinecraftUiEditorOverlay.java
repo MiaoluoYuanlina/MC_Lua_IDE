@@ -287,6 +287,8 @@ final class LuaMinecraftUiEditorOverlay {
 
 	void resize(int width, int height) { screenWidth = width; screenHeight = height; ensureGeometry(); }
 	void open() { open = true; keyboardFocused = true; }
+	/** Ctrl+Enter: true when the generated Lua was inserted. */
+	boolean insertNow() { String lua = generatedLuaFields(); if (lua == null) return false; insertion.accept(lua); return true; }
 	void close() { open = false; keyboardFocused = false; dragging = false; resizeEdges = 0; movingPart = false; sizingPart = false; editingInput = false; blurFields(); }
 	boolean isOpen() { return open; }
 	boolean isVisible() { return progress > 0.01F; }

@@ -7,6 +7,9 @@ final class LuaApiEnglish {
 	private LuaApiEnglish() {}
 	private static final Map<String, String> SUMMARIES = Map.ofEntries(
 		Map.entry("MC.apiVersion", "Return the MC Lua IDE mod version as a string, for example \"1.0.12\"."),
+		Map.entry("MC.Item.setSlotComponents", "Change only the data components of the item already in a player inventory slot; item and count stay, listed components are set, and \"!minecraft:xxx\" = {} removes one."),
+		Map.entry("MC.Entity.setEquipmentComponents", "Change only the data components of the item already in an entity equipment slot; item and count stay."),
+		Map.entry("MC.Player.movingForward", "Check whether a player is moving forward, that is, holding the forward key (W), as the client last reported it."),
 		Map.entry("MC.sleep", "Wait for the specified milliseconds in the current coroutine. Other callbacks and the server continue running. Stopping the script cancels pending waits."),
 		Map.entry("MC.Item.held", "Read the online player's main-hand item, including count and data components."),
 		Map.entry("MC.Item.count", "Count matching inventory items. Only supplied components are checked; custom_data supports recursive NBT subset matching."),
@@ -19,7 +22,7 @@ final class LuaApiEnglish {
 		Map.entry("MC.Item.isOnCooldown", "Return whether any matching inventory item is on its vanilla use cooldown. No matching item returns false. Shared cooldown groups still apply."),
 		Map.entry("MC.Item.startCooldown", "Start or restart the vanilla cooldown for matching inventory items. Omitted ticks use use_cooldown.seconds, or 20 ticks if absent. Zero clears the cooldown."),
 		Map.entry("MC.Item.setCooldown", "Replace the remaining vanilla cooldown with ticks, starting now. Zero clears it. This does not change the item component or future default durations."),
-		Map.entry("MC.Item.clearCooldown", "Immediately finish matching items' vanilla use cooldowns. Items sharing the cooldown group are affected together."),
+		Map.entry("MC.Item.clearCooldown", "Immediately finish a player's item cooldown."),
 		Map.entry("MC.Player.list", "List online server players with names and UUIDs."),
 		Map.entry("MC.Player.uuid", "Find an online player's UUID by name."),
 		Map.entry("MC.Player.online", "Check whether the specified player UUID is online."),
@@ -27,7 +30,8 @@ final class LuaApiEnglish {
 		Map.entry("MC.Player.facing", "Read the player's horizontal (yaw) and vertical (pitch) facing angles and the nearest compass direction."),
 		Map.entry("MC.Player.lookDirection", "Read the player's 3D view direction as a unit vector."),
 		Map.entry("MC.Player.lookingAt", "Read the exact (fractional) coordinates of the block surface under the player's crosshair, optionally with unlimited range."),
-		Map.entry("MC.Player.relativePosition", "Compute the coordinates a distance in front of, behind, left of or right of a player, using horizontal, vertical or both facing components."),
+		Map.entry("MC.Player.relativePosition", "Compute the coordinates at a given distance from a player."),
+		Map.entry("MC.Player.carried", "Read the item held on a player's cursor."),
 		Map.entry("MC.Player.teleport", "Teleport an online player. Omitted dimension keeps the player's current dimension."),
 		Map.entry("MC.Player.openChest", "Open a worldless vanilla chest UI with a title and item array. Use 1–6 rows. Read-only mode prevents transfers; use onContainerClicked for shops."),
 		Map.entry("MC.Player.openBlock", "Open the vanilla menu of an existing block. Vanilla distance and dimension checks still apply."),

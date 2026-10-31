@@ -18,7 +18,9 @@ final class LuaColorWindow implements McLuaIdeWindowApi.NativeContent {
         color.hexNumber=NativeUi.check("0xRRGGBB 数值",color.hexNumber);
         NativeUi.readOnly("##result",color.text(),45);
         NativeUi.action("插入",this::insert);imgui.ImGui.sameLine();NativeUi.action("复制",()->context.copyText(color.text()));
-        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter))insert();
+        if(imgui.ImGui.isWindowFocused(imgui.flag.ImGuiFocusedFlags.ChildWindows)&&imgui.ImGui.isKeyPressed(imgui.flag.ImGuiKey.Enter)) {
+            if(insert()&&imgui.ImGui.getIO().getKeyCtrl())context.close(); // Ctrl+Enter inserts and closes
+        }
         NativeUi.status(status);
     }
 	static final String ID = "mc_lua_ide:color_picker";
@@ -114,7 +116,11 @@ final class LuaColorWindow implements McLuaIdeWindowApi.NativeContent {
 			case INSERT -> insert(); default -> { }
 		}
 	}
-	private void insert() { status = insertion.apply(color) ? LuaUiText.text("已插入 ") + color.text() : LuaUiText.text("请先打开可编辑的文本文件"); }
+	private boolean insert() {
+		boolean inserted = insertion.apply(color);
+		status = inserted ? LuaUiText.text("已插入 ") + color.text() : LuaUiText.text("请先打开可编辑的文本文件");
+		return inserted;
+	}
 	@Override public boolean keyPressed(KeyEvent event) {
 		if (event.key() == InputConstants.KEY_TAB) {
 			var options = areas().stream().map(Area::focus).toList();
