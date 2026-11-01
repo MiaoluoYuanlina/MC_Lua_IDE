@@ -12,7 +12,7 @@ The IDE follows Minecraft's selected language. Chinese variants keep the Chinese
 
 Press **U** to open the IDE. Use **File → Lua Files** to create or open a script. Subfolders are supported; separate path components with `/`. Click files to open them in editor tabs. Right-click files and folders for creation, rename, deletion and local-folder actions where available.
 
-Use **Ctrl+S** to save. The toolbar has a dedicated Run/Stop button. **Ctrl+Enter** runs the current script; Stop unregisters script-owned listeners and cancels pending waits. Lua scripts run on the authoritative server, not as the local player. Player APIs normally need an explicit online player UUID.
+Use **Ctrl+S** to save. The toolbar has a dedicated Run/Stop button. The gear next to it chooses whether Run starts the current file or a specified Lua file, and Restart stops the running script and starts it again. **Ctrl+Enter** runs the current script; Stop unregisters script-owned listeners and cancels pending waits. Lua scripts run on the authoritative server, not as the local player. Player APIs normally need an explicit online player UUID.
 
 ```lua
 print("Hello from the server!")

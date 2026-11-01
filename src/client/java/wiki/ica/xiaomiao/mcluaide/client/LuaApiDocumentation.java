@@ -660,6 +660,8 @@ final class LuaApiDocumentation {
 				"direction 为 front、back、left、right；plane 为 horizontal（只按水平朝向 yaw）、vertical（只按垂直朝向 pitch，front／back 沿上下移动，不能用于 left／right）或 both（front／back 按完整视线方向，left／right 保持水平）。distance 为方块数，可为负数，绝对值不超过 100000；起点是玩家当前位置（脚部）。只做计算，不检查该位置是否已加载或可放置。"));
 		add(entries, "MC.Player.movingForward", "MC.Player.movingForward(uuid)", "检查玩家是否正按住前进键（W），以客户端最近上报为准", "布尔值；正在按住前进键返回 true，否则返回 false", "if MC.Player.movingForward(uuid) then\n    print(\"玩家正在向前走\")\nend", false);
 		add(entries, "MC.Player.input", "MC.Player.input(uuid, key?)", "检查玩家正按住的按键，以客户端最近上报为准；key 可选 forward、backward、left、right、jump、sneak、sprint", "指定 key 时返回布尔值；省略 key 时返回包含全部按键的表 {forward, backward, left, right, jump, sneak, sprint}", "if MC.Player.input(uuid, \"sneak\") then\n    print(\"玩家正在潜行\")\nend", false);
+		add(entries, "MC.Player.leftClick", "MC.Player.leftClick(uuid)", "检查玩家是否正按住鼠标左键；由玩家自己的客户端上报，对准空气也能检测，但该玩家必须安装本模组", "布尔值；按住左键返回 true，否则返回 false；玩家没有安装本模组时返回 nil, 原因", "if MC.Player.leftClick(uuid) then\n    print(\"玩家正按住左键\")\nend", false);
+		add(entries, "MC.Player.rightClick", "MC.Player.rightClick(uuid)", "检查玩家是否正按住鼠标右键；由玩家自己的客户端上报，对准空气也能检测，但该玩家必须安装本模组", "布尔值；按住右键返回 true，否则返回 false；玩家没有安装本模组时返回 nil, 原因", "if MC.Player.rightClick(uuid) then\n    print(\"玩家正按住右键\")\nend", false);
 		add(entries, "MC.Player.health","MC.Player.health(uuid)", "读取指定玩家生命值", "{current, max}", "local hp = MC.Player.health(uuid)", false);
 		add(entries, "MC.Player.gameMode", "MC.Player.gameMode(uuid)", "读取指定玩家游戏模式", "模式名称字符串", "print(MC.Player.gameMode(uuid))", false);
 		add(entries, "MC.Player.teleport", "MC.Player.teleport(uuid, x, y, z, dimension?)", "由服务端传送指定玩家", "是否成功", "MC.Player.teleport(uuid, 0, 80, 0)", false);

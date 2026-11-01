@@ -45,6 +45,7 @@ public final class LuaProtocol {
 		PayloadTypeRegistry.clientboundPlay().registerLarge(LuaMcpFileChanged.TYPE, LuaMcpFileChanged.CODEC, MAX_FILE_PACKET_BYTES);
 		PayloadTypeRegistry.serverboundPlay().register(
 				ClientResourcePackResponse.TYPE, ClientResourcePackResponse.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(MouseState.TYPE, MouseState.CODEC);
 	}
 
 	public static int requestTextLimit(int actionId) {
@@ -200,6 +201,15 @@ public final class LuaProtocol {
 			if (id < 0 || id >= values().length) throw new IllegalArgumentException("未知材质包操作：" + id);
 			return values()[id];
 		}
+	}
+
+	/** Sent by a client whenever its left or right mouse button changes, so scripts can read them with MC.Player.leftClick/rightClick. */
+	public record MouseState(boolean left, boolean right) implements CustomPacketPayload {
+		public static final Type<MouseState> TYPE = new Type<>(McLuaIdeMod.id("mouse_state"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, MouseState> CODEC = StreamCodec.of(
+				(buffer, payload) -> buffer.writeByte((payload.left ? 1 : 0) | (payload.right ? 2 : 0)),
+				buffer -> { int bits = buffer.readByte(); return new MouseState((bits & 1) != 0, (bits & 2) != 0); });
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
 	/** No script contents or IDs are pushed; clients re-fetch through permission-checked requests. */

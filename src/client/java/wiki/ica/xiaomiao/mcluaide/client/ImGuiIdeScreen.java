@@ -205,6 +205,12 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
     private final ImString apiFilter = new ImString(512), fileFilter = new ImString(256), idFilter = new ImString(256);
     private final ImString newPath = new ImString(512);
     private final ImBoolean phonetic = new ImBoolean(true), debugRun = new ImBoolean(true), autoLog = new ImBoolean(true);
+    // What the Run button runs: the open tab, or one chosen file. A restart waits for the stop to land before it starts again.
+    private final ImBoolean runSpecified = new ImBoolean(false);
+    private String runPath = "", runAfterOpen = "";
+    private boolean pendingRestart;
+    private ImGuiIdeDocument restartDocument;
+    private long restartDeadline, runAfterOpenDeadline;
     private final ImBoolean lockLayout = new ImBoolean(false);
     private final float[] fontSize = {17};
     private ImGuiIdeDocument current, selectTab, closeDocument;
@@ -258,6 +264,8 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         try { fontSize[0] = Math.clamp(Float.parseFloat(preferences.getProperty("font", "17")), 10, 80); } catch (NumberFormatException ignored) { }
         lockLayout.set(Boolean.parseBoolean(preferences.getProperty("locked", "false")));
         debugRun.set(Boolean.parseBoolean(preferences.getProperty("debug", "true")));
+        runSpecified.set(Boolean.parseBoolean(preferences.getProperty("runSpecified", "false")));
+        runPath = preferences.getProperty("runPath", "");
         try { interfacePercent.set(Math.clamp(Integer.parseInt(preferences.getProperty("scale", "100")), 10, 300)); } catch (NumberFormatException ignored) { }
         var saved = session.load();
         // Import only file metadata on the first launch. Sources always come from the authorized current server.
@@ -328,6 +336,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         ImGuiIdeRuntime.animateTheme();
         tools.beginFrame();
         WindowChrome.update(tools.controller.nativePersonalization().integratedTitleBar);
+        runPending();
         menuBar();
         int dock = ImGui.dockSpaceOverViewport(0, ImGui.getMainViewport(), lockLayout.get() && !tools.controller.nativeResizeLocked() ? ImGuiDockNodeFlags.NoResize : 0);
         if (resetLayout || !preferences.getProperty("workspace.version", "").equals("2") && frameCount == 0) {
@@ -466,6 +475,27 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         var draw = ImGui.getWindowDrawList();
         if (running) draw.addRectFilled(left, top, left + side, top + side, tint, 2);
         else draw.addTriangleFilled(left, top, left, top + side, left + side * 1.05f, top + side / 2, tint);
+        // Gear: which file Run runs. Restart: stop and start the same file again; only meaningful while something runs.
+        int gearTint = ImGui.colorConvertFloat4ToU32(.75f, .75f, .8f, 1f);
+        if (ImGui.menuItem("    ##run_settings")) pendingDialog = "run_target";
+        if (ImGui.isItemHovered()) ImGui.setTooltip(runSpecified.get() ? tr("运行设置：指定文件 ", "Run settings: specified file ") + (runPath.isEmpty() ? tr("（未选择）", "(none chosen)") : runPath) : tr("运行设置：运行当前文件", "Run settings: run the current file"));
+        float gearX = ImGui.getItemRectMinX() + ImGui.getItemRectSizeX() / 2, gearY = ImGui.getItemRectMinY() + ImGui.getItemRectSizeY() / 2, gearR = iconSize * .42f;
+        draw.addCircle(gearX, gearY, gearR * .62f, gearTint, 16, 1.6f);
+        for (int tooth = 0; tooth < 8; tooth++) {
+            float angle = tooth * (float) (Math.PI / 4), cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
+            draw.addLine(gearX + cos * gearR * .7f, gearY + sin * gearR * .7f, gearX + cos * gearR * 1.15f, gearY + sin * gearR * 1.15f, gearTint, 2f);
+        }
+        int restartTint = running ? ImGui.colorConvertFloat4ToU32(.95f, .75f, .35f, 1f) : ImGui.colorConvertFloat4ToU32(.5f, .5f, .5f, .6f);
+        ImGui.pushStyleColor(ImGuiCol.Text, restartTint);
+        if (ImGui.menuItem("      " + tr("重启", "Restart"), "", false, running)) restart();
+        ImGui.popStyleColor();
+        float arcX = ImGui.getItemRectMinX() + ImGui.getStyle().getFramePaddingX() + 2 + side / 2, arcY = ImGui.getItemRectMinY() + ImGui.getItemRectSizeY() / 2, arcR = side * .5f;
+        float end = (float) (Math.PI * 1.85), endX = arcX + arcR * (float) Math.cos(end), endY = arcY + arcR * (float) Math.sin(end);
+        draw.pathArcTo(arcX, arcY, arcR, (float) (Math.PI * .3), end, 16);
+        draw.pathStroke(restartTint, 0, 1.8f);
+        float tangentX = -(float) Math.sin(end), tangentY = (float) Math.cos(end), normalX = (float) Math.cos(end), normalY = (float) Math.sin(end);
+        draw.addTriangleFilled(endX + tangentX * side * .35f, endY + tangentY * side * .35f,
+                endX + normalX * side * .32f, endY + normalY * side * .32f, endX - normalX * side * .32f, endY - normalY * side * .32f, restartTint);
         ImGui.checkbox(tr("调试", "Debug"), debugRun);
         ImGui.sameLine();
         if (running) { float pulse = (float) (.5 + .5 * Math.sin(System.nanoTime() / 1.0e9 * 5)); ImGui.textColored(.4f, .85f, .55f, .35f + .65f * pulse, "●"); ImGui.sameLine(); }
@@ -634,14 +664,54 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         else openTool(TerminalPanel.ID);
     }
     private void toggleRun() {
-        if (tools != null) {
-            if (ScriptManager.activeExecution() != null) { ScriptManager.activeExecution().stop(); return; }
-            if (current != null) { tools.bind(current); tools.controller.nativeRun(debugRun.get()); show("logs"); }
+        if (ScriptManager.activeExecution() != null) { stopRun(); return; }
+        startRun(runTarget());
+    }
+    private void stopRun() {
+        var active = ScriptManager.activeExecution();
+        if (active == null) return;
+        if (tools != null) active.stop();
+        else receive(ScriptManager.stopServer(), stopped -> notice = tr("已请求停止", "Stop requested"));
+    }
+    /** The open tab the Run button would run, or the chosen file when that is open; {@code null} when it has to be opened first. */
+    private ImGuiIdeDocument runTarget() {
+        return runSpecified.get() ? documents.get(ImGuiIdeDocument.Kind.LUA.name() + ":" + runPath) : current;
+    }
+    /** Stops the running script and starts the same file again once the stop has landed. */
+    private void restart() {
+        var active = ScriptManager.activeExecution();
+        if (active == null) { startRun(runTarget()); return; }
+        var same = documents.get(ImGuiIdeDocument.Kind.LUA.name() + ":" + active.name());
+        restartDocument = same != null ? same : runTarget();
+        pendingRestart = true; restartDeadline = System.nanoTime() + 10_000_000_000L;
+        stopRun();
+    }
+    /** Called every frame: finishes a restart and runs a chosen file that had to be opened first. */
+    private void runPending() {
+        if (pendingRestart) {
+            if (ScriptManager.activeExecution() == null) { pendingRestart = false; startRun(restartDocument); }
+            else if (System.nanoTime() > restartDeadline) { pendingRestart = false; notice = tr("停止超时，未重新运行", "Stop timed out; not restarted"); }
+        }
+        if (!runAfterOpen.isEmpty()) {
+            var opened = documents.get(runAfterOpen);
+            if (opened != null) { runAfterOpen = ""; startRun(opened); }
+            else if (System.nanoTime() > runAfterOpenDeadline) { runAfterOpen = ""; notice = tr("无法打开要运行的文件：", "Could not open the file to run: ") + runPath; }
+        }
+    }
+    private void saveRunPreferences() {
+        preferences.setProperty("runSpecified", Boolean.toString(runSpecified.get())); preferences.setProperty("runPath", runPath);
+        LuaIdeSession.writeProperties(layoutFile.resolveSibling(layoutFile.getFileName() + ".properties"), preferences);
+    }
+    private void startRun(ImGuiIdeDocument doc) {
+        if (doc == null && runSpecified.get()) {
+            if (runPath.isEmpty()) { notice = tr("请先在运行设置（齿轮）中选择要运行的 Lua 文件", "Choose the Lua file to run in the run settings (gear) first"); return; }
+            runAfterOpen = ImGuiIdeDocument.Kind.LUA.name() + ":" + runPath; runAfterOpenDeadline = System.nanoTime() + 5_000_000_000L;
+            open(ImGuiIdeDocument.Kind.LUA, runPath, false);
             return;
         }
-        if (ScriptManager.activeExecution() != null) { receive(ScriptManager.stopServer(), stopped -> notice = tr("已请求停止", "Stop requested")); return; }
-        if (current == null) return;
-        var doc = current; doc.capture(); windows.get("logs").set(true);
+        if (doc == null) return;
+        if (tools != null) { tools.bind(doc); tools.controller.nativeRun(debugRun.get()); show("logs"); return; }
+        doc.capture(); windows.get("logs").set(true);
         try {
             ScriptManager.ScriptExecution execution;
             if (doc.kind == ImGuiIdeDocument.Kind.LUA) execution = debugRun.get()
@@ -732,6 +802,21 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
                 receive(task, ignored -> { refreshTrees(); if (file) open(kind, created, true); }); ImGui.closeCurrentPopup();
             }
             ImGui.sameLine(); if (ImGui.button(tr("取消", "Cancel"))) ImGui.closeCurrentPopup();
+            endModal();
+        }
+        if (modal("run_target")) {
+            ImGui.textWrapped(tr("选择点击“运行”（Ctrl+Enter / F5）时运行哪个 Lua 文件", "Choose which Lua file Run (Ctrl+Enter / F5) starts"));
+            if (ImGui.radioButton(tr("运行当前文件", "Run the current file"), !runSpecified.get())) runSpecified.set(false);
+            if (ImGui.radioButton(tr("运行指定文件", "Run a specified file"), runSpecified.get())) runSpecified.set(true);
+            ImGui.beginDisabled(!runSpecified.get());
+            ImGui.setNextItemWidth(360);
+            if (ImGui.beginCombo("##run_path", runPath.isEmpty() ? tr("选择文件…", "Choose a file…") : runPath)) {
+                for (var entry : trees.getOrDefault(ImGuiIdeDocument.Kind.LUA, List.of()))
+                    if (!entry.directory() && ImGui.selectable(entry.path(), entry.path().equals(runPath))) runPath = entry.path();
+                ImGui.endCombo();
+            }
+            ImGui.endDisabled();
+            if (ImGui.button(tr("完成", "Done"))) { saveRunPreferences(); ImGui.closeCurrentPopup(); }
             endModal();
         }
         if (modal("delete_file")) {
@@ -998,6 +1083,7 @@ public final class ImGuiIdeScreen extends Screen implements NativeUiScreen, Exte
         windows.forEach((key, value) -> preferences.setProperty(key, Boolean.toString(value.get())));
         preferences.setProperty("font", Float.toString(fontSize[0])); preferences.setProperty("locked", Boolean.toString(lockLayout.get()));
         preferences.setProperty("debug", Boolean.toString(debugRun.get())); preferences.setProperty("layout", "true");
+        preferences.setProperty("runSpecified", Boolean.toString(runSpecified.get())); preferences.setProperty("runPath", runPath);
         preferences.setProperty("scale", Integer.toString(interfacePercent.get())); preferences.setProperty("workspace.version", "2");
         if (tools != null) tools.persist();
         LuaIdeSession.writeProperties(layoutFile.resolveSibling(layoutFile.getFileName() + ".properties"), preferences);

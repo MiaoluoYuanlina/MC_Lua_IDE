@@ -11,6 +11,8 @@ final class LuaApiJapanese {
 		Map.entry("MC.Entity.setEquipmentComponents", "装備スロットの既存アイテムのコンポーネントだけを変更します（種類と個数はそのまま）。"),
 		Map.entry("MC.Player.movingForward", "プレイヤーが前進キー（W）を押しているかを、クライアントが最後に報告した入力で確認します。"),
 		Map.entry("MC.Player.input", "プレイヤーが押しているキーを、クライアントが最後に報告した入力で確認します。key は forward、backward、left、right、jump、sneak、sprint のいずれかで、省略すると全キーのテーブルを返します。"),
+		Map.entry("MC.Player.leftClick", "プレイヤーが左クリックを押し続けているかを確認します。プレイヤー自身のクライアントが報告するため何もない空中を向いていても検出できますが、そのプレイヤーにモッドが必要です。"),
+		Map.entry("MC.Player.rightClick", "プレイヤーが右クリックを押し続けているかを確認します。プレイヤー自身のクライアントが報告するため何もない空中を向いていても検出できますが、そのプレイヤーにモッドが必要です。"),
 		Map.entry("MC.sleep", "現在の処理を指定ミリ秒（0～3600000）待機させます。サーバーと他のコールバックは動作し続けます。"),
 		Map.entry("MC.Item.held", "プレイヤーのメインハンドのアイテムとコンポーネントを取得します。"),
 		Map.entry("MC.Item.count", "インベントリ内の一致するアイテムを数えます。指定したコンポーネントのみ検査し、custom_data は NBT の部分一致です。"),

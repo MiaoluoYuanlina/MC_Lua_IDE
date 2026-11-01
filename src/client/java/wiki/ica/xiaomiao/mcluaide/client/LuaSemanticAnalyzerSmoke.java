@@ -112,6 +112,7 @@ final class LuaSemanticAnalyzerSmoke {
 		valid("MC.Event.onItemUsed(function(event)\n    local value = event.itemComponents[\"minecraft:custom_data\"][\"new_type\"]\n    print(value)\nend)");
 		valid("MC.Item.setSlotComponents('00000000-0000-0000-0000-000000000000', 0, {[\"minecraft:custom_name\"] = \"x\"})");
 		valid("MC.Player.movingForward('00000000-0000-0000-0000-000000000000')");
+		valid("MC.Player.lookingAt('00000000-0000-0000-0000-000000000000', true)\nMC.Player.lookingAt('00000000-0000-0000-0000-000000000000', false)\nMC.Player.lookingAt('00000000-0000-0000-0000-000000000000')");
 		valid("MC.Team.aggressive('00000000-0000-0000-0000-000000000000', true)\nlocal state = MC.Team.aggressive('00000000-0000-0000-0000-000000000000')");
 		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', {\n    [\"minecraft:custom_name\"] = \"队伍\",\n})");
 		valid("MC.Entity.addData('00000000-0000-0000-0000-000000000000', '{Fuse:40s}')");

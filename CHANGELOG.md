@@ -2,6 +2,18 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.18] - 2026-11-01
+
+### Added
+- Toolbar: a gear button next to Run opens the run settings, where you choose whether Run (Ctrl+Enter / F5) starts the current file or a specified Lua file. A Restart button next to Stop stops the running script and starts the same file again once the stop has finished. Both are in the new ImGui IDE; the classic IDE is unchanged. The choice is remembered per world or server.
+- `MC.Player.leftClick(uuid)` and `MC.Player.rightClick(uuid)`: true while the player holds that mouse button, including when aiming at empty air. The player's own client reports the buttons, so the player needs the mod installed; for anyone else the call returns `nil, reason`.
+
+### Fixed
+- The code editor no longer reports `MC.Player.lookingAt(uuid, true)` as a type error ("expected string, got boolean"); the `infinite` argument is now checked as a boolean.
+
+### Tested
+- Build and smoke tests, including `lookingAt` with `true`, `false` and no second argument. The new toolbar buttons, `leftClick` and `rightClick` compile but were not run or looked at in a game: the build machine has no OpenGL driver.
+
 ## [1.0.17] - 2026-11-01
 
 ### Added

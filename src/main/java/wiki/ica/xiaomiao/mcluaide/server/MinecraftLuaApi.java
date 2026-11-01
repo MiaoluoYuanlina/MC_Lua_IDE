@@ -478,6 +478,9 @@ final class MinecraftLuaApi {
 			if (!INPUT_KEYS.contains(key)) throw new LuaError("未知按键 \"" + key + "\"，可用：" + String.join("、", INPUT_KEYS));
 			return LuaValue.valueOf(inputKey(input, key));
 		});
+		// The mouse buttons are only known to the player's own client, so they work on empty air too but need the mod installed there.
+		bind(api, "leftClick", args -> LuaValue.valueOf(mouseButtons(server, playerUuid(args, 1)).left()));
+		bind(api, "rightClick", args -> LuaValue.valueOf(mouseButtons(server, playerUuid(args, 1)).right()));
 		bind(api, "position", args -> {
 			UUID uuid = playerUuid(args, 1);
 			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));
@@ -863,6 +866,13 @@ final class MinecraftLuaApi {
 	}
 
 	/** Blocks a crosshair query reaches when "infinite" is requested; unloaded chunks still end the search. */
+	private static LuaMouseState.Buttons mouseButtons(MinecraftServer server, UUID uuid) {
+		onServer(server, current -> player(current, uuid));
+		LuaMouseState.Buttons buttons = LuaMouseState.get(uuid);
+		if (buttons == null) throw new LuaRecoverableError("该玩家的客户端没有上报鼠标按键（需要玩家安装本模组）");
+		return buttons;
+	}
+
 	private static final List<String> INPUT_KEYS = List.of("forward", "backward", "left", "right", "jump", "sneak", "sprint");
 
 	private static boolean inputKey(net.minecraft.world.entity.player.Input input, String key) {

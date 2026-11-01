@@ -69,7 +69,10 @@ public final class LuaServerNetworking {
 				context.server().execute(() -> handle(payload, context.server(), context.player())));
 		ServerPlayNetworking.registerGlobalReceiver(LuaProtocol.ClientResourcePackResponse.TYPE,
 				(payload, context) -> MinecraftLuaClientApi.receiveResourcePackResponse(context.player(), payload));
+		ServerPlayNetworking.registerGlobalReceiver(LuaProtocol.MouseState.TYPE, (payload, context) ->
+				LuaMouseState.report(context.player().getUUID(), payload.left(), payload.right()));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			LuaMouseState.disconnected(handler.getPlayer().getUUID());
 			ServerScriptManager.stopOwnedBy(handler.getPlayer().getUUID());
 			GitHubWorkspaceService.disconnected(handler.getPlayer().getUUID());
 			ServerTerminalService.closeAll(handler.getPlayer().getUUID());
@@ -83,6 +86,7 @@ public final class LuaServerNetworking {
 		ServerLifecycleEvents.SERVER_STOPPED.register(LuaServerMcpService::stopped);
 		ServerLifecycleEvents.SERVER_STOPPED.register(LuaServerPackService::stopped);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> LuaTeamAggression.clear());
+		ServerLifecycleEvents.SERVER_STOPPED.register(server -> LuaMouseState.clear());
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> GitHubWorkspaceService.stopped());
 		ServerLifecycleEvents.SERVER_STOPPING.register(ServerScriptManager::shutdownDebugger);
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> ServerTerminalService.shutdown());

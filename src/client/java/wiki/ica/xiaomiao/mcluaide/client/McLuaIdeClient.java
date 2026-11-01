@@ -63,6 +63,7 @@ public final class McLuaIdeClient implements ClientModInitializer {
 		HudElementRegistry.addLast(wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.id("debug_camera"), LuaDebuggerCamera::render);
 		HudElementRegistry.addLast(wiki.ica.xiaomiao.mcluaide.McLuaIdeMod.id("debug_logs"), LuaLogHud::render);
 		ClientTickEvents.START_CLIENT_TICK.register(LuaDebuggerCamera::tick);
+		MouseStateReporter.register();
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			if (Boolean.getBoolean("mc_lua_ide.imGuiProbe")) ImGuiIdeProbe.tick(client);
