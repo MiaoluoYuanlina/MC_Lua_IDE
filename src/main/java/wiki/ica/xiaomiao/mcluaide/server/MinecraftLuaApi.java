@@ -31,6 +31,7 @@ import org.luaj.vm2.lib.VarArgFunction;
 import wiki.ica.xiaomiao.mcluaide.api.McLuaIdeApi;
 import wiki.ica.xiaomiao.mcluaide.network.LuaLimits;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -464,6 +465,19 @@ final class MinecraftLuaApi {
 			boolean forward = onServer(server, current -> player(current, uuid).getLastClientInput().forward());
 			return LuaValue.valueOf(forward);
 		});
+		// Every movement key as the client last reported it; with a key name it returns just that boolean.
+		bind(api, "input", args -> {
+			UUID uuid = playerUuid(args, 1);
+			String key = args.isnoneornil(2) ? null : args.checkjstring(2).toLowerCase(Locale.ROOT);
+			net.minecraft.world.entity.player.Input input = onServer(server, current -> player(current, uuid).getLastClientInput());
+			if (key == null) {
+				LuaTable result = new LuaTable();
+				for (String name : INPUT_KEYS) result.set(name, LuaValue.valueOf(inputKey(input, name)));
+				return result;
+			}
+			if (!INPUT_KEYS.contains(key)) throw new LuaError("未知按键 \"" + key + "\"，可用：" + String.join("、", INPUT_KEYS));
+			return LuaValue.valueOf(inputKey(input, key));
+		});
 		bind(api, "position", args -> {
 			UUID uuid = playerUuid(args, 1);
 			PlayerSnapshot snapshot = onServer(server, current -> snapshot(player(current, uuid)));
@@ -849,6 +863,20 @@ final class MinecraftLuaApi {
 	}
 
 	/** Blocks a crosshair query reaches when "infinite" is requested; unloaded chunks still end the search. */
+	private static final List<String> INPUT_KEYS = List.of("forward", "backward", "left", "right", "jump", "sneak", "sprint");
+
+	private static boolean inputKey(net.minecraft.world.entity.player.Input input, String key) {
+		return switch (key) {
+			case "forward" -> input.forward();
+			case "backward" -> input.backward();
+			case "left" -> input.left();
+			case "right" -> input.right();
+			case "jump" -> input.jump();
+			case "sneak" -> input.shift();
+			default -> input.sprint();
+		};
+	}
+
 	private static final double MAX_LOOK_RANGE = 1024;
 
 	private record PlayerSnapshot(double x, double y, double z, float yaw, float pitch,

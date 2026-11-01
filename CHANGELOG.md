@@ -2,6 +2,14 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.17] - 2026-11-01
+
+### Added
+- `MC.Player.input(uuid, key?)`: reads the keys a player is holding, as the client last reported them. `key` is one of `forward`, `backward`, `left`, `right`, `jump`, `sneak`, `sprint` and returns a boolean; without `key` it returns a table of all seven. `MC.Player.movingForward` is unchanged.
+
+### Tested
+- Build and smoke tests. Not tested in a live game.
+
 ## [1.0.16] - 2026-11-01
 
 ### Changed

@@ -10,6 +10,7 @@ final class LuaApiEnglish {
 		Map.entry("MC.Item.setSlotComponents", "Change only the components of the item in a player inventory slot; item and count stay. Use !minecraft:xxx = {} to remove one."),
 		Map.entry("MC.Entity.setEquipmentComponents", "Change only the components of the item in an equipment slot; item and count stay."),
 		Map.entry("MC.Player.movingForward", "Check whether a player is holding the forward key (W), as last reported by the client."),
+		Map.entry("MC.Player.input", "Check which keys a player is holding, as last reported by the client. key is one of forward, backward, left, right, jump, sneak, sprint; omit it to get a table of all of them."),
 		Map.entry("MC.sleep", "Pause the current flow for the given milliseconds (0–3600000). The server and other callbacks keep running."),
 		Map.entry("MC.Item.held", "Read a player's main-hand item and its components."),
 		Map.entry("MC.Item.count", "Count matching inventory items. Only supplied components are checked; custom_data matches as an NBT subset."),
