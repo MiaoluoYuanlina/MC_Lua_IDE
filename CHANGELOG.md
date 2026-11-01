@@ -2,6 +2,14 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.16] - 2026-11-01
+
+### Changed
+- An unknown or badly formed ID (block, item, entity type, dimension, registry, event name, game mode, equipment slot, config field name) or a badly formed UUID passed to an `MC.*` function no longer stops the script. It shows a yellow ⚠ warning, skips only that call, which returns `nil, reason`, and the script keeps running. Unknown IDs inside block and entity config tables are handled the same way. Wrong argument types, out-of-range values and invalid component values are still script errors.
+
+### Tested
+- Build smoke tests, including a check that an unknown item ID becomes a recoverable warning while a bad item count stays an error. Not tested in a live game.
+
 ## [1.0.15] - 2026-11-01
 
 ### Added
@@ -200,6 +208,7 @@ First public release, for Minecraft 26.1.2 (Fabric Loader 0.19.3+, Fabric API 0.
 - Debugger messages from the server (pause reasons, evaluation errors) are in Chinese.
 - Script snapshots cover the Lua scripts folder only, not datapacks.
 
+[1.0.16]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.16
 [1.0.15]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.15
 [1.0.14]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.14
 [1.0.13]: https://github.com/MiaoluoYuanlina/MC_Lua_IDE/releases/tag/v1.0.13

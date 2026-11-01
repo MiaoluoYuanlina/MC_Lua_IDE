@@ -14,7 +14,7 @@ final class LuaInventoryTrade {
             @Override public Varargs invoke(Varargs args) {
                 UUID uuid;
                 try { uuid = UUID.fromString(args.checkjstring(1)); }
-                catch (IllegalArgumentException error) { throw new LuaError("无效玩家 UUID"); }
+                catch (IllegalArgumentException error) { throw new LuaRecoverableError("无效玩家 UUID"); }
                 return MinecraftLuaInteractionApi.onServer(server, current -> {
                     var player = MinecraftLuaInteractionApi.player(current, uuid);
                     LuaPlayerMenuApi.expected(player, args.arg(4));

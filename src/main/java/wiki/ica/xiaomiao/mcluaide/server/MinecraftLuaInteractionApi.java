@@ -517,7 +517,7 @@ final class MinecraftLuaInteractionApi {
 		for (EquipmentSlot slot : EquipmentSlot.values()) {
 			if (slot.getName().equals(normalized) || slot.getSerializedName().equals(normalized)) return slot;
 		}
-		throw new LuaError("未知装备槽位：" + name + "；可用 mainhand/offhand/feet/legs/chest/head/body/saddle");
+		throw new LuaRecoverableError("未知装备槽位：" + name + "；可用 mainhand/offhand/feet/legs/chest/head/body/saddle");
 	}
 
 	private static <T extends Varargs> T withContainer(MinecraftServer server, Varargs args,
@@ -546,7 +546,7 @@ final class MinecraftLuaInteractionApi {
 	private static Identifier id(Varargs args, int index) {
 		String raw = args.checkjstring(index);
 		Identifier parsed = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-		if (parsed == null) throw new LuaError("无效资源 ID：" + raw);
+		if (parsed == null) throw new LuaRecoverableError("无效资源 ID：" + raw);
 		return parsed;
 	}
 
@@ -554,7 +554,7 @@ final class MinecraftLuaInteractionApi {
 		try {
 			return UUID.fromString(args.checkjstring(index));
 		} catch (IllegalArgumentException error) {
-			throw new LuaError("无效玩家 UUID：" + args.arg(index).tojstring());
+			throw new LuaRecoverableError("无效玩家 UUID：" + args.arg(index).tojstring());
 		}
 	}
 
@@ -568,7 +568,7 @@ final class MinecraftLuaInteractionApi {
 		try {
 			return UUID.fromString(raw);
 		} catch (IllegalArgumentException error) {
-			throw new LuaError("无效" + label + "：" + raw);
+			throw new LuaRecoverableError("无效" + label + "：" + raw);
 		}
 	}
 
@@ -586,7 +586,7 @@ final class MinecraftLuaInteractionApi {
 		for (ServerLevel level : server.getAllLevels()) {
 			if (level.dimension().identifier().equals(dimension)) return level;
 		}
-		throw new LuaError("维度不存在或未加载：" + dimension);
+		throw new LuaRecoverableError("维度不存在或未加载：" + dimension);
 	}
 
 	private static void ensurePosition(ServerLevel level, BlockPos pos) {

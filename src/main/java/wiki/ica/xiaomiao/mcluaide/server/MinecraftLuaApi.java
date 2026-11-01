@@ -265,7 +265,7 @@ final class MinecraftLuaApi {
 			boolean changed = onServer(server, current -> {
 				ServerLevel level = level(current, dimension);
 				Block block = BuiltInRegistries.BLOCK.getOptional(id)
-						.orElseThrow(() -> new IllegalArgumentException("未知方块：" + id));
+						.orElseThrow(() -> new LuaRecoverableError("未知方块：" + id));
 				ensureUsablePosition(level, pos);
 				LuaValue config = args.arg(6);
 				if (config.isstring()) config = LuaItemStackCodec.jsonObjectToLua(config.checkjstring());
@@ -273,7 +273,7 @@ final class MinecraftLuaApi {
 						|| !config.get("blockEntityData").isnil() || !config.get("itemComponents").isnil());
 				BlockState state = block.defaultBlockState();
 				if (blockConfig) {
-				LuaComponentEditorCatalog.validate(current, "block\n" + id,
+				LuaComponentEditorCatalog.validateForLua(current, "block\n" + id,
 						LuaItemStackCodec.objectToJson(config).toString());
 					LuaValue states = config.get("states");
 					if (!states.isnil()) {
@@ -288,7 +288,7 @@ final class MinecraftLuaApi {
 					for (LuaValue key : config.checktable().keys()) {
 						String field = key.checkjstring();
 						if (!field.equals("states") && !field.equals("blockEntityData") && !field.equals("itemComponents"))
-							throw new LuaError("未知方块配置字段：" + field);
+							throw new LuaRecoverableError("未知方块配置字段：" + field);
 					}
 				}
 				ItemStack blockStack = ItemStack.EMPTY;
@@ -587,7 +587,7 @@ final class MinecraftLuaApi {
 				case "creative" -> GameType.CREATIVE;
 				case "adventure" -> GameType.ADVENTURE;
 				case "spectator" -> GameType.SPECTATOR;
-				default -> throw new LuaError("未知游戏模式：" + name);
+				default -> throw new LuaRecoverableError("未知游戏模式：" + name);
 			};
 			boolean changed = onServer(server, current -> player(current, uuid).setGameMode(mode));
 			return LuaValue.valueOf(changed);
@@ -757,7 +757,7 @@ final class MinecraftLuaApi {
 		try {
 			return UUID.fromString(raw);
 		} catch (IllegalArgumentException error) {
-			throw new LuaError("无效玩家 UUID：" + raw);
+			throw new LuaRecoverableError("无效玩家 UUID：" + raw);
 		}
 	}
 
@@ -771,7 +771,7 @@ final class MinecraftLuaApi {
 		for (ServerLevel level : server.getAllLevels()) {
 			if (level.dimension().identifier().equals(dimension)) return level;
 		}
-		throw new IllegalArgumentException("维度不存在或未加载：" + dimension);
+		throw new LuaRecoverableError("维度不存在或未加载：" + dimension);
 	}
 
 	private static Identifier optionalDimension(LuaValue value) {
@@ -780,7 +780,7 @@ final class MinecraftLuaApi {
 
 	private static Identifier identifier(String raw) {
 		Identifier id = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-		if (id == null) throw new LuaError("无效资源 ID：" + raw);
+		if (id == null) throw new LuaRecoverableError("无效资源 ID：" + raw);
 		return id;
 	}
 

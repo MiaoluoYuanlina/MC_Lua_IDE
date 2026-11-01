@@ -45,7 +45,7 @@ final class LuaItemStackCodec {
 			LuaValue componentsValue, int maximumCount) {
 		Identifier id = identifier(itemIdValue.checkjstring());
 		Item item = BuiltInRegistries.ITEM.getOptional(id)
-				.orElseThrow(() -> new LuaError("未知物品：" + id));
+				.orElseThrow(() -> new LuaRecoverableError("未知物品：" + id));
 		int count = countValue.isnil() ? 1 : countValue.checkint();
 		if (count < 1 || count > maximumCount) {
 			throw new LuaError("物品数量必须在 1 到 " + maximumCount + " 之间");
@@ -120,7 +120,7 @@ final class LuaItemStackCodec {
 	}
 	static ItemFilter filter(HolderLookup.Provider registries, LuaValue itemId, LuaValue components) {
 		Identifier id = identifier(itemId.checkjstring());
-		Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
+		Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaRecoverableError("未知物品：" + id));
 		return new ItemFilter(item, decodePatch(registries, components));
 	}
 
@@ -313,7 +313,7 @@ final class LuaItemStackCodec {
 
 	private static Identifier identifier(String raw) {
 		Identifier id = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-		if (id == null) throw new LuaError("无效资源 ID：" + raw);
+		if (id == null) throw new LuaRecoverableError("无效资源 ID：" + raw);
 		return id;
 	}
 

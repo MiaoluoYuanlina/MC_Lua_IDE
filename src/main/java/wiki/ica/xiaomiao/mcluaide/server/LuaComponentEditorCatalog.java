@@ -213,6 +213,16 @@ final class LuaComponentEditorCatalog {
 		return property.getPossibleValues().stream().map(property::getName).toList();
 	}
 
+	/** Lua-facing validation: an unknown or invalid ID only skips the call with a warning; other problems stay script errors. */
+	static void validateForLua(MinecraftServer server, String target, String rawPatch) {
+		try { validate(server, target, rawPatch); }
+		catch (IllegalArgumentException error) {
+			String message = String.valueOf(error.getMessage());
+			if (message.startsWith("未知") || message.startsWith("无效资源 ID") || message.startsWith("无效维度 ID")) throw new LuaRecoverableError(message);
+			throw error;
+		}
+	}
+
 	static String validate(MinecraftServer server, String rawItemId, String rawPatch) {
 		int split = rawItemId == null ? -1 : rawItemId.indexOf('\n');
 		String kind = split < 0 ? "item" : rawItemId.substring(0, split).strip();

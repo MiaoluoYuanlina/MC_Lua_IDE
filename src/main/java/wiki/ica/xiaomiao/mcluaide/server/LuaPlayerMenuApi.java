@@ -80,7 +80,7 @@ final class LuaPlayerMenuApi {
 
     private static UUID uuid(Varargs args) {
         String raw = args.checkjstring(1);
-        try { return UUID.fromString(raw); } catch (IllegalArgumentException error) { throw new LuaError("无效玩家 UUID：" + raw); }
+        try { return UUID.fromString(raw); } catch (IllegalArgumentException error) { throw new LuaRecoverableError("无效玩家 UUID：" + raw); }
     }
     static AbstractContainerMenu expected(ServerPlayer player, LuaValue expected) {
         if (!expected.isnil() && player.containerMenu.containerId != expected.checkint())

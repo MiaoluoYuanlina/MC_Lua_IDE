@@ -18,20 +18,20 @@ final class LuaLocalizedNames {
                 @Override public Varargs invoke(Varargs args) {
                     String raw = args.checkjstring(1);
                     Identifier id = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-                    if (id == null) throw new LuaError("无效资源 ID：" + raw);
+                    if (id == null) throw new LuaRecoverableError("无效资源 ID：" + raw);
                     String locale = args.arg(2).isnil() ? null : LuaLanguageAssets.normalize(args.checkjstring(2));
                     Component description = MinecraftLuaInteractionApi.onServer(server, current -> switch (kind) {
                         case "Item" -> {
-                            var item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
+                            var item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaRecoverableError("未知物品：" + id));
                             yield item.getName(item.getDefaultInstance()).copy();
                         }
                         case "Block" -> Component.translatable(BuiltInRegistries.BLOCK.getOptional(id)
-                                .orElseThrow(() -> new LuaError("未知方块：" + id)).getDescriptionId());
+                                .orElseThrow(() -> new LuaRecoverableError("未知方块：" + id)).getDescriptionId());
                         case "Entity" -> BuiltInRegistries.ENTITY_TYPE.getOptional(id)
-                                .orElseThrow(() -> new LuaError("未知实体类型：" + id)).getDescription().copy();
+                                .orElseThrow(() -> new LuaRecoverableError("未知实体类型：" + id)).getDescription().copy();
                         default -> current.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
                                 .get(ResourceKey.create(Registries.ENCHANTMENT,id))
-                                .orElseThrow(() -> new LuaError("未知附魔：" + id)).value().description().copy();
+                                .orElseThrow(() -> new LuaRecoverableError("未知附魔：" + id)).value().description().copy();
                     });
                     if (locale == null) return LuaValue.valueOf(description.getString()); // Preserve existing Item/Block name(id).
                     if (LuaNameTranslation.isLiteral(description)) return LuaValue.varargsOf(new LuaValue[]{LuaValue.valueOf(description.getString()),LuaValue.valueOf("literal")});

@@ -627,7 +627,7 @@ public final class ServerScriptManager {
 			if (eventName.equals("interval")) return registerInterval(interval, callback);
 			if (!limits.allowEvents()) throw new LuaError("服务器已禁止 Lua 注册游戏事件");
 			if (!EVENT_NAME_SET.contains(eventName)) {
-				throw new LuaError("未知事件：" + eventName + "；可使用 MC.Event.names() 查看全部事件");
+				throw new LuaRecoverableError("未知事件：" + eventName + "；可使用 MC.Event.names() 查看全部事件");
 			}
 			if (interval < 1 || interval > 72_000) {
 				throw new LuaError("事件间隔必须在 1 到 72000 tick 之间");

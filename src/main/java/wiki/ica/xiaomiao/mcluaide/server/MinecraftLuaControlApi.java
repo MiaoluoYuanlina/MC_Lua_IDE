@@ -98,7 +98,7 @@ final class MinecraftLuaControlApi {
 		bind(api, "name", args -> {
 			Identifier id = id(args, 1);
 			var block = BuiltInRegistries.BLOCK.getOptional(id)
-					.orElseThrow(() -> new LuaError("未知方块：" + id));
+					.orElseThrow(() -> new LuaRecoverableError("未知方块：" + id));
 			return LuaValue.valueOf(Component.translatable(block.getDescriptionId()).getString());
 		});
 		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.BLOCK));
@@ -115,12 +115,12 @@ final class MinecraftLuaControlApi {
 		bind(api, "exists", args -> LuaValue.valueOf(BuiltInRegistries.ITEM.containsKey(id(args, 1))));
 		bind(api, "name", args -> {
 			Identifier id = id(args, 1);
-			Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
+			Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaRecoverableError("未知物品：" + id));
 			return LuaValue.valueOf(item.getName(item.getDefaultInstance()).getString());
 		});
 		bind(api, "maxStack", args -> {
 			Identifier id = id(args, 1);
-			Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaError("未知物品：" + id));
+			Item item = BuiltInRegistries.ITEM.getOptional(id).orElseThrow(() -> new LuaRecoverableError("未知物品：" + id));
 			return LuaValue.valueOf(item.getDefaultMaxStackSize());
 		});
 		bind(api, "random", args -> randomRegistryId(BuiltInRegistries.ITEM));
@@ -283,7 +283,7 @@ final class MinecraftLuaControlApi {
 			return onServer(server, current -> {
 				ServerLevel level = level(current, dimension);
 				EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(entityId)
-						.orElseThrow(() -> new LuaError("未知实体：" + entityId));
+						.orElseThrow(() -> new LuaRecoverableError("未知实体：" + entityId));
 				Entity entity = type.create(level, EntitySpawnReason.COMMAND);
 				if (entity == null) throw new LuaError("该实体类型不能由脚本生成：" + entityId);
 				entity.setPos(x, y, z);
@@ -625,7 +625,7 @@ final class MinecraftLuaControlApi {
 	private static LuaTable recipeQuery(MinecraftServer server, Identifier itemId) {
 		return onServer(server, current -> {
 			Item item = BuiltInRegistries.ITEM.getOptional(itemId)
-					.orElseThrow(() -> new LuaError("未知物品 ID：" + itemId));
+					.orElseThrow(() -> new LuaRecoverableError("未知物品 ID：" + itemId));
 			var displayContext = SlotDisplayContext.fromLevel(current.overworld());
 			LuaTable results = new LuaTable();
 			int index = 1;
@@ -706,9 +706,9 @@ final class MinecraftLuaControlApi {
 					continue;
 				}
 				Identifier itemId = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-				if (itemId == null) throw new LuaError("第 " + slot + " 格的物品 ID 无效：" + raw);
+				if (itemId == null) throw new LuaRecoverableError("第 " + slot + " 格的物品 ID 无效：" + raw);
 				Item item = BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
-				if (item == null) throw new LuaError("第 " + slot + " 格的物品 ID 不存在：" + raw);
+				if (item == null) throw new LuaRecoverableError("第 " + slot + " 格的物品 ID 不存在：" + raw);
 				slots.add(new ItemStack(item));
 			}
 			CraftingInput input = CraftingInput.of(3, 3, slots);
@@ -880,9 +880,9 @@ final class MinecraftLuaControlApi {
 		return onServerBulk(server, current -> {
 			ServerLevel level = level(current, dimension);
 			var toBlock = BuiltInRegistries.BLOCK.getOptional(toId)
-					.orElseThrow(() -> new LuaError("未知方块：" + toId));
+					.orElseThrow(() -> new LuaRecoverableError("未知方块：" + toId));
 			var fromBlock = replaceOnly ? BuiltInRegistries.BLOCK.getOptional(fromId)
-					.orElseThrow(() -> new LuaError("未知方块：" + fromId)) : null;
+					.orElseThrow(() -> new LuaRecoverableError("未知方块：" + fromId)) : null;
 			int minX=Math.min(x1,x2), minY=Math.min(y1,y2), minZ=Math.min(z1,z2);
 			int maxX=Math.max(x1,x2), maxY=Math.max(y1,y2), maxZ=Math.max(z1,z2);
 			validateBlockBox(level,minX,minY,minZ,maxX,maxY,maxZ,"填充");
@@ -972,7 +972,7 @@ final class MinecraftLuaControlApi {
 				? LuaItemStackCodec.objectToJson(components).toString()
 				: components.checkjstring();
 		Identifier entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
-		LuaComponentEditorCatalog.validate(server, "entity\n" + entityId, rawConfig);
+		LuaComponentEditorCatalog.validateForLua(server, "entity\n" + entityId, rawConfig);
 		if (components.isstring()) components = LuaItemStackCodec.jsonObjectToLua(rawConfig);
 		LuaValue patchValue = components;
 		if (components.istable()) {
@@ -983,7 +983,7 @@ final class MinecraftLuaControlApi {
 				if (name.indexOf(':') > 0) patchTable.set(name, components.get(key));
 				else if (!Set.of("health", "equipment", "glowing", "invulnerable", "noGravity").contains(name)
 						&& !LuaDisplayEntityConfig.supports(entity, name) && !LuaItemEntityConfig.supports(entity, name) && !LuaEntityNbtConfig.supports(server, entity, name))
-					throw new LuaError("未知实体配置字段：" + name);
+					throw new LuaRecoverableError("未知实体配置字段：" + name);
 			}
 			patchValue = patchTable;
 		}
@@ -1010,7 +1010,7 @@ final class MinecraftLuaControlApi {
 			for (LuaValue slotKey : equipment.checktable().keys()) {
 				String slotName = slotKey.checkjstring();
 				if (!Set.of("mainhand", "offhand", "head", "chest", "legs", "feet", "body", "saddle").contains(slotName))
-					throw new LuaError("未知装备槽位：" + slotName);
+					throw new LuaRecoverableError("未知装备槽位：" + slotName);
 				LuaValue stack = equipment.get(slotKey);
 				if (!stack.istable()) throw new LuaError("装备 " + slotName + " 必须是物品堆表");
 				ItemStack item = LuaItemStackCodec.create(server, stack.get("id"), stack.get("count"),
@@ -1163,7 +1163,7 @@ final class MinecraftLuaControlApi {
 			case "blockentities", "blockentity" -> BuiltInRegistries.BLOCK_ENTITY_TYPE;
 			case "attributes", "attribute" -> BuiltInRegistries.ATTRIBUTE;
 			case "datacomponents", "datacomponent", "components", "component" -> BuiltInRegistries.DATA_COMPONENT_TYPE;
-			default -> throw new LuaError("未知注册表：" + kind + "；可使用 MC.Registry.kinds() 查看类型");
+			default -> throw new LuaRecoverableError("未知注册表：" + kind + "；可使用 MC.Registry.kinds() 查看类型");
 		};
 	}
 
@@ -1203,7 +1203,7 @@ final class MinecraftLuaControlApi {
 	private static Identifier id(Varargs args, int index) {
 		String raw = args.checkjstring(index);
 		Identifier id = Identifier.tryParse(raw.contains(":") ? raw : "minecraft:" + raw);
-		if (id == null) throw new LuaError("无效资源 ID：" + raw);
+		if (id == null) throw new LuaRecoverableError("无效资源 ID：" + raw);
 		return id;
 	}
 
@@ -1224,7 +1224,7 @@ final class MinecraftLuaControlApi {
 		try {
 			return UUID.fromString(raw);
 		} catch (IllegalArgumentException error) {
-			throw new LuaError("无效" + label + "：" + raw);
+			throw new LuaRecoverableError("无效" + label + "：" + raw);
 		}
 	}
 
@@ -1238,7 +1238,7 @@ final class MinecraftLuaControlApi {
 		for (ServerLevel level : server.getAllLevels()) {
 			if (level.dimension().identifier().equals(dimension)) return level;
 		}
-		throw new LuaError("维度不存在或未加载：" + dimension);
+		throw new LuaRecoverableError("维度不存在或未加载：" + dimension);
 	}
 
 	private static String cleanText(String text) {

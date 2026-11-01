@@ -49,6 +49,12 @@ public final class LuaItemStackCodecSmoke {
 		dataComponents.set("minecraft:custom_data", customData);
 		LuaValue read = LuaItemStackCodec.normalizeComponents(registries, dataComponents).get("components").get("minecraft:custom_data").get("new_type");
 		if (!"abc".equals(read.tojstring())) throw new AssertionError("components[custom_data][new_type] 读取失败：" + read);
+		// An unknown ID only skips the call with a yellow warning; a bad count is still a script error.
+		try { LuaItemStackCodec.filter(registries, LuaValue.valueOf("minecraft:no_such_item"), LuaValue.NIL); throw new AssertionError("未知物品未报错"); }
+		catch (LuaRecoverableError expected) { if (!expected.getMessage().contains("no_such_item")) throw expected; }
+		try { LuaItemStackCodec.create(registries, LuaValue.valueOf("minecraft:apple"), LuaValue.valueOf(0), LuaValue.NIL, 64); throw new AssertionError("数量 0 未报错"); }
+		catch (LuaRecoverableError wrong) { throw new AssertionError("数量错误不应变成警告"); }
+		catch (org.luaj.vm2.LuaError expected) { }
 		System.out.println("Item component codec smoke test passed: " + json);
 	}
 }
