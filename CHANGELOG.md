@@ -2,6 +2,15 @@
 
 All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- MCP world tools: both MCP servers now offer the tools of [minecraft-java-fabric-mcp-server](https://github.com/chapmanjw/minecraft-java-fabric-mcp-server) (MIT), with the same names and arguments: 189 on Minecraft 26.1.2 (server, level, blocks, entities, players, inventories, commands, scoreboard, data storage, structures, datapacks, loot, recipes, tags, advancements, boss bars, world border, events and more). The client MCP also offers its client inspection tools (`view_capture`, `client_status`, `sense_*`). They use this mod's token and owner checks: read tools need no switch, tools that change the game need the execute switch, and tools that write or delete structure files need the write-file switch. No existing MC Lua IDE tool did exactly the same thing, so none was removed.
+- MCP tool `lua_runtime_logs`: the recent output of every Lua script on the server (started from the IDE, a command or MCP), up to 1000 lines, read incrementally with `since`.
+
+### Fixed
+- With the default server limits (package / require off), every Lua script failed before its first line with `attempt to index ? (a nil value)`. The Lua standard libraries now always load; `package` and `require` stay hidden from scripts unless the limit allows them.
+
 ## [1.0.18] - 2026-11-01
 
 ### Added

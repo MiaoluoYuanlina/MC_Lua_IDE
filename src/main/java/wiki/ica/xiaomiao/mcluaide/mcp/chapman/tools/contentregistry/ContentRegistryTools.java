@@ -1,0 +1,246 @@
+package wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.contentregistry;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.adapter.dto.CompostableInfo;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.adapter.dto.FlammableBlockInfo;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.Schemas;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.ToolContext;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.ToolResult;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.BaseTool;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.annotations.McpTool;
+
+/**
+ * Fabric content-registry wrappers: fuel burn time, flammable-block parameters,
+ * and composter level-up chance.
+ *
+ * <p>Reads always succeed against the running registry data; runtime mutation is
+ * supported for flammable and compostable entries — fuel values are immutable at
+ * runtime because Fabric only exposes them via build-time events.
+ */
+public final class ContentRegistryTools {
+
+    private ContentRegistryTools() {}
+
+    @McpTool(
+            name = "content_registry_get_fuel",
+            description =
+                    "Returns how an item behaves as fuel: burn_time_ticks in a regular furnace and"
+                            + " burn_time_ticks_fast in a blast furnace or smoker (0 = not fuel),"
+                            + " speed_multiplier (cooking speed-up; always 1.0 before 26.3), and"
+                            + " brewing_fuel_uses (brews per item in a brewing stand; 0 = not"
+                            + " brewing fuel).",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class GetFuel extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object().required("item_id", Schemas.string("Item identifier")).build();
+
+        public GetFuel() {
+            super("content_registry_get_fuel");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            String id = reader(arguments).requireString("item_id");
+            return onMainThread(
+                    context,
+                    ignored -> {
+                        var fuel = context.adapter().contentRegistryGetFuel(id);
+                        ObjectNode n = context.mapper().createObjectNode();
+                        n.put("burn_time_ticks", fuel.burnTimeTicks());
+                        n.put("burn_time_ticks_fast", fuel.burnTimeTicksFast());
+                        n.put("speed_multiplier", fuel.speedMultiplier());
+                        n.put("brewing_fuel_uses", fuel.brewingFuelUses());
+                        return ToolResult.ofToon(n);
+                    });
+        }
+    }
+
+    @McpTool(
+            name = "content_registry_set_fuel",
+            description =
+                    "Registers or overrides a fuel's burn time. NOTE: runtime mutation is not"
+                            + " supported (fuel is fixed at load time; on Minecraft 26.3+ it is"
+                            + " the item's cooking_fuel data component). Always returns failed.",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class SetFuel extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object()
+                        .required("item_id", Schemas.string("Item identifier"))
+                        .required("burn_time_ticks", Schemas.integer("Burn time in ticks"))
+                        .build();
+
+        public SetFuel() {
+            super("content_registry_set_fuel");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            var r = reader(arguments);
+            String id = r.requireString("item_id");
+            int burn = r.requireInt("burn_time_ticks");
+            return onMainThread(
+                    context,
+                    ignored ->
+                            ToolResult.ofText(
+                                    context.adapter().contentRegistrySetFuel(id, burn)
+                                            ? "set"
+                                            : "failed"));
+        }
+    }
+
+    @McpTool(
+            name = "content_registry_is_flammable_block",
+            description = "Returns flammability parameters for a block.",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class IsFlammableBlock extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object().required("block_id", Schemas.string("Block identifier")).build();
+
+        public IsFlammableBlock() {
+            super("content_registry_is_flammable_block");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            String id = reader(arguments).requireString("block_id");
+            return onMainThread(
+                    context,
+                    ignored -> {
+                        FlammableBlockInfo info = context.adapter().contentRegistryGetFlammableBlock(id);
+                        ObjectNode n = context.mapper().createObjectNode();
+                        n.put("flammable", info.flammable());
+                        n.put("spread_chance", info.spreadChance());
+                        n.put("burn_chance", info.burnChance());
+                        return ToolResult.ofToon(n);
+                    });
+        }
+    }
+
+    @McpTool(
+            name = "content_registry_set_flammable_block",
+            description = "Registers or overrides a block's flammability parameters.",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class SetFlammableBlock extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object()
+                        .required("block_id", Schemas.string("Block identifier"))
+                        .required("burn_chance", Schemas.integer("Burn chance"))
+                        .required("spread_chance", Schemas.integer("Fire spread chance"))
+                        .build();
+
+        public SetFlammableBlock() {
+            super("content_registry_set_flammable_block");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            var r = reader(arguments);
+            String id = r.requireString("block_id");
+            int burn = r.requireInt("burn_chance");
+            int spread = r.requireInt("spread_chance");
+            return onMainThread(
+                    context,
+                    ignored ->
+                            ToolResult.ofText(
+                                    context.adapter().contentRegistrySetFlammableBlock(id, burn, spread)
+                                            ? "set"
+                                            : "failed"));
+        }
+    }
+
+    @McpTool(
+            name = "content_registry_is_compostable",
+            description =
+                    "Returns the chance that one item adds a layer to a composter that already"
+                            + " holds compost. An empty composter always takes a layer.",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class IsCompostable extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object().required("item_id", Schemas.string("Item identifier")).build();
+
+        public IsCompostable() {
+            super("content_registry_is_compostable");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            String id = reader(arguments).requireString("item_id");
+            return onMainThread(
+                    context,
+                    ignored -> {
+                        CompostableInfo info = context.adapter().contentRegistryGetCompostable(id);
+                        ObjectNode n = context.mapper().createObjectNode();
+                        n.put("compostable", info.compostable());
+                        n.put("chance", info.chance());
+                        return ToolResult.ofToon(n);
+                    });
+        }
+    }
+
+    @McpTool(
+            name = "content_registry_set_compostable",
+            description = "Registers or overrides an item's composter level-up chance (0.0 to 1.0).",
+            // 26.3 made compostability the item's compostable data component, fixed when items
+            // register, and Fabric API removed CompostableRegistry with it. Nothing can change it at
+            // runtime, so the tool is not offered there. "26.2.99" is the repo's "below the next
+            // minor" cap: atMost is an inclusive semver compare, so "26.2" would drop 26.2.1.
+            maxMinecraftVersion = "26.2.99",
+            requiredFabricModules = {"fabric-content-registries-v0"})
+    public static final class SetCompostable extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object()
+                        .required("item_id", Schemas.string("Item identifier"))
+                        .required("chance", Schemas.number("Level-up chance, 0.0 to 1.0"))
+                        .build();
+
+        public SetCompostable() {
+            super("content_registry_set_compostable");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            var r = reader(arguments);
+            String id = r.requireString("item_id");
+            float chance = (float) r.requireDouble("chance");
+            return onMainThread(
+                    context,
+                    ignored ->
+                            ToolResult.ofText(
+                                    context.adapter().contentRegistrySetCompostable(id, chance)
+                                            ? "set"
+                                            : "failed"));
+        }
+    }
+}

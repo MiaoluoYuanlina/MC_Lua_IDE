@@ -58,7 +58,8 @@ final class LuaClientMcpService {
                     if (result.isCancelled()) return;
                     checkLease(epoch, connection);
                     CompletableFuture<JsonObject> response;
-                    if (tool.equals("mc_api_documentation")) response = ScriptManager.refreshApiDocumentation().thenApply(ignored -> {
+                    if (LuaMcpClientTools.isClientTool(tool)) response = LuaMcpClientTools.call(tool, args);
+                    else if (tool.equals("mc_api_documentation")) response = ScriptManager.refreshApiDocumentation().thenApply(ignored -> {
                         checkLease(epoch, connection); String query = LuaMcpTools.string(args, "query", "").toLowerCase(Locale.ROOT);
                         var entries = LuaApiDocumentation.allEntries().stream().filter(e -> query.isBlank() || LuaMcpServer.JSON.toJson(e).toLowerCase(Locale.ROOT).contains(query)).toList();
                         var pages = LuaApiDocumentation.allPages().stream().filter(e -> query.isBlank() || LuaMcpServer.JSON.toJson(e).toLowerCase(Locale.ROOT).contains(query)).toList();
@@ -73,9 +74,13 @@ final class LuaClientMcpService {
                     });
                 } catch (Exception error) { result.completeExceptionally(error); }
             }); return result;
-        });
+        }, clientToolList());
         try { endpoint.start(settings); }
         catch (Exception error) { endpoint.close(); endpoint = null; problem = "MCP 启动失败：端口占用或无法绑定（" + error.getClass().getSimpleName() + "）"; }
+    }
+    /** World tools are forwarded to the server like the Lua tools; inspection tools run in this client. */
+    private static java.util.List<LuaMcpTools.Tool> clientToolList() {
+        var all = new java.util.ArrayList<>(wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpWorldTools.serverTools()); all.addAll(LuaMcpClientTools.tools()); return all;
     }
     private static void checkLease(int epoch, net.minecraft.client.multiplayer.ClientPacketListener connection) {
         Minecraft client = Minecraft.getInstance();

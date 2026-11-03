@@ -179,4 +179,4 @@ Windows でテスト済みです。macOS と Linux でのローカルターミ�
 
 ## ライセンス
 
-[GPL-3.0](LICENSE)。Copyright (c) 2026 XiaoMiao_ICa。同梱ライブラリはそれぞれの（GPL と互換性のある）ライセンスに従います: [LuaJ](https://github.com/luaj/luaj)（MIT）、[imgui-java](https://github.com/SpaiR/imgui-java) と [Dear ImGui](https://github.com/ocornut/imgui)（MIT）、[JNA](https://github.com/java-native-access/jna)（Apache 2.0 / LGPL 2.1）。
+[GPL-3.0](LICENSE)。Copyright (c) 2026 XiaoMiao_ICa。同梱ライブラリはそれぞれの（GPL と互換性のある）ライセンスに従います: [LuaJ](https://github.com/luaj/luaj)（MIT）、[imgui-java](https://github.com/SpaiR/imgui-java) と [Dear ImGui](https://github.com/ocornut/imgui)（MIT）、[JNA](https://github.com/java-native-access/jna)（Apache 2.0 / LGPL 2.1）、[Jackson](https://github.com/FasterXML/jackson)（Apache 2.0）。MCP ワールドツールは [minecraft-java-fabric-mcp-server](https://github.com/chapmanjw/minecraft-java-fabric-mcp-server)（MIT、Copyright (c) 2026 John Chapman）から移植しており、そのライセンスは `META-INF/licenses/` に同梱しています。

@@ -175,8 +175,8 @@ public final class LuaServerNetworking {
 				case SET_MCP_SERVER -> sendSuccess(player, request, LuaServerMcpService.configure(server, player,
 						com.google.gson.JsonParser.parseString(request.body()).getAsJsonObject()).encode());
 				case CLEAR_MCP_SERVER_LOGS -> sendSuccess(player, request, LuaServerMcpService.clearLogs(server).encode());
-				case MCP_TOOL -> sendSuccess(player, request, wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpServer.JSON.toJson(
-						LuaServerMcpService.clientCall(server, player, request.name(), com.google.gson.JsonParser.parseString(request.body()).getAsJsonObject())));
+				case MCP_TOOL -> completeAsync(server, player, request,
+						LuaServerMcpService.clientCall(server, player, request.name(), com.google.gson.JsonParser.parseString(request.body()).getAsJsonObject()));
 				case ACCESS -> sendSuccess(player, request, Integer.toString(LuaProtocol.VERSION));
 				case RELOAD_DATAPACKS -> completeAsync(server, player, request, LuaDatapackReload.reload(server));
 				case GET_SERVER_PACK, BEGIN_SERVER_PACK_UPLOAD, SERVER_PACK_UPLOAD_CHUNK,

@@ -16,6 +16,8 @@ public final class LuaMcpSmoke {
     public static void main(String[] args) throws Exception {
         Path root = Files.createTempDirectory("mc-lua-mcp-smoke-");
         try {
+            // Default limits disable package/require; the standard libraries still need package.loaded while loading.
+            require(LuaSandbox.create(wiki.ica.xiaomiao.mcluaide.network.LuaLimits.defaults()).get("bit32").istable(), "Default sandbox failed to load standard libraries");
             require(!LuaMcpSettings.load(root.resolve("client.properties"), false).enabled() && !LuaMcpSettings.load(root.resolve("server.properties"), true).enabled(), "Default MCP must be off");
             require(LuaMcpSettings.defaults(false).port() != LuaMcpSettings.defaults(true).port(), "Client/server default port collision");
             LuaMcpSettings config = LuaMcpSettings.defaults(false).update(true, freePort(), false, false, UUID.randomUUID().toString(), "test", false);
@@ -77,7 +79,7 @@ public final class LuaMcpSmoke {
                 require(parsed(send(config, "POST", request(2, "tools/list", new JsonObject()), session, config.token(), null, null)).has("error"), "Call before initialized notification accepted");
                 require(send(config, "POST", request(null, "notifications/initialized", new JsonObject()), session, config.token(), null, null).statusCode() == 202, "Notification must return empty 202");
                 var tools = parsed(send(config, "POST", request(3, "tools/list", new JsonObject()), session, config.token(), null, null)).getAsJsonObject("result").getAsJsonArray("tools");
-                require(tools.size() == 9 && tools.get(0).getAsJsonObject().has("inputSchema"), "Tool schemas missing");
+                require(tools.size() == 10 && tools.get(0).getAsJsonObject().has("inputSchema"), "Tool schemas missing");
                 require(!tool(config, session, "mc_status", new JsonObject()).get("isError").getAsBoolean() && calls.get() == 1, "Backend read failed");
                 require(tool(config, session, "lua_save_script", object("name", "demo", "source", "secret-source-test")).get("isError").getAsBoolean() && calls.get() == 1, "Read-only mode wrote file");
                 require(tool(config, session, "lua_run_script", object("name", "demo")).get("isError").getAsBoolean() && calls.get() == 1, "Execution opt-out bypassed");
@@ -108,11 +110,49 @@ public final class LuaMcpSmoke {
             require(invalid, "Negative offsets accepted");
             var page = LuaMcpTools.page("a😀b", object("limit", 2)); require(page.get("text").getAsString().equals("a😀") && page.get("nextOffset").getAsInt() == 3, "Unicode paging splits surrogate pair");
             require(LuaMcpTools.manual("MC.GameRule.set").contains("ruleId"), "Bundled manual query failed");
+            var ported = wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.ToolRegistration.buildRegistry(new wiki.ica.xiaomiao.mcluaide.mcp.chapman.compat.ToolCompatibilityFilter(
+                    new wiki.ica.xiaomiao.mcluaide.mcp.chapman.compat.McEnvironment("26.1.2", "0.19.3", fabricApiModules()), LuaMcpWorldTools.CONFIG)).list().stream().map(LuaMcpWorldTools::describe).toList();
+            Set<String> portedNames = new HashSet<>(); ported.forEach(item -> portedNames.add(item.name()));
+            require(ported.size() >= 170 && portedNames.size() == ported.size(), "Ported world tools missing or duplicated: " + ported.size());
+            require(LuaMcpTools.ALL.stream().noneMatch(item -> portedNames.contains(item.name())), "Ported tool name collides with a Lua tool");
+            require(ported.stream().allMatch(item -> item.external() && "object".equals(item.schema().get("type").getAsString())), "Ported tool schema is not an object schema");
+            java.util.function.Function<String, LuaMcpTools.Permission> access = name -> ported.stream().filter(item -> item.name().equals(name)).findFirst().orElseThrow().permission();
+            require(access.apply("level_get_time") == LuaMcpTools.Permission.READ && access.apply("command_execute") == LuaMcpTools.Permission.EXECUTE
+                    && access.apply("block_fill_region") == LuaMcpTools.Permission.EXECUTE && access.apply("structure_file_write") == LuaMcpTools.Permission.WRITE, "Ported tool permission mapping");
+            AtomicInteger worldCalls = new AtomicInteger();
+            LuaMcpSettings worldConfig = config.update(true, freePort(), false, false, config.ownerUuid(), config.scope(), false);
+            try (LuaMcpServer world = new LuaMcpServer("world", (tool, worldArgs) -> {
+                worldCalls.incrementAndGet(); JsonObject raw = new JsonObject(); JsonArray content = new JsonArray(); content.add(object("type", "text", "text", "time: 6000"));
+                raw.add(LuaMcpTools.RAW_CONTENT, content); raw.addProperty(LuaMcpTools.RAW_ERROR, false); return CompletableFuture.completedFuture(raw);
+            }, ported)) {
+                world.start(worldConfig);
+                String worldSession = send(worldConfig, "POST", request(1, "initialize", object("protocolVersion", LuaMcpServer.VERSION)), null, worldConfig.token(), null, null).headers().firstValue("MCP-Session-Id").orElseThrow();
+                send(worldConfig, "POST", request(null, "notifications/initialized", new JsonObject()), worldSession, worldConfig.token(), null, null);
+                var listed = parsed(send(worldConfig, "POST", request(2, "tools/list", new JsonObject()), worldSession, worldConfig.token(), null, null)).getAsJsonObject("result").getAsJsonArray("tools");
+                require(listed.size() == LuaMcpTools.ALL.size() + ported.size(), "World tools not listed beside the Lua tools");
+                var read = tool(worldConfig, worldSession, "level_get_time", new JsonObject());
+                require(!read.get("isError").getAsBoolean() && read.getAsJsonArray("content").get(0).getAsJsonObject().get("text").getAsString().equals("time: 6000"), "World tool content not passed through");
+                require(tool(worldConfig, worldSession, "block_fill_region", object("x1", 0)).get("isError").getAsBoolean() && worldCalls.get() == 1, "World change ran with execution off");
+                require(tool(worldConfig, worldSession, "structure_file_write", object("name", "a")).get("isError").getAsBoolean() && worldCalls.get() == 1, "Structure file write ran with writing off");
+            }
+            LuaRuntimeLog.clear(); for (int i = 1; i <= 1005; i++) LuaRuntimeLog.add("demo", "line " + i);
+            var firstLogs = LuaRuntimeLog.read(0, 3);
+            require(firstLogs.getAsJsonArray("lines").size() == 3 && firstLogs.get("more").getAsBoolean() && firstLogs.getAsJsonArray("lines").get(0).getAsJsonObject().get("seq").getAsLong() == 6, "Runtime log ring must keep the newest 1000 lines");
+            var tailLogs = LuaRuntimeLog.read(1003, 10);
+            require(tailLogs.getAsJsonArray("lines").size() == 2 && !tailLogs.get("more").getAsBoolean() && tailLogs.get("nextSince").getAsLong() == 1005, "Runtime log cursor returned old lines");
+            LuaRuntimeLog.clear(); require(LuaRuntimeLog.read(0, 10).getAsJsonArray("lines").isEmpty(), "Runtime log clear failed");
             System.out.println("MCP protocol/security/settings smoke passed: " + checks + " checks");
         } finally {
             try (var files = Files.walk(root)) { for (Path path : files.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path); }
             CLIENT.close();
         }
+    }
+    /** The Fabric API modules some ported tools declare; a real game always has them because this mod depends on fabric-api. */
+    private static Map<String, String> fabricApiModules() {
+        Map<String, String> mods = new HashMap<>();
+        for (String id : List.of("fabric-biome-api-v1", "fabric-command-api-v2", "fabric-content-registries-v0", "fabric-convention-tags-v2", "fabric-data-attachment-api-v1",
+                "fabric-game-rule-api-v1", "fabric-loot-api-v3", "fabric-recipe-api-v1", "fabric-resource-conditions-api-v1", "fabric-transfer-api-v1")) mods.put(id, "99.0.0");
+        return mods;
     }
     public static int freePort() throws Exception { try (var socket = new java.net.ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) { return socket.getLocalPort(); } }
     public static JsonObject object(Object... args) { JsonObject out = new JsonObject(); for (int i = 0; i < args.length; i += 2) out.add(args[i].toString(), LuaMcpServer.JSON.toJsonTree(args[i+1])); return out; }

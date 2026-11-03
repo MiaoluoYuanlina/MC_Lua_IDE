@@ -179,4 +179,4 @@ Tested on Windows. The local terminal and the title-bar integration on macOS and
 
 ## License
 
-[GPL-3.0](LICENSE). Copyright (c) 2026 XiaoMiao_ICa. Bundled libraries keep their own (GPL-compatible) licenses: [LuaJ](https://github.com/luaj/luaj) (MIT), [imgui-java](https://github.com/SpaiR/imgui-java) and [Dear ImGui](https://github.com/ocornut/imgui) (MIT), [JNA](https://github.com/java-native-access/jna) (Apache 2.0 / LGPL 2.1).
+[GPL-3.0](LICENSE). Copyright (c) 2026 XiaoMiao_ICa. Bundled libraries keep their own (GPL-compatible) licenses: [LuaJ](https://github.com/luaj/luaj) (MIT), [imgui-java](https://github.com/SpaiR/imgui-java) and [Dear ImGui](https://github.com/ocornut/imgui) (MIT), [JNA](https://github.com/java-native-access/jna) (Apache 2.0 / LGPL 2.1), [Jackson](https://github.com/FasterXML/jackson) (Apache 2.0). The MCP world tools are ported from [minecraft-java-fabric-mcp-server](https://github.com/chapmanjw/minecraft-java-fabric-mcp-server) (MIT, Copyright (c) 2026 John Chapman); its license ships in `META-INF/licenses/`.

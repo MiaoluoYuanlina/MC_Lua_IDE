@@ -1,0 +1,323 @@
+package wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.events;
+
+import java.time.Instant;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.EventBus;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.EventEnvelope;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.EventType;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.Schemas;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.ToolContext;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.ToolResult;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.error.ErrorCodes;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.protocol.error.McpException;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.BaseTool;
+import wiki.ica.xiaomiao.mcluaide.mcp.chapman.tools.annotations.McpTool;
+
+/** Event-subscription tools. */
+public final class EventsTools {
+
+    private EventsTools() {}
+
+    private static EnumSet<EventType> parseTypes(JsonNode arr) {
+        if (arr == null || !arr.isArray() || arr.isEmpty()) {
+            throw new McpException(
+                    ErrorCodes.TOOL_INPUT_INVALID,
+                    "events_subscribe: 'event_types' must be a non-empty string array");
+        }
+        EnumSet<EventType> set = EnumSet.noneOf(EventType.class);
+        for (JsonNode n : arr) {
+            String name = n.asText();
+            EventType type =
+                    EventType.fromWireName(name)
+                            .orElseThrow(
+                                    () ->
+                                            new McpException(
+                                                    ErrorCodes.TOOL_INPUT_INVALID,
+                                                    "Unknown event type: " + name));
+            // EventType declares more types than EventWiring actually hooks. Subscribing to an
+            // unhooked one used to succeed and then never deliver anything, so a caller polled a
+            // healthy-looking subscription forever with no way to tell it was inert. Refuse it up
+            // front and name what IS deliverable.
+            if (!EventWiring.isWired(type)) {
+                throw new McpException(
+                        ErrorCodes.TOOL_INPUT_INVALID,
+                        "Event type '"
+                                + name
+                                + "' is declared but not currently emitted by this server, so a"
+                                + " subscription to it would never deliver anything. Deliverable"
+                                + " types are: "
+                                + EventWiring.wiredWireNames());
+            }
+            set.add(type);
+        }
+        return set;
+    }
+
+    /** Upper bound for filters.max_per_second on fluid.flow. */
+    static final int MAX_FLUID_FLOW_PER_SECOND = 1000;
+
+    /** Default fluid.flow rate when filters.max_per_second is omitted. */
+    static final int DEFAULT_FLUID_FLOW_PER_SECOND = 20;
+
+    static EventBus.RegionGate parseRegion(JsonNode region, JsonNode rate) {
+        if (region == null || !region.isObject()) {
+            throw new McpException(
+                    ErrorCodes.TOOL_INPUT_INVALID,
+                    "events_subscribe: fluid.flow fires on every fluid flow or update, so it needs"
+                            + " filters.region = {dimension, from:{x,y,z}, to:{x,y,z}}");
+        }
+        JsonNode dim = region.get("dimension");
+        JsonNode from = region.get("from");
+        JsonNode to = region.get("to");
+        if (dim == null || !dim.isTextual() || !isXyz(from) || !isXyz(to)) {
+            throw new McpException(
+                    ErrorCodes.TOOL_INPUT_INVALID,
+                    "events_subscribe: filters.region needs dimension (string) and from/to objects"
+                            + " with integer x, y and z");
+        }
+        int perSecond = DEFAULT_FLUID_FLOW_PER_SECOND;
+        if (rate != null) {
+            if (!rate.canConvertToInt() || rate.asInt() < 1 || rate.asInt() > MAX_FLUID_FLOW_PER_SECOND) {
+                throw new McpException(
+                        ErrorCodes.TOOL_INPUT_INVALID,
+                        "events_subscribe: filters.max_per_second must be an integer from 1 to "
+                                + MAX_FLUID_FLOW_PER_SECOND);
+            }
+            perSecond = rate.asInt();
+        }
+        return new EventBus.RegionGate(
+                EventType.FLUID_FLOW,
+                dim.asText(),
+                from.get("x").asInt(),
+                from.get("y").asInt(),
+                from.get("z").asInt(),
+                to.get("x").asInt(),
+                to.get("y").asInt(),
+                to.get("z").asInt(),
+                perSecond);
+    }
+
+    private static boolean isXyz(JsonNode n) {
+        return n != null
+                && n.isObject()
+                && n.path("x").canConvertToInt()
+                && n.path("y").canConvertToInt()
+                && n.path("z").canConvertToInt();
+    }
+
+    private static ObjectNode toJson(ObjectNode dest, EventBus.Subscription s) {
+        dest.put("subscription_id", s.id());
+        ArrayNode types = dest.putArray("event_types");
+        for (EventType t : s.types()) {
+            types.add(t.wireName());
+        }
+        ObjectNode filt = dest.putObject("filters");
+        for (Map.Entry<String, JsonNode> e : s.filters().entrySet()) {
+            filt.set(e.getKey(), e.getValue());
+        }
+        dest.put("buffer_size", s.bufferSize());
+        dest.put("dropped_count", s.droppedCount());
+        if (s.region() != null) {
+            ObjectNode region = dest.putObject("region");
+            s.region().describe().forEach((k, v) -> {
+                if (v instanceof int[] xyz) {
+                    ObjectNode c = region.putObject(k);
+                    c.put("x", xyz[0]);
+                    c.put("y", xyz[1]);
+                    c.put("z", xyz[2]);
+                } else if (v instanceof Integer i) {
+                    region.put(k, i);
+                } else {
+                    region.put(k, String.valueOf(v));
+                }
+            });
+            dest.put("rate_limited_count", s.rateLimitedCount());
+        }
+        return dest;
+    }
+
+    @McpTool(
+            name = "events_subscribe",
+            description =
+                    "Registers a subscription for one or more event types with optional filters."
+                            + " Returns an opaque subscription_id for events_poll / events_unsubscribe."
+                            + " filters is an exact-match map on payload fields. fluid.flow (Minecraft"
+                            + " 26.2+) fires each time a fluid flows or is updated at a position (one"
+                            + " water source produces hundreds a second), so it requires filters.region ="
+                            + " {dimension, from:{x,y,z}, to:{x,y,z}} and is rate-limited by"
+                            + " filters.max_per_second (default 20, max 1000).",
+            requiredFabricModules = {
+                    "fabric-lifecycle-events-v1",
+                    "fabric-message-api-v1",
+                    "fabric-networking-api-v1",
+                    "fabric-events-interaction-v0"
+            })
+    public static final class Subscribe extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object()
+                        .required(
+                                "event_types",
+                                Schemas.arrayOf(
+                                        "Event type wire names using dot notation (e.g. \"player.chat\", \"block.place\", \"entity.death\"). See docs/tools.md for the full list.",
+                                        Schemas.string()))
+                        .optional(
+                                "filters",
+                                Schemas.object()
+                                        .description("Optional per-event-type filter map")
+                                        .allowAdditional()
+                                        .build())
+                        .build();
+
+        public Subscribe() {
+            super("events_subscribe");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            var r = reader(arguments);
+            EnumSet<EventType> types = parseTypes(r.requireArray("event_types"));
+            Map<String, JsonNode> filters = new HashMap<>();
+            JsonNode f = r.optObject("filters");
+            if (f != null) {
+                f.properties().forEach(e -> filters.put(e.getKey(), e.getValue()));
+            }
+            // region / max_per_second configure the fluid.flow gate; they are not payload fields,
+            // so they must not reach the exact-match filter map.
+            JsonNode regionNode = filters.remove("region");
+            JsonNode rateNode = filters.remove("max_per_second");
+            EventBus.RegionGate gate = null;
+            if (types.contains(EventType.FLUID_FLOW)) {
+                gate = parseRegion(regionNode, rateNode);
+            } else if (regionNode != null || rateNode != null) {
+                throw new McpException(
+                        ErrorCodes.TOOL_INPUT_INVALID,
+                        "events_subscribe: filters.region and filters.max_per_second apply only to"
+                                + " fluid.flow");
+            }
+            String id = context.eventBus().subscribe(types, filters, gate);
+            ObjectNode result = context.mapper().createObjectNode();
+            result.put("subscription_id", id);
+            return ToolResult.ofToon(result);
+        }
+    }
+
+    @McpTool(
+            name = "events_poll",
+            description = "Drains pending events for a subscription. Use a max value to limit batch size.")
+    public static final class Poll extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object()
+                        .required("subscription_id", Schemas.string("Subscription id"))
+                        .optional("max", Schemas.integerBetween("Max events to drain", 1, 65536))
+                        .build();
+
+        public Poll() {
+            super("events_poll");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            var r = reader(arguments);
+            String id = r.requireString("subscription_id");
+            int max = r.optInt("max", 256);
+            EventBus.Subscription sub =
+                    context.eventBus()
+                            .get(id)
+                            .orElseThrow(
+                                    () ->
+                                            new McpException(
+                                                    ErrorCodes.TOOL_HANDLER_ERROR,
+                                                    "Unknown subscription_id: " + id));
+            List<EventEnvelope> events = sub.drain(max);
+            ObjectNode payload = context.mapper().createObjectNode();
+            ArrayNode arr = payload.putArray("events");
+            for (EventEnvelope e : events) {
+                ObjectNode n = arr.addObject();
+                n.put("type", e.type().wireName());
+                n.put("timestamp", e.timestamp().toString());
+                if (e.payload() != null) {
+                    n.set("payload", e.payload());
+                }
+            }
+            payload.put("dropped_count", sub.droppedCount());
+            payload.put("buffer_size", sub.bufferSize());
+            if (sub.region() != null) {
+                payload.put("rate_limited_count", sub.rateLimitedCount());
+            }
+            return ToolResult.ofToon(payload);
+        }
+    }
+
+    @McpTool(name = "events_list_subscriptions", description = "Lists every active subscription.")
+    public static final class ListSubscriptions extends BaseTool {
+        private static final JsonNode SCHEMA = Schemas.object().description("No arguments.").build();
+
+        public ListSubscriptions() {
+            super("events_list_subscriptions");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            List<EventBus.Subscription> subs = context.eventBus().list();
+            ArrayNode arr = context.mapper().createArrayNode();
+            for (EventBus.Subscription s : subs) {
+                toJson(arr.addObject(), s);
+            }
+            return ToolResult.ofToon(arr);
+        }
+    }
+
+    @McpTool(name = "events_unsubscribe", description = "Removes an event subscription.")
+    public static final class Unsubscribe extends BaseTool {
+        private static final JsonNode SCHEMA =
+                Schemas.object().required("subscription_id", Schemas.string("Subscription id")).build();
+
+        public Unsubscribe() {
+            super("events_unsubscribe");
+        }
+
+        @Override
+        public JsonNode inputSchema() {
+            return SCHEMA;
+        }
+
+        @Override
+        public ToolResult execute(JsonNode arguments, ToolContext context) {
+            String id = reader(arguments).requireString("subscription_id");
+            boolean removed = context.eventBus().unsubscribe(id);
+            return ToolResult.ofText(removed ? "unsubscribed " + id : "not found");
+        }
+    }
+
+    /**
+     * Internal sentinel — returns the current server time for synthetic events such as
+     * tick aggregates. Kept here so the event handler module has a single place to
+     * mint timestamps.
+     */
+    public static Instant now() {
+        return Instant.now();
+    }
+}

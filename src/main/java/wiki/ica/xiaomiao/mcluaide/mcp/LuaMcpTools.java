@@ -5,7 +5,10 @@ import java.util.List;
 
 public final class LuaMcpTools {
     public enum Permission { READ, WRITE, EXECUTE }
-    public record Tool(String name, String description, Permission permission, JsonObject schema) {
+    /** Result keys of a tool that returns ready-made MCP content blocks instead of a JSON object. */
+    public static final String RAW_CONTENT = "$mcpContent", RAW_ERROR = "$mcpIsError";
+    /** {@code external}: a ported world tool (see {@link LuaMcpWorldTools}); it validates its own arguments against a full JSON Schema. */
+    public record Tool(String name, String description, Permission permission, JsonObject schema, boolean external) {
         public JsonObject json() {
             JsonObject out = new JsonObject(); out.addProperty("name", name); out.addProperty("description", description);
             out.add("inputSchema", schema.deepCopy()); JsonObject hints = new JsonObject();
@@ -21,6 +24,7 @@ public final class LuaMcpTools {
             tool("lua_run_script", "运行服务端已保存的 Lua 脚本，不覆盖文件。脚本可调用全部已授权 MC.* 和其他模组 API；需开启执行权限。", Permission.EXECUTE, "name!"),
             tool("lua_stop_script", "停止 MCP 启动的当前脚本；不会停止其他人/IDE 启动的脚本。", Permission.EXECUTE),
             tool("lua_execution_logs", "读取这套 MCP 服务启动的脚本的有界日志和运行状态。", Permission.READ),
+            tool("lua_runtime_logs", "读取服务端所有 Lua 脚本（IDE、命令、MCP 启动的）的最近输出，最多保留 1000 行。since 为上次返回的 nextSince，只取更新的行；more 为 true 时继续取。", Permission.READ, "since:number", "limit:number"),
             tool("mc_api_documentation", "查询内置手册和当前模组的 API 文档，先查询用法再写脚本。", Permission.READ, "query", "offset:number", "limit:number"),
             tool("mc_registry_ids", "查询游戏/模组动态注册 ID，含名称和注释；例如 minecraft:item、minecraft:game_rule、minecraft:dimension。", Permission.READ, "registry!", "query", "offset:number", "limit:number")
     );
@@ -33,10 +37,11 @@ public final class LuaMcpTools {
             if (parts.length > 1) type.addProperty("minimum", parts[0].equals("limit") ? 1 : 0); else type.addProperty("maxLength", parts[0].equals("source") ? 1_000_000 : 512);
             properties.add(parts[0], type); if (needed) required.add(parts[0]);
         }
-        schema.add("properties", properties); schema.add("required", required); return new Tool(name, description, permission, schema);
+        schema.add("properties", properties); schema.add("required", required); return new Tool(name, description, permission, schema, false);
     }
     public static Tool find(String name) { return ALL.stream().filter(tool -> tool.name().equals(name)).findFirst().orElseThrow(() -> new IllegalArgumentException("未知 MCP 工具")); }
     public static void validate(Tool tool, JsonObject args) {
+        if (tool.external()) return;
         JsonObject properties = tool.schema().getAsJsonObject("properties");
         for (JsonElement required : tool.schema().getAsJsonArray("required")) if (!args.has(required.getAsString())) throw new IllegalArgumentException("缺少参数：" + required.getAsString());
         for (var entry : args.entrySet()) {

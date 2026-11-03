@@ -7,7 +7,7 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
-	mavenCentral { content { includeGroup 'io.github.spair' } }
+	mavenCentral { content { includeGroup 'io.github.spair'; includeGroup 'com.fasterxml.jackson.core' } }
 	// Add repositories to retrieve artifacts from in here.
 	// You should only use this when depending on other mods because
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
@@ -258,6 +258,10 @@ dependencies {
 
 	// Embedded Lua 5.2-compatible runtime used by the authoritative server-side runner.
 	implementation include("org.luaj:luaj-jse:3.0.1")
+	// Ported MCP world tools (minecraft-java-fabric-mcp-server, MIT) are written against Jackson; bundled, not shared.
+	implementation include("com.fasterxml.jackson.core:jackson-databind:2.22.4")
+	implementation include("com.fasterxml.jackson.core:jackson-core:2.22.4")
+	implementation include("com.fasterxml.jackson.core:jackson-annotations:2.22")
 	// Windows Ink pen pressure for the client PNG editor; other platforms keep mouse behavior.
 	clientImplementation include("net.java.dev.jna:jna:5.17.0")
 	// Independent, client-only editor UI. Use Minecraft's LWJGL, never bundle another copy.

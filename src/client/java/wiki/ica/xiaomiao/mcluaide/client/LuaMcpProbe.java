@@ -47,7 +47,7 @@ final class LuaMcpProbe {
                 ide = new LuaIdeScreen(null, ""); client.setScreen(ide); set(ide, "manualOpen", false); set(ide, "manualProgress", 0F);
                 var toggle = LuaIdeScreen.class.getDeclaredMethod("toggleMenu", String.class); toggle.setAccessible(true); toggle.invoke(ide, "tools");
                 @SuppressWarnings("unchecked") var items = (List<Button>) get(ide, "toolMenuItems");
-                Button mcp = items.stream().filter(button -> button.getMessage().getString().startsWith("MCP 服务器")).findFirst().orElseThrow();
+                Button mcp = items.stream().filter(button -> button.getMessage().getString().startsWith(LuaUiText.text("MCP 服务器"))).findFirst().orElseThrow();
                 require(ide.mouseClicked(mouse(mcp.getX() + 5, mcp.getY() + 5), false), "Tool menu MCP option not clickable");
                 stage = 3; return;
             }
@@ -55,7 +55,7 @@ final class LuaMcpProbe {
                 localFrame = frame(LuaMcpWindow.CLIENT_ID); if (get(localFrame, "content") == null) return;
                 require(localFrame.isOpen() && get(get(localFrame, "content"), "data") != null, "Client MCP window failed");
                 var settings = new LuaSettingsScreen(ide); client.setScreen(settings);
-                Button mcp = settings.children().stream().filter(Button.class::isInstance).map(Button.class::cast).filter(button -> button.getMessage().getString().contains("MCP 服务器")).findFirst().orElseThrow();
+                Button mcp = settings.children().stream().filter(Button.class::isInstance).map(Button.class::cast).filter(button -> button.getMessage().getString().contains(LuaUiText.text("MCP 服务器"))).findFirst().orElseThrow();
                 require(settings.mouseClicked(mouse(mcp.getX()+5, mcp.getY()+5), false), "Server configuration MCP option not clickable"); stage = 4; return;
             }
             if (stage == 4) {
@@ -104,13 +104,24 @@ final class LuaMcpProbe {
                 require(connection.call("lua_run_script", object("name", "mcp/no_permission")).get("isError").getAsBoolean(), "Execute disabled by default was bypassed");
                 require(connection.call("mc_api_documentation", object("query", "MC.GameRule.set")).getAsJsonObject("structuredContent").get("text").getAsString().contains("ruleId"), "API help query failed");
                 require(connection.call("mc_registry_ids", object("registry", "minecraft:item", "query", "apple")).getAsJsonObject("structuredContent").getAsJsonArray("entries").toString().contains("minecraft:apple"), "Actual item registry missing");
+                require(!connection.call("level_get_time", object("dimension", "minecraft:overworld")).get("isError").getAsBoolean(), "Ported world read tool failed");
+                require(connection.call("level_set_time", object("dimension", "minecraft:overworld", "time", 1234)).get("isError").getAsBoolean(), "Ported world change ran with execution off");
             }
+            require(!a.call("client_status", new JsonObject()).get("isError").getAsBoolean(), "Client inspection tool failed");
+            // close_screen defaults to true and would close the IDE that the later checks drive.
+            var frame = a.call("view_capture", object("close_screen", false));
+            require(!frame.get("isError").getAsBoolean() && frame.getAsJsonArray("content").toString().contains("\"image\""), "view_capture returned no image: " + frame);
+            require(onClient(client, () -> client.screen == ide).get(), "view_capture with close_screen=false closed the IDE");
+            require(!b.call("player_list_online", new JsonObject()).get("isError").getAsBoolean(), "Ported player list failed");
         }
         local = onClientFuture(client, () -> LuaClientMcpService.configure(true, clientPort, true, true, false)).get(10, TimeUnit.SECONDS);
         remote = onServer(server, () -> LuaServerMcpService.configure(server, server.getPlayerList().getPlayer(owner), object("enabled", true, "port", serverPort, "allowWrite", true, "allowExecution", true))).get(10, TimeUnit.SECONDS);
         try (Connection a = new Connection(local.settings()); Connection b = new Connection(remote.settings())) {
             for (Connection connection : List.of(a, b)) {
                 String name = connection == a ? "mcp/from_client" : "mcp/from_server";
+                long time = connection == a ? 4321 : 8765;
+                require(!connection.call("level_set_time", object("dimension", "minecraft:overworld", "time", time)).get("isError").getAsBoolean(), "Ported world change failed");
+                require(connection.call("level_get_time", object("dimension", "minecraft:overworld")).getAsJsonArray("content").toString().contains(Long.toString(time).substring(0, 3)), "Ported world change not visible");
                 String source = "print('mcp-live')\nMC.Event.onInterval(1000, function(e) print(e.count) end)";
                 require(!connection.call("lua_save_script", object("name", name, "source", source)).get("isError").getAsBoolean(), "MCP save failed");
                 require(connection.call("lua_read_script", object("name", name)).getAsJsonObject("structuredContent").get("text").getAsString().equals(source), "MCP read round trip failed");
@@ -119,7 +130,7 @@ final class LuaMcpProbe {
                 long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10); String logs;
                 do { logs = connection.call("lua_execution_logs", new JsonObject()).toString(); if (!logs.contains("mcp-live")) Thread.sleep(20); }
                 while (!logs.contains("mcp-live") && System.nanoTime() < until);
-                require(logs.contains("mcp-live"), "Live Lua output missing");
+                require(logs.contains("mcp-live"), "Live Lua output missing: " + logs + " / runtime: " + connection.call("lua_runtime_logs", new JsonObject()));
                 (connection == a ? b : a).call("lua_stop_script", new JsonObject());
                 require(server.submit(() -> name.equals(ServerScriptManager.activeScriptName())).get(), "Other MCP role stopped this role's script");
                 connection.call("lua_stop_script", new JsonObject());
@@ -214,8 +225,14 @@ final class LuaMcpProbe {
     private static net.minecraft.client.gui.components.MultilineTextField field() throws Exception { return ((wiki.ica.xiaomiao.mcluaide.client.mixin.MultiLineEditBoxAccessor) editor()).mcLuaIde$getTextField(); }
     private static void waitClient(Minecraft client, Callable<Boolean> ready, String failure) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-        while (!onClient(client, ready).get(10, TimeUnit.SECONDS)) { if (System.nanoTime() >= deadline) throw new AssertionError(failure); Thread.sleep(20); }
+        while (!onClient(client, ready).get(10, TimeUnit.SECONDS)) { if (System.nanoTime() >= deadline) throw new AssertionError(failure + " :: " + onClient(client, LuaMcpProbe::ideState).get(10, TimeUnit.SECONDS)); Thread.sleep(20); }
         require(true, failure);
+    }
+    private static String ideState() throws Exception {
+        Object document = get(ide, "currentDocument"); String value = editor().getValue();
+        return "screen=" + (Minecraft.getInstance().screen == null ? null : Minecraft.getInstance().screen.getClass().getSimpleName()) + " status=" + get(ide, "status")
+                + " doc=" + (document == null ? null : get(document, "name") + " loaded=" + get(document, "loaded") + " loading=" + get(document, "loading"))
+                + " editor=" + value.substring(0, Math.min(80, value.length())).replace("\n", "\\n");
     }
 
     private static void verifyPermissions(MinecraftServer server, UUID owner) throws Exception {

@@ -19,6 +19,7 @@ public final class McLuaIdeMod implements ModInitializer {
 		LuaServerNetworking.register();
 		LuaServerCommands.register();
 		LuaFabricEventBridge.register();
+		wiki.ica.xiaomiao.mcluaide.mcp.LuaMcpWorldTools.install();
 		LOGGER.info("MC Lua IDE server runtime initialized");
 	}
 

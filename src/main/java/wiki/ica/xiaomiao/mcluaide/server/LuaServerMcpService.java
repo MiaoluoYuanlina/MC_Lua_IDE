@@ -73,11 +73,12 @@ public final class LuaServerMcpService {
                     if (result.isCancelled()) return;
                     if (revision != epoch || !settings.enabled() || endpoint == null || !endpoint.running()) throw new IllegalStateException("MCP 服务已关闭或重新配置");
                     if (!ownerAllowed()) throw new IllegalStateException("绑定管理员的所有者权限已被移除");
+                    if (LuaMcpWorldTools.isServerTool(tool)) { forward(worldCall(tool, args), result); return; }
                     result.complete(call("server", UUID.fromString(settings.ownerUuid()), tool, args));
                 } catch (Exception error) { result.completeExceptionally(error); }
             });
             return result;
-        });
+        }, LuaMcpWorldTools.serverTools());
         try { endpoint.start(settings); }
         catch (Exception error) { endpoint.close(); endpoint = null; problem = "MCP 启动失败：端口被占用或无法绑定（" + error.getClass().getSimpleName() + "）"; }
     }
@@ -94,13 +95,28 @@ public final class LuaServerMcpService {
     }
     public static LuaMcpStatus clearLogs(MinecraftServer server) { var service = get(server); service.history = List.of(); if (service.endpoint != null) service.endpoint.clearLogs(); return service.status(); }
 
-    /** Client-local MCP uses this same authority boundary, even while the server HTTP listener is off. */
-    public static JsonObject clientCall(MinecraftServer server, ServerPlayer player, String tool, JsonObject args) throws Exception {
+    /**
+     * Client-local MCP uses this same authority boundary, even while the server HTTP listener is off. World tools finish
+     * off the game thread, so the JSON reply arrives later.
+     */
+    public static CompletableFuture<String> clientCall(MinecraftServer server, ServerPlayer player, String tool, JsonObject args) throws Exception {
         if (!LuaServerNetworking.isAdministrator(server, player)) throw new IllegalStateException("需要服务器所有者权限");
-        JsonObject result = get(server).call("client:" + player.getUUID(), player.getUUID(), tool, args);
-        if (LuaMcpServer.JSON.toJson(result).length() > wiki.ica.xiaomiao.mcluaide.network.LuaProtocol.MAX_RESPONSE_CHARS)
-            throw new IllegalStateException("MCP 结果超过网络限制，请缩小 limit 或分段查询；未返回截断 JSON");
-        return result;
+        CompletableFuture<JsonObject> pending = LuaMcpWorldTools.isServerTool(tool) ? worldCall(tool, args)
+                : CompletableFuture.completedFuture(get(server).call("client:" + player.getUUID(), player.getUUID(), tool, args));
+        return pending.thenApply(result -> {
+            String json = LuaMcpServer.JSON.toJson(result);
+            if (json.length() > wiki.ica.xiaomiao.mcluaide.network.LuaProtocol.MAX_RESPONSE_CHARS)
+                throw new IllegalStateException("MCP 结果超过网络限制，请缩小 limit 或分段查询；未返回截断 JSON");
+            return json;
+        });
+    }
+    private static CompletableFuture<JsonObject> worldCall(String tool, JsonObject args) {
+        LuaMcpTools.Tool definition = LuaMcpWorldTools.serverTools().stream().filter(item -> item.name().equals(tool)).findFirst().orElseThrow();
+        if (GitWorkspaceService.restoring() && definition.permission() != LuaMcpTools.Permission.READ) throw new IllegalStateException("Git 正在恢复工作区，请稍后操作");
+        return LuaMcpWorldTools.call(tool, args);
+    }
+    private static void forward(CompletableFuture<JsonObject> from, CompletableFuture<JsonObject> to) {
+        from.whenComplete((data, error) -> { if (error != null) to.completeExceptionally(error); else to.complete(data); });
     }
     private JsonObject call(String actor, UUID owner, String tool, JsonObject args) throws Exception {
         LuaMcpTools.Tool definition = LuaMcpTools.find(tool); LuaMcpTools.validate(definition, args);
@@ -145,6 +161,7 @@ public final class LuaServerMcpService {
                 job.execution.stop(); yield LuaMcpTools.text("已请求停止 MCP 启动的脚本");
             }
             case "lua_execution_logs" -> job == null ? LuaMcpTools.text("这套 MCP 尚未启动脚本") : job.snapshot();
+            case "lua_runtime_logs" -> LuaRuntimeLog.read(args.has("since") ? args.get("since").getAsLong() : 0, LuaMcpTools.integer(args, "limit", 200, 500));
             case "mc_api_documentation" -> {
                 String query = LuaMcpTools.string(args, "query", "");
                 String external = LuaApiDescriptorCodec.encode(new LuaApiDescriptorCodec.Documentation(

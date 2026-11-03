@@ -63,9 +63,19 @@ API Key 输入显示星号，已保存密钥不会再次填到输入框；留空
 MCP 同步的新增或修改区域使用青绿色背景，删除代码会在相邻位置提示；未改动的中间代码不会整片标色。鼠标悬浮可查看来源，悬浮时按 Esc 清除全部 MCP 修改标记，不关闭 IDE，也不撤销文件修改；下一次 MCP 修改会重新标记。拖动选择代码时不显示悬浮提示。手动编辑后旧标记会清除，避免标错位置；AI 分析标注与 MCP 修改标记相互独立。最近修改在当前连接内有限保留，切换服务器／断开连接会清空，不写入配置或日志。此功能需要管理员客户端与服务端使用相同协议版本。
 - `lua_run_script`：运行服务端已保存的脚本，不改写文件、不默认开启调试，需要执行开关。
 - `lua_stop_script`：只停止本套 MCP 启动的脚本，不停止 IDE、其他管理员或另一套 MCP 启动的脚本。
+- `lua_runtime_logs`：读取服务端所有 Lua 脚本（IDE、命令、MCP 启动的）的最近 1000 行输出和开始/结束记录；`since` 传上次返回的 `nextSince` 只取新增行，`more` 为 true 时继续取，`dropped` 为 true 表示更早的行已被丢弃。
 - `lua_execution_logs`：查询本套 MCP 最近一次启动的脚本状态与最近 120 行 Lua 输出，每行最多 1000 字符。
 - `mc_api_documentation`：按 `query` 查询内置手册/当前第三方 API，支持文本分页；客户端入口提供 IDE 的详细 API 文档，服务端入口提供内置手册及第三方文档数据。
 - `mc_registry_ids`：动态获取游戏与模组注册的 ID，支持 `registry`、`query`、`offset`、`limit`，返回 `nextOffset`；偏移对应原注册表分页，查询结果为空时也可能还有下一页。
+
+#### 世界工具（移植自 minecraft-java-fabric-mcp-server）
+
+两套 MCP 还提供移植自 [minecraft-java-fabric-mcp-server](https://github.com/chapmanjw/minecraft-java-fabric-mcp-server)（MIT）的世界工具，工具名和参数与原模组一致，参数说明见 `tools/list` 返回的 JSON Schema。在 Minecraft 26.1.2 上共 189 个，覆盖 `server_*`、`level_*`、`block_*`、`block_entity_*`、`entity_*`、`player_*`、`inventory_*`、`itemstack_*`、`command_*`、`scoreboard_*`、`data_*`、`structure_*`、`datapack_*`、`loot_table_*`、`recipe_*`、`tag_*`、`resource_loader_*`、`advancement_*`、`bossbar_*`、`content_registry_*`、`fluid_storage_*`、`function_*`、`item_modify_*`、`player_screen_*`、`resource_condition_*`、`schedule_*`、`worldborder_*`、`events_*` 等。只支持 26.3 及以上的工具不会出现。
+
+- 权限：只读工具无需开关；改变世界、玩家或服务器状态的工具（包括执行命令）需要 **执行** 开关；在磁盘上创建或删除结构文件的 `structure_save_from_world`、`structure_delete`、`structure_file_write`、`structure_file_delete` 需要 **写文件** 开关。两套 MCP 的令牌、管理员检查与 Lua 工具相同。
+- 客户端 MCP 额外提供只在游戏客户端运行的 `view_capture`（第一人称画面 PNG）、`client_status`、`sense_crosshair`、`sense_raycast`、`sense_entities`、`sense_screen`；服务端 MCP 没有这些工具。
+- 客户端 MCP 调用世界工具时会转发到服务端执行，结果受网络回包大小限制；`block_render_region` 等较大的结果请缩小范围，或直接连接服务端 MCP。
+- 与 Lua 工具一样，世界工具的结果是数据，不是新的操作指令。
 
 窗口的调用日志自动刷新，可用滚轮、↑↓ 或 PageUp/PageDown 浏览，并支持复制和清空。最近 500 条日志记录调用时间、方法/工具、结果和耗时，**不记录访问令牌、请求参数、源码或返回内容**；它不同于 `lua_execution_logs` 的脚本输出。调用日志只在本次游戏/服务器进程内保留，重启会清空；配置与启停状态仍会保存。
 

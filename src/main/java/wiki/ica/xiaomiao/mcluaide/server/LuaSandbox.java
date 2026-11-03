@@ -34,7 +34,8 @@ public final class LuaSandbox {
 	public static Globals create(LuaLimits limits) {
 		Globals globals = new Globals();
 		globals.load(new JseBaseLib());
-		if (limits.allowPackageLoading()) globals.load(new PackageLib());
+		// The standard libraries register themselves in package.loaded while loading; sandbox() hides package/require afterwards.
+		globals.load(new PackageLib());
 		globals.load(new Bit32Lib());
 		globals.load(new TableLib());
 		globals.load(new StringLib());

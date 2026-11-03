@@ -18,6 +18,7 @@ public final class LuaMcpServer implements AutoCloseable {
     public record Log(long time, String method, String tool, String outcome, long milliseconds) { }
     private static final class Session { final String version; volatile boolean initialized; volatile long touched = System.nanoTime(); Session(String version) { this.version = version; } }
     private final Backend backend;
+    private final List<LuaMcpTools.Tool> tools;
     private final String title;
     private final Deque<Log> logs = new ArrayDeque<>();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
@@ -25,7 +26,13 @@ public final class LuaMcpServer implements AutoCloseable {
     private ExecutorService workers;
     private volatile LuaMcpSettings settings;
 
-    public LuaMcpServer(String title, Backend backend) { this.title = title; this.backend = backend; }
+    public LuaMcpServer(String title, Backend backend) { this(title, backend, List.of()); }
+    /** {@code extra}: tools listed and callable after the built-in Lua tools, such as the ported world tools. */
+    public LuaMcpServer(String title, Backend backend, List<LuaMcpTools.Tool> extra) {
+        this.title = title; this.backend = backend;
+        var all = new ArrayList<>(LuaMcpTools.ALL); all.addAll(extra); tools = List.copyOf(all);
+    }
+    private LuaMcpTools.Tool find(String name) { return tools.stream().filter(tool -> tool.name().equals(name)).findFirst().orElseThrow(() -> new IllegalArgumentException("未知 MCP 工具")); }
     public synchronized void start(LuaMcpSettings settings) throws java.io.IOException {
         if (http != null) throw new IllegalStateException("MCP 服务已经开启");
         // Loopback only unless the administrator explicitly allowed connections from other IP addresses.
@@ -127,10 +134,10 @@ public final class LuaMcpServer implements AutoCloseable {
             if (id == null) { if (method.equals("notifications/initialized")) session.initialized = true; send(exchange, 202, null); outcome = "通知接收"; return; }
             if (method.equals("ping")) { send(exchange, 200, success(id, new JsonObject())); outcome = "成功"; return; }
             if (!session.initialized) { send(exchange, 200, error(id, -32000, "请发送 notifications/initialized")); return; }
-            if (method.equals("tools/list")) { JsonObject result = new JsonObject(); JsonArray tools = new JsonArray(); LuaMcpTools.ALL.forEach(item -> tools.add(item.json())); result.add("tools", tools); send(exchange, 200, success(id, result)); outcome = "成功"; return; }
+            if (method.equals("tools/list")) { JsonObject result = new JsonObject(); JsonArray listed = new JsonArray(); tools.forEach(item -> listed.add(item.json())); result.add("tools", listed); send(exchange, 200, success(id, result)); outcome = "成功"; return; }
             if (!method.equals("tools/call")) { send(exchange, 200, error(id, -32601, "不支持的 MCP 方法")); outcome = "方法未知"; return; }
             LuaMcpTools.Tool definition; JsonObject args;
-            try { tool = LuaMcpTools.string(params, "name", ""); definition = LuaMcpTools.find(tool); args = params.has("arguments") ? params.getAsJsonObject("arguments") : new JsonObject(); LuaMcpTools.validate(definition, args); }
+            try { tool = LuaMcpTools.string(params, "name", ""); definition = find(tool); args = params.has("arguments") ? params.getAsJsonObject("arguments") : new JsonObject(); LuaMcpTools.validate(definition, args); }
             catch (RuntimeException invalid) { send(exchange, 200, error(id, -32602, "工具名称或参数不正确")); outcome = "参数拒绝"; return; }
             try {
                 if (definition.permission() == LuaMcpTools.Permission.WRITE && !config.allowWrite()) throw new IllegalStateException("写文件权限未开启");
@@ -151,12 +158,17 @@ public final class LuaMcpServer implements AutoCloseable {
         finally {
             String loggedMethod = Set.of("HTTP", "initialize", "ping", "tools/list", "tools/call", "notifications/initialized", "notifications/cancelled").contains(method) ? method : "unknown";
             String requestedTool = tool;
-            String loggedTool = LuaMcpTools.ALL.stream().anyMatch(definition -> definition.name().equals(requestedTool)) ? tool : "";
+            String loggedTool = tools.stream().anyMatch(definition -> definition.name().equals(requestedTool)) ? tool : "";
             addLog(loggedMethod, loggedTool, outcome, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
         }
     }
     private static JsonObject toolResult(JsonObject data, boolean failed) {
-        JsonObject result = new JsonObject(); result.add("content", JSON.toJsonTree(List.of(Map.of("type", "text", "text", JSON.toJson(data)))));
+        JsonObject result = new JsonObject();
+        if (data.has(LuaMcpTools.RAW_CONTENT)) { // Ported world tools already produce MCP content blocks (text or image).
+            result.add("content", data.get(LuaMcpTools.RAW_CONTENT));
+            result.addProperty("isError", failed || data.has(LuaMcpTools.RAW_ERROR) && data.get(LuaMcpTools.RAW_ERROR).getAsBoolean()); return result;
+        }
+        result.add("content", JSON.toJsonTree(List.of(Map.of("type", "text", "text", JSON.toJson(data)))));
         result.add("structuredContent", data); result.addProperty("isError", failed); return result;
     }
     private static JsonObject success(JsonElement id, JsonObject result) { JsonObject out = new JsonObject(); out.addProperty("jsonrpc", "2.0"); out.add("id", id); out.add("result", result); return out; }

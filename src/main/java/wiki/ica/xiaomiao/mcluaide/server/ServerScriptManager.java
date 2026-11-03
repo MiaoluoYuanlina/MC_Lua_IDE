@@ -166,7 +166,13 @@ public final class ServerScriptManager {
 		ScriptExecution execution = new ScriptExecution(server, owner, name, limits, debugEnabled);
 		execution.debugger.source(name, source);
 		activeExecution = execution;
-		execution.thread = Thread.startVirtualThread(() -> execute(execution, server, source, output, completion));
+		LuaRuntimeLog.add(name, "▶ 开始运行");
+		Consumer<String> recorded = line -> { LuaRuntimeLog.add(name, line); output.accept(line); };
+		Consumer<ExecutionResult> finished = result -> {
+			LuaRuntimeLog.add(name, result.error() != null ? "✖ " + result.error() : result.stopped() ? "■ 已停止" : "✔ 已完成");
+			completion.accept(result);
+		};
+		execution.thread = Thread.startVirtualThread(() -> execute(execution, server, source, recorded, finished));
 		return execution;
 	}
 
