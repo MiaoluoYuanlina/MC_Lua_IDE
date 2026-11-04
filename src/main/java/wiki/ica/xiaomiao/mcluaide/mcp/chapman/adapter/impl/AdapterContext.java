@@ -94,6 +94,15 @@ final class AdapterContext {
         }
     }
 
+    private static boolean needsExecutionContext(String command) {
+        String c = command.strip();
+        if (c.startsWith("/")) {
+            c = c.substring(1);
+        }
+        return c.startsWith("function ") || c.startsWith("return ")
+                || c.startsWith("execute ") && (c.contains(" run function ") || c.contains(" run return "));
+    }
+
     CommandResult commandExecute(String command) {
         MinecraftServer s = requireServer();
         List<String> output = new ArrayList<>();
@@ -104,6 +113,21 @@ final class AdapterContext {
                         .withSource(
                                 new CapturingCommandSource(CommandSource.NULL, output));
         try {
+            if (needsExecutionContext(command)) {
+                // Functions only run inside an execution context; plain Brigadier dispatch
+                // fails with "This function should not run". Errors raised while the queued
+                // commands run are reported to the (silent) source, so only a parse error is
+                // visible here; the count comes from the result callback.
+                int[] total = {0};
+                CommandSourceStack queued = source.withCallback((success, value) -> total[0] += value);
+                var parse = s.getCommands().getDispatcher().parse(command, queued);
+                CommandSyntaxException syntax = net.minecraft.commands.Commands.getParseException(parse);
+                if (syntax != null) {
+                    return new CommandResult(0, output, syntax.getMessage());
+                }
+                s.getCommands().performCommand(parse, command);
+                return new CommandResult(total[0], output, null);
+            }
             int result = s.getCommands().getDispatcher().execute(command, source);
             return new CommandResult(result, output, null);
         } catch (CommandSyntaxException e) {

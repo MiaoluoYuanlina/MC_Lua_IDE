@@ -9,6 +9,7 @@ All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Ver
 - MCP tool `lua_runtime_logs`: the recent output of every Lua script on the server (started from the IDE, a command or MCP), up to 1000 lines, read incrementally with `since`.
 
 ### Fixed
+- MCP world tools: `function_run`, and `function …` / `execute … run function …` sent through `command_execute`, failed with "This function should not run"; they now run like tick/load functions. `datapack_disable` failed for pack ids containing `/` (such as `file/<name>`). `server_reload_resources` now picks up datapacks added since the world loaded, like `/reload`. `scoreboard_set_display_slot` with an empty objective now clears the slot.
 - With the default server limits (package / require off), every Lua script failed before its first line with `attempt to index ? (a nil value)`. The Lua standard libraries now always load; `package` and `require` stay hidden from scripts unless the limit allows them.
 
 ## [1.0.18] - 2026-11-01

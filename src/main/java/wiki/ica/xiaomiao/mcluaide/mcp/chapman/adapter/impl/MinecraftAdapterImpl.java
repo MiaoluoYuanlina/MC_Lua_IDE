@@ -207,7 +207,18 @@ public final class MinecraftAdapterImpl implements MinecraftAdapter {
         MinecraftServer s = ctx.requireServer();
         // Async reload — we don't block; the command dispatcher would return immediately too.
         try {
-            s.reloadResources(s.getPackRepository().getSelectedIds());
+            // Like vanilla /reload: rescan the datapacks folder and enable newly added packs
+            // unless the world lists them as disabled.
+            var repo = s.getPackRepository();
+            var ids = new java.util.ArrayList<>(repo.getSelectedIds());
+            repo.reload();
+            var disabled = s.getWorldData().getDataConfiguration().dataPacks().getDisabled();
+            for (String id : repo.getAvailableIds()) {
+                if (!disabled.contains(id) && !ids.contains(id)) {
+                    ids.add(id);
+                }
+            }
+            s.reloadResources(ids);
         } catch (Exception e) {
             throw new AdapterException("Failed to reload resources: " + e.getMessage(), e);
         }

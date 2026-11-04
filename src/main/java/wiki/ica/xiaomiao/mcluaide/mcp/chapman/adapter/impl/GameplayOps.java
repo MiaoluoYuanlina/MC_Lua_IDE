@@ -111,10 +111,12 @@ final class GameplayOps {
     }
 
     boolean scoreboardSetDisplaySlot(String slot, String objectiveName) {
-        // /scoreboard objectives setdisplay is a void setter.
+        // /scoreboard objectives setdisplay is a void setter. An empty objective clears the
+        // slot, which is the command without the objective argument (no trailing space).
+        String objective = objectiveName == null ? "" : objectiveName.trim();
         return AdapterContext.commandOk(
                 ctx.commandExecute(
-                        "scoreboard objectives setdisplay " + slot + " " + objectiveName));
+                        "scoreboard objectives setdisplay " + slot + (objective.isEmpty() ? "" : " " + objective)));
     }
 
     int scoreboardGetScore(String participant, String objectiveName) {
@@ -507,18 +509,26 @@ final class GameplayOps {
     // =====================================================================
 
     boolean functionRun(String functionId, UUID asEntity) {
-        if (asEntity != null) {
-            // /function reports a meaningful successCount (commands executed in the
-            // function); a function with no successful commands still ran -- prefer
-            // commandOk so an empty function doesn't look like a failure.
-            return AdapterContext.commandOk(
-                    ctx.commandExecute(
-                            "execute as "
-                                    + AdapterContext.entityCommandTarget(asEntity)
-                                    + " run function "
-                                    + functionId));
+        // Dispatching "/function" straight through Brigadier fails on current versions
+        // ("This function should not run"): functions only run inside an execution context.
+        // The function manager provides one, the same way tick/load functions run.
+        MinecraftServer s = ctx.requireServer();
+        Identifier id = Identifier.tryParse(functionId);
+        var function = id == null ? Optional.<net.minecraft.commands.functions.CommandFunction<net.minecraft.commands.CommandSourceStack>>empty() : s.getFunctions().get(id);
+        if (function.isEmpty()) {
+            return false;
         }
-        return AdapterContext.commandOk(ctx.commandExecute("function " + functionId));
+        var source = s.getFunctions().getGameLoopSender();
+        if (asEntity != null) {
+            var entity = ctx.findEntityAcrossLevels(asEntity);
+            if (entity == null) {
+                return false;
+            }
+            source = source.withEntity(entity).withPosition(entity.position())
+                    .withLevel((net.minecraft.server.level.ServerLevel) entity.level());
+        }
+        s.getFunctions().execute(function.get(), source);
+        return true;
     }
 
     List<String> functionList(String namespaceFilter) {

@@ -349,6 +349,8 @@ final class DataOps {
         // /datapack disable is a void setter; reports 0 on the happy path. Left on the command
         // path because vanilla's disable carries guards we want to honour (e.g. it refuses to
         // disable a pack force-required by an enabled feature flag).
-        return AdapterContext.commandOk(ctx.commandExecute("datapack disable " + id));
+        // Pack ids such as "file/name" contain "/", so pass the id as a quoted string argument.
+        String quoted = "\"" + id.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        return AdapterContext.commandOk(ctx.commandExecute("datapack disable " + quoted));
     }
 }
