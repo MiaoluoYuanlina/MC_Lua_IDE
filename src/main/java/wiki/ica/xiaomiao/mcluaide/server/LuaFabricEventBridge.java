@@ -225,8 +225,9 @@ public final class LuaFabricEventBridge {
 	}
 
 	/** Mouse presses are independent of vanilla interactions: no air gaps or off-hand duplicates. */
-	public static void playerClick(ServerPlayer player, boolean left) {
+	public static void playerClick(ServerPlayer player, boolean left, boolean pressed) {
 		Map<String, Object> data = playerData(player);
+		data.put("pressed", pressed);
 		data.put("hand", "main_hand");
 		putItem(data, "item", player.getMainHandItem(), (ServerLevel) player.level());
 		emit(left ? "playerLeftClick" : "playerRightClick", data);

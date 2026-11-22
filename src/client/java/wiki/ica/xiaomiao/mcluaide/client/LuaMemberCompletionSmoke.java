@@ -27,7 +27,28 @@ public final class LuaMemberCompletionSmoke {
 		check(complete("print(unknown.", "unknown.").isEmpty(), "unknown variable");
 		check(!complete("MC.Event.onItemUsed(function(event)\n  if true then\n    print(event.", "event.").isEmpty(), "inside nested blocks");
 		check(complete("MC.Event.onItemUsed(function(event)\n  for i = 1, 3 do end\n  print(event.", "event.").size() > 3, "after a closed loop");
+		for (String field : List.of("x", "y", "z", "playerUuid", "itemComponents")) {
+			var choice = choice("MC.Event.onItemUsed(function(event)\n event.", "event.", "event." + field);
+			check(!LuaArgumentCompletion.shouldInsertCall(null, choice, false), "event field must not insert parentheses: " + field);
+			check(!LuaArgumentCompletion.shouldInsertCall(choice, choice, true), "field metadata wins inside arguments: " + field);
+		}
+		var pressed = choice("MC.Event.onPlayerLeftClick(function(event)\n print(event.", "event.", "event.pressed");
+		check(!LuaArgumentCompletion.shouldInsertCall(pressed, pressed, false), "boolean event field inside print");
+		var x = choice("local p = MC.Player.position(uuid)\np.", "p.", "p.x");
+		check(!LuaArgumentCompletion.shouldInsertCall(null, x, false), "position is a value");
+		var table = choice("local cfg = {value = 1}\ncfg.", "cfg.", "cfg.value");
+		check(!LuaArgumentCompletion.shouldInsertCall(null, table, false), "table field is a value");
+		var method = choice("local s = 'abc'\ns:", "s:", "s:upper");
+		check(LuaArgumentCompletion.shouldInsertCall(null, method, false), "string method still inserts call");
+		check(LuaArgumentCompletion.shouldInsertCall(null, null, true), "API/local function still inserts call");
+		var reference = new LuaArgumentCompletion.Choice("util.greet", "callback", "", 0, false);
+		check(!LuaArgumentCompletion.shouldInsertCall(reference, method, true), "callback reference is not called");
 		System.out.println("Member completion smoke passed: " + checks + " checks");
+	}
+
+	private static LuaArgumentCompletion.Choice choice(String source, String prefix, String insertion) {
+		return LuaMemberCompletion.choices(source, source.length(), prefix).stream()
+				.filter(value -> value.insertion().equals(insertion)).findFirst().orElseThrow();
 	}
 
 	private static List<String> complete(String source, String prefix) {

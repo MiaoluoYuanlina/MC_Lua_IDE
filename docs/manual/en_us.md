@@ -206,18 +206,19 @@ Third-party mods can provide their own API namespace, parameter metadata, transl
 
 ## Player mouse click events
 
-`MC.Event.onPlayerLeftClick(callback)` and `MC.Event.onPlayerRightClick(callback)` fire once per physical left/right press in gameplay, whether aiming at air (including an empty hand), blocks or entities. Holds do not repeat; GUI clicks are excluded. The clicking player needs the updated MC Lua IDE client mod. Client-reported events run on the server and do not imply a successful attack or item use.
+`MC.Event.onPlayerLeftClick(callback)` and `MC.Event.onPlayerRightClick(callback)` fire on physical left/right presses and releases in gameplay (`event.pressed = true` / `false`), whether aiming at air (including an empty hand), blocks or entities. Holds do not repeat; Clicks starting in a GUI are excluded; a press in gameplay still receives its release after a GUI opens. The clicking player needs the updated MC Lua IDE client mod. Client-reported events run on the server and do not imply a successful attack or item use.
 
-`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+`event`: `type, playerUuid, playerName, pressed, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
 
 ```lua
 -- Clicking players need MC Lua IDE on their clients.
--- Fires once per press on air, blocks or entities; holding does not repeat.
+-- Fires on press (true) and release (false) on air, blocks or entities.
+-- Holding does not repeat.
 MC.Event.onPlayerLeftClick(function(event)
-    print(event.playerName, "left click", event.itemId)
+    print(event.playerName, "left click", event.pressed, event.itemId)
 end)
 
 MC.Event.onPlayerRightClick(function(event)
-    print(event.playerName, "right click", event.itemId)
+    print(event.playerName, "right click", event.pressed, event.itemId)
 end)
 ```

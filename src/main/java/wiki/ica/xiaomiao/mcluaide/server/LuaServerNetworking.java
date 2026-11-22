@@ -75,7 +75,13 @@ public final class LuaServerNetworking {
 				context.server().execute(() -> {
 					ServerPlayer player = context.player();
 					if (context.server().getPlayerList().getPlayer(player.getUUID()) == player)
-						LuaFabricEventBridge.playerClick(player, payload.left());
+						LuaFabricEventBridge.playerClick(player, payload.left(), true);
+				}));
+		ServerPlayNetworking.registerGlobalReceiver(LuaProtocol.MouseButtonAction.TYPE, (payload, context) ->
+				context.server().execute(() -> {
+					ServerPlayer player = context.player();
+					if (context.server().getPlayerList().getPlayer(player.getUUID()) == player)
+						LuaFabricEventBridge.playerClick(player, payload.left(), payload.pressed());
 				}));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			LuaMouseState.disconnected(handler.getPlayer().getUUID());

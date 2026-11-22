@@ -205,18 +205,19 @@ AI 解析と MCP は既定で無効です。AI 解析を有効にすると関連
 
 ## プレイヤーのマウスクリックイベント
 
-`MC.Event.onPlayerLeftClick(callback)` と `MC.Event.onPlayerRightClick(callback)` は、ゲーム内で左右のマウスボタンを押すたびに1回通知します。空中（素手も含む）、ブロック、エンティティで発生します。長押しで繰り返さず、GUI内のクリックは除外します。対象プレイヤーにも対応版クライアントモッドが必要です。クライアントの報告に基づきサーバーで実行し、攻撃やアイテム使用の成功は意味しません。
+`MC.Event.onPlayerLeftClick(callback)` と `MC.Event.onPlayerRightClick(callback)` は、ゲーム内で左右のマウスボタンの押下と解放を通知します。event.pressed は押下で true、解放で false です。空中（素手も含む）、ブロック、エンティティで発生します。長押しで繰り返さず、GUI内で始まるクリックは除外しますが、ゲーム内で押してからGUIを開いても解放は通知します。対象プレイヤーにも対応版クライアントモッドが必要です。クライアントの報告に基づきサーバーで実行し、攻撃やアイテム使用の成功は意味しません。
 
-`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+`event`: `type, playerUuid, playerName, pressed, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
 
 ```lua
 -- Clicking players need MC Lua IDE on their clients.
--- Fires once per press on air, blocks or entities; holding does not repeat.
+-- Fires on press (true) and release (false) on air, blocks or entities.
+-- Holding does not repeat.
 MC.Event.onPlayerLeftClick(function(event)
-    print(event.playerName, "left click", event.itemId)
+    print(event.playerName, "left click", event.pressed, event.itemId)
 end)
 
 MC.Event.onPlayerRightClick(function(event)
-    print(event.playerName, "right click", event.itemId)
+    print(event.playerName, "right click", event.pressed, event.itemId)
 end)
 ```

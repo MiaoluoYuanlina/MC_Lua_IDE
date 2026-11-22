@@ -2170,18 +2170,19 @@ OUTPUT 会在开始运行时自动展开，脚本结束或停止后保留日志�
 
 ## 玩家鼠标点击事件
 
-`MC.Event.onPlayerLeftClick(callback)` 和 `MC.Event.onPlayerRightClick(callback)` 分别监听玩家按下鼠标左键、右键。点击空气（包括空手）、方块或实体都会触发，每次按下一次；按住不重复，背包、聊天框、IDE 等界面内点击不触发。被监听玩家的客户端必须安装支持该功能的 MC Lua IDE。事件由客户端上报，在服务端执行；不表示攻击命中或物品使用成功。
+`MC.Event.onPlayerLeftClick(callback)` 和 `MC.Event.onPlayerRightClick(callback)` 分别监听玩家按下和松开鼠标左键、右键。点击空气（包括空手）、方块或实体都会触发，按下时 `event.pressed = true`，松开时 `event.pressed = false`；按住不重复，背包、聊天框、IDE 等界面内开始的点击不触发。在游戏内按下后，即使打开界面再松开，也会发送对应的松开事件。被监听玩家的客户端必须安装支持该功能的 MC Lua IDE。事件由客户端上报，在服务端执行；不表示攻击命中或物品使用成功。
 
-`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+`event`: `type, playerUuid, playerName, pressed, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
 
 ```lua
 -- Clicking players need MC Lua IDE on their clients.
--- Fires once per press on air, blocks or entities; holding does not repeat.
+-- Fires on press (true) and release (false) on air, blocks or entities.
+-- Holding does not repeat.
 MC.Event.onPlayerLeftClick(function(event)
-    print(event.playerName, "left click", event.itemId)
+    print(event.playerName, "left click", event.pressed, event.itemId)
 end)
 
 MC.Event.onPlayerRightClick(function(event)
-    print(event.playerName, "right click", event.itemId)
+    print(event.playerName, "right click", event.pressed, event.itemId)
 end)
 ```

@@ -4440,10 +4440,10 @@ public final class LuaIdeScreen extends Screen implements ExtensionWindowHost {
 		MultilineTextField field = textField();
 		String source = field.value();
 		var argumentChoice = argumentSuggestionChoices.get(completion);
-		boolean apiFunction = !isFunctionDocument() && (argumentChoice == null || argumentChoice.functionCall())
-				&& (LuaApiDocumentation.find(completion) != null
-						|| functionModel() != null && functionModel().find(completion, field.cursor()) != null
-						|| moduleSuggestionChoices.containsKey(completion));
+		boolean apiFunction = !isFunctionDocument() && LuaArgumentCompletion.shouldInsertCall(
+				argumentChoice, moduleSuggestionChoices.get(completion),
+				LuaApiDocumentation.find(completion) != null
+						|| functionModel() != null && functionModel().find(completion, field.cursor()) != null);
 		boolean alreadyCalled = completionEnd < source.length() && source.charAt(completionEnd) == '(';
 		String replacement = apiFunction && !alreadyCalled ? completion + "()" : completion;
 		field.setSelecting(false);

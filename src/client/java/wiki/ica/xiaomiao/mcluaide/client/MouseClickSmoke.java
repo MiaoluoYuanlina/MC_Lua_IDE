@@ -14,26 +14,43 @@ public final class MouseClickSmoke {
     public static void main(String[] args) throws Exception {
         for (int button = 0; button <= 7; button++) {
             for (int action = 0; action <= 2; action++) {
-                require(MouseClickReporter.shouldReport(true, false, true, true, button, action)
-                        == (button <= 1 && action == 1), "press/release/repeat/button");
+                var tracker = new MouseClickReporter.ButtonTracker();
+                require(tracker.accept(true, button, action) == (button <= 1 && action == 1), "new presses only; no orphan releases");
             }
         }
         for (int button = 0; button <= 1; button++) {
-            require(!MouseClickReporter.shouldReport(false, false, true, true, button, 1), "no world");
-            require(!MouseClickReporter.shouldReport(true, true, true, true, button, 1), "GUI clicks");
-            require(!MouseClickReporter.shouldReport(true, false, false, true, button, 1), "ungrabbed mouse");
-            require(!MouseClickReporter.shouldReport(true, false, true, false, button, 1), "inactive window");
+            var tracker = new MouseClickReporter.ButtonTracker();
+            require(!tracker.accept(false, button, 1) && !tracker.accept(false, button, 0), "GUI-only click ignored");
             for (int i = 0; i < 20; i++) {
-                require(MouseClickReporter.shouldReport(true, false, true, true, button, 1), "rapid clicks preserved");
-                require(!MouseClickReporter.shouldReport(true, false, true, true, button, 0), "release excluded");
+                require(tracker.accept(true, button, 1), "rapid presses preserved");
+                require(!tracker.accept(true, button, 1), "duplicate press ignored");
+                require(!tracker.accept(true, button, 2), "repeat ignored");
+                require(tracker.accept(true, button, 0), "release delivered");
+                require(!tracker.accept(true, button, 0), "duplicate release ignored");
+            }
+            require(tracker.accept(true, button, 1) && tracker.accept(false, button, 0), "release after opening GUI or losing focus");
+            require(tracker.accept(true, button, 1), "press before disconnect");
+            tracker.clear();
+            require(!tracker.accept(true, button, 0), "no stale release after reconnect");
+            require(tracker.accept(true, button, 1) && tracker.accept(true, button, 0), "new connection starts fresh");
+            for (boolean pressed : new boolean[]{true, false}) {
+                var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+                try {
+                    var packet = new LuaProtocol.MouseButtonAction(button == 0, pressed);
+                    LuaProtocol.MouseButtonAction.CODEC.encode(buffer, packet);
+                    require(LuaProtocol.MouseButtonAction.CODEC.decode(buffer).equals(packet) && !buffer.isReadable(), "press/release wire round trip");
+                } finally { buffer.release(); }
             }
             var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
             try {
                 var packet = new LuaProtocol.MouseClick(button == 0);
                 LuaProtocol.MouseClick.CODEC.encode(buffer, packet);
-                require(LuaProtocol.MouseClick.CODEC.decode(buffer).equals(packet) && !buffer.isReadable(), "wire round trip");
+                require(LuaProtocol.MouseClick.CODEC.decode(buffer).equals(packet) && !buffer.isReadable(), "legacy 1.0.19 wire compatibility");
             } finally { buffer.release(); }
         }
+        var both = new MouseClickReporter.ButtonTracker();
+        require(both.accept(true, 0, 1) && both.accept(true, 1, 1), "independent buttons pressed");
+        require(both.accept(true, 0, 0) && both.accept(false, 1, 0), "independent buttons released");
         require(MouseHandler.class.getDeclaredMethod("onButton", long.class, MouseButtonInfo.class, int.class) != null, "mixin target");
         var apiClass = Class.forName("wiki.ica.xiaomiao.mcluaide.server.MinecraftLuaApi");
         var factory = java.util.Arrays.stream(apiClass.getDeclaredMethods()).filter(m -> m.getName().equals("eventApi")).findFirst().orElseThrow();
@@ -62,7 +79,19 @@ public final class MouseClickSmoke {
             require(api.get("off").call(LuaValue.valueOf(genericId)).checkboolean(), "generic registration and removal");
             String source = "MC.Event.onPlayer" + side + "Click(function(event)\n print(event.";
             var choices = LuaMemberCompletion.choices(source, source.length(), "event.").stream().map(LuaArgumentCompletion.Choice::insertion).toList();
-            require(choices.containsAll(java.util.List.of("event.playerUuid", "event.itemComponents", "event.dimension")), "event field completion");
+            require(choices.containsAll(java.util.List.of("event.playerUuid", "event.itemComponents", "event.dimension", "event.pressed")), "event field completion");
+        }
+        var gameEvent = Class.forName("wiki.ica.xiaomiao.mcluaide.server.ServerScriptManager$GameEvent");
+        var eventConstructor = gameEvent.getDeclaredConstructors()[0];
+        eventConstructor.setAccessible(true);
+        var toLua = gameEvent.getDeclaredMethod("toLuaTable");
+        toLua.setAccessible(true);
+        for (String eventType : new String[]{"playerLeftClick", "playerRightClick"}) {
+            for (boolean pressed : new boolean[]{true, false}) {
+                LuaValue event = (LuaValue) toLua.invoke(eventConstructor.newInstance(eventType, java.util.Map.of("pressed", pressed)));
+                require(event.get("pressed").isboolean() && event.get("pressed").checkboolean() == pressed, "Lua boolean preserves false on release");
+                require(event.get("type").tojstring().equals(eventType), "left/right callback event type");
+            }
         }
         System.out.println("Mouse click smoke passed: " + checks + " checks");
     }

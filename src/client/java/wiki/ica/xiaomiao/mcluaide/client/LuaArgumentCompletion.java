@@ -103,6 +103,13 @@ final class LuaArgumentCompletion {
 		return parameter.end() < source.length() && source.charAt(parameter.end()) == quote ? value : value + quote;
 	}
 
+	/** Explicit field/reference metadata takes precedence over function-name inference. */
+	static boolean shouldInsertCall(Choice argument, Choice member, boolean knownFunction) {
+		if (argument != null) return argument.functionCall();
+		if (member != null) return member.functionCall();
+		return knownFunction;
+	}
+
 	record Choice(String insertion, String label, String tooltip, int rank, boolean functionCall) {
 		Choice(String insertion, String label, String tooltip, int rank) { this(insertion, label, tooltip, rank, false); }
 	}

@@ -47,6 +47,7 @@ public final class LuaProtocol {
 				ClientResourcePackResponse.TYPE, ClientResourcePackResponse.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(MouseState.TYPE, MouseState.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(MouseClick.TYPE, MouseClick.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(MouseButtonAction.TYPE, MouseButtonAction.CODEC);
 	}
 
 	public static int requestTextLimit(int actionId) {
@@ -202,6 +203,15 @@ public final class LuaProtocol {
 			if (id < 0 || id >= values().length) throw new IllegalArgumentException("未知材质包操作：" + id);
 			return values()[id];
 		}
+	}
+
+	/** Press/release protocol; the original press-only packet stays compatible with 1.0.19. */
+	public record MouseButtonAction(boolean left, boolean pressed) implements CustomPacketPayload {
+		public static final Type<MouseButtonAction> TYPE = new Type<>(McLuaIdeMod.id("mouse_button_action"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, MouseButtonAction> CODEC = StreamCodec.of(
+				(buffer, value) -> { buffer.writeBoolean(value.left()); buffer.writeBoolean(value.pressed()); },
+				buffer -> new MouseButtonAction(buffer.readBoolean(), buffer.readBoolean()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
 	/** One physical mouse-button press in gameplay, including clicks on empty air. */

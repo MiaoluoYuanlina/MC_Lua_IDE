@@ -150,6 +150,16 @@ final class LuaEditorInteractionProbe {
 		insert.setAccessible(true); insert.invoke(ide, "{\nvalue = 1\n}");
 		require(text.value().equals("function f()\n    {\n        value = 1\n    }"), "Component insertion doubled existing indentation: " + text.value());
 
+		prepareCompletion("MC.Event.onItemUsed(function(event)\n    local x = event.|\nend)");
+		chooseCompletion("event.x"); ide.keyPressed(new KeyEvent(InputConstants.KEY_TAB, 0, 0));
+		require(text.value().contains("local x = event.x\n"), "Event field Tab added parentheses: " + text.value());
+		prepareCompletion("MC.Event.onPlayerLeftClick(function(event)\n    print(event.pr|)\nend)");
+		chooseCompletion("event.pressed"); ide.keyPressed(new KeyEvent(InputConstants.KEY_TAB, 0, 0));
+		require(text.value().contains("print(event.pressed)"), "Event field inside call added parentheses: " + text.value());
+		prepareCompletion("local p = MC.Player.position(uuid)\nlocal x = p.|");
+		chooseCompletion("p.x"); ide.keyPressed(new KeyEvent(InputConstants.KEY_TAB, 0, 0));
+		require(text.value().endsWith("local x = p.x"), "Position field Tab added parentheses: " + text.value());
+
 		// Use a loaded, unsaved tab as the module source; no user file is read or changed.
 		Class<?> documentType = Class.forName(LuaIdeScreen.class.getName() + "$OpenDocument");
 		var constructor = documentType.getDeclaredConstructor(String.class, boolean.class, boolean.class);

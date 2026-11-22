@@ -4,6 +4,17 @@ All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [1.0.20] - 2026-11-22
+
+### Fixed
+- Tab completion preserves event/table/result fields as values (for example `event.x`), while functions and methods still insert calls. Callback references remain uncalled.
+
+### Changed
+- Player left/right mouse events now report both press and release via `event.pressed` (`true` / `false`). GUI-started clicks are ignored; gameplay presses retain their release after a GUI opens. The press-only 1.0.19 protocol remains compatible.
+
+### Tested
+- Full build and smoke checks, including 261 mouse transition checks and 33 member completion checks. No in-game validation of these changes.
+
 ## [1.0.19] - 2026-11-22
 
 ### Added
