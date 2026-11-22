@@ -13,6 +13,7 @@
     "DebuggerInputMixin",
     "DebuggerPlayerMovementMixin",
     "DebuggerMouseMixin",
+    "PlayerMouseClickMixin",
     "DebuggerWorldActionsMixin",
     "DebuggerCameraHandMixin",
     "MultiLineEditBoxAccessor",

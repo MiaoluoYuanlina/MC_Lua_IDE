@@ -177,6 +177,8 @@ final class MinecraftLuaApi {
 		methods.put("onProjectileHitBlock", "projectileHitBlock");
 		methods.put("onProjectileHitEntity", "projectileHitEntity");
 		methods.put("onEquipmentChanged", "equipmentChanged");
+		methods.put("onPlayerLeftClick", "playerLeftClick");
+		methods.put("onPlayerRightClick", "playerRightClick");
 		methods.put("onPlayerJoined", "playerJoined");
 		methods.put("onPlayerLeft", "playerLeft");
 		methods.put("onPlayerDied", "playerDied");

@@ -1654,7 +1654,7 @@ MC.UI.open(players[1].uuid, "server_menu")
 
 ### 强制客户端 API：`MC.Client`
 
-API 文档中所有 `MC.Client.*` 条目都会集中显示在独立的“客户端 Mod 专用 API”大类，并显示醒目的“仅强制客户端模式”标记。这些控制函数必须同时满足以下条件，否则服务端会返回中文错误：
+API 文档中所有 `MC.Client.*` 条目都会集中显示在独立的“客户端 Mod 专用 API”大类。这些控制函数必须同时满足以下条件，否则服务端会返回中文错误：
 
 1. 在“Mod Menu → MC Lua IDE → 配置 → 服务器接入”开启“要求玩家安装客户端模组”。
 2. 开启后重新启动 Lua 脚本，使脚本获得新的限制快照。
@@ -2167,3 +2167,21 @@ OUTPUT 会在开始运行时自动展开，脚本结束或停止后保留日志�
 ### 如何编辑脚本文件？
 
 既可以使用管理员客户端的游戏内编辑器，也可以由服务器管理者直接修改服务端 `config/mc_lua_ide/scripts` 中的 `.lua` 文件，然后在 IDE 中重新读取。
+
+## 玩家鼠标点击事件
+
+`MC.Event.onPlayerLeftClick(callback)` 和 `MC.Event.onPlayerRightClick(callback)` 分别监听玩家按下鼠标左键、右键。点击空气（包括空手）、方块或实体都会触发，每次按下一次；按住不重复，背包、聊天框、IDE 等界面内点击不触发。被监听玩家的客户端必须安装支持该功能的 MC Lua IDE。事件由客户端上报，在服务端执行；不表示攻击命中或物品使用成功。
+
+`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+
+```lua
+-- Clicking players need MC Lua IDE on their clients.
+-- Fires once per press on air, blocks or entities; holding does not repeat.
+MC.Event.onPlayerLeftClick(function(event)
+    print(event.playerName, "left click", event.itemId)
+end)
+
+MC.Event.onPlayerRightClick(function(event)
+    print(event.playerName, "right click", event.itemId)
+end)
+```

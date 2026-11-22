@@ -202,3 +202,21 @@ PNG には鉛筆・ブラシ・消しゴム・塗りつぶし・レイヤー・�
 画像やモデルを追加しても、新しい登録済みアイテムの種類を作るわけではありません。既存アイテムに item_model を設定できます。管理者が編集したローカルのリソースパックは自動で全プレイヤーに配布されないため、別途公開またはサーバーリソースパックの設定が必要です。
 
 AI 解析と MCP は既定で無効です。AI 解析を有効にすると関連コードを外部サービスに送信し、料金が発生する場合があります。MCP はトークンと権限を確認してください。API 文書は「ツール → API リファレンスを書き出す」から Markdown に保存できます。
+
+## プレイヤーのマウスクリックイベント
+
+`MC.Event.onPlayerLeftClick(callback)` と `MC.Event.onPlayerRightClick(callback)` は、ゲーム内で左右のマウスボタンを押すたびに1回通知します。空中（素手も含む）、ブロック、エンティティで発生します。長押しで繰り返さず、GUI内のクリックは除外します。対象プレイヤーにも対応版クライアントモッドが必要です。クライアントの報告に基づきサーバーで実行し、攻撃やアイテム使用の成功は意味しません。
+
+`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+
+```lua
+-- Clicking players need MC Lua IDE on their clients.
+-- Fires once per press on air, blocks or entities; holding does not repeat.
+MC.Event.onPlayerLeftClick(function(event)
+    print(event.playerName, "left click", event.itemId)
+end)
+
+MC.Event.onPlayerRightClick(function(event)
+    print(event.playerName, "right click", event.itemId)
+end)
+```

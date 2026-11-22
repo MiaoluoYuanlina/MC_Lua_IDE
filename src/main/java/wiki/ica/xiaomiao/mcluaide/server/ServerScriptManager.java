@@ -53,7 +53,7 @@ public final class ServerScriptManager {
 			"chunkLoaded", "chunkGenerated", "chunkUnloaded", "levelLoaded", "levelUnloaded",
 			"serverTick", "levelTick", "chat", "command", "uiAction", "interval",
 			"containerClicked", "containerItemTaken", "containerItemPlaced", "containerItemToCursor", "inventoryItemToCursor",
-			"scriptStarted", "scriptStopped");
+			"scriptStarted", "scriptStopped", "playerLeftClick", "playerRightClick");
 	private static final Set<String> EVENT_NAME_SET = Set.copyOf(EVENT_NAMES);
 	private static ScriptExecution activeExecution;
 	private static final Map<UUID, LuaBreakpoints> ADMIN_BREAKPOINTS = new LinkedHashMap<>();

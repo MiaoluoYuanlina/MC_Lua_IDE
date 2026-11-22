@@ -4,13 +4,22 @@ All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [1.0.19] - 2026-11-22
+
 ### Added
+- `MC.Event.onPlayerLeftClick` / `onPlayerRightClick`: one event per physical mouse press in gameplay, including air, blocks and entities. Holds and GUI clicks do not repeat/trigger events. The clicking player needs the updated client mod. Event fields include player position and main-hand item components.
 - MCP world tools: both MCP servers now offer the tools of [minecraft-java-fabric-mcp-server](https://github.com/chapmanjw/minecraft-java-fabric-mcp-server) (MIT), with the same names and arguments: 189 on Minecraft 26.1.2 (server, level, blocks, entities, players, inventories, commands, scoreboard, data storage, structures, datapacks, loot, recipes, tags, advancements, boss bars, world border, events and more). The client MCP also offers its client inspection tools (`view_capture`, `client_status`, `sense_*`). They use this mod's token and owner checks: read tools need no switch, tools that change the game need the execute switch, and tools that write or delete structure files need the write-file switch. No existing MC Lua IDE tool did exactly the same thing, so none was removed.
 - MCP tool `lua_runtime_logs`: the recent output of every Lua script on the server (started from the IDE, a command or MCP), up to 1000 lines, read incrementally with `since`.
+
+### Changed
+- API documentation no longer repeats the forced-client-mode label in client API summaries; the category and detailed requirements remain.
 
 ### Fixed
 - MCP world tools: `function_run`, and `function …` / `execute … run function …` sent through `command_execute`, failed with "This function should not run"; they now run like tick/load functions. `datapack_disable` failed for pack ids containing `/` (such as `file/<name>`). `server_reload_resources` now picks up datapacks added since the world loaded, like `/reload`. `scoreboard_set_display_slot` with an empty objective now clears the slot.
 - With the default server limits (package / require off), every Lua script failed before its first line with `attempt to index ? (a nil value)`. The Lua standard libraries now always load; `package` and `require` stay hidden from scripts unless the limit allows them.
+
+### Tested
+- Full build and smoke checks, including mouse press filtering, rapid presses, packet round trips, Lua event registration/removal and editor completion. No in-game validation of the new mouse events.
 
 ## [1.0.18] - 2026-11-01
 

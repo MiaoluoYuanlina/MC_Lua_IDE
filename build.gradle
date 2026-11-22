@@ -910,3 +910,13 @@ tasks.register("entityComponentSupportSmoke", JavaExec) {
 	mainClass = "wiki.ica.xiaomiao.mcluaide.server.EntityComponentSupportSmoke"
 }
 check.dependsOn entityComponentSupportSmoke
+
+
+tasks.register("mouseClickSmoke", JavaExec) {
+    dependsOn clientClasses
+    group = "verification"
+    description = "Checks mouse press filtering, rapid clicks, mixin target, packets and Lua event discovery."
+    classpath = sourceSets.client.runtimeClasspath
+    mainClass = "wiki.ica.xiaomiao.mcluaide.client.MouseClickSmoke"
+}
+check.dependsOn mouseClickSmoke

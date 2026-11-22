@@ -13,6 +13,8 @@ final class LuaApiEnglish {
 		Map.entry("MC.Player.input", "Check which keys a player is holding, as last reported by the client. key is one of forward, backward, left, right, jump, sneak, sprint; omit it to get a table of all of them."),
 		Map.entry("MC.Player.leftClick", "Check whether a player is holding the left mouse button. Reported by the player's own client, so it works when aiming at empty air, but the player must have the mod installed."),
 		Map.entry("MC.Player.rightClick", "Check whether a player is holding the right mouse button. Reported by the player's own client, so it works when aiming at empty air, but the player must have the mod installed."),
+		Map.entry("MC.Event.onPlayerLeftClick", "Listen for a left mouse press. Works on air, blocks and entities; once per press, never repeats while held or in a GUI. Requires the mod on that player's client. hand and item* describe the main hand."),
+		Map.entry("MC.Event.onPlayerRightClick", "Listen for a right mouse press. Works on air, blocks and entities; once per press, never repeats while held or in a GUI. Requires the mod on that player's client. hand and item* describe the main hand."),
 		Map.entry("MC.sleep", "Pause the current flow for the given milliseconds (0–3600000). The server and other callbacks keep running."),
 		Map.entry("MC.Item.held", "Read a player's main-hand item and its components."),
 		Map.entry("MC.Item.count", "Count matching inventory items. Only supplied components are checked; custom_data matches as an NBT subset."),

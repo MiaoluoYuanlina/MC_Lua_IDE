@@ -203,3 +203,21 @@ Resource-pack quick import can add an OGG sound or PNG item texture and its asso
 API Reference contains the built-in namespaces and APIs supplied by installed server mods. Search by API name or description. Chinese additionally offers Pinyin initials; Japanese offers romaji and hiragana/katakana matching, including halfwidth kana and common long-vowel/spelling variants. For example, `komando` finds `コマンド`, and the bundled domain dictionary lets `hensuu` find `変数`. Unknown kanji names require their literal spelling/ID; the index does not invent readings or apply Chinese Pinyin. The Japanese Romaji and Chinese Pinyin preferences are saved separately. The sidebar remains foldable during search; navigation and filter settings are retained.
 
 Third-party mods can provide their own API namespace, parameter metadata, translations, documentation pages and IDE windows. Their own descriptions and examples are owned by that mod. English translations supplied by the mod are selected automatically; missing translations follow its fallback rules. Use Tools → Export API Reference to save a Markdown snapshot of the available API.
+
+## Player mouse click events
+
+`MC.Event.onPlayerLeftClick(callback)` and `MC.Event.onPlayerRightClick(callback)` fire once per physical left/right press in gameplay, whether aiming at air (including an empty hand), blocks or entities. Holds do not repeat; GUI clicks are excluded. The clicking player needs the updated MC Lua IDE client mod. Client-reported events run on the server and do not imply a successful attack or item use.
+
+`event`: `type, playerUuid, playerName, x, y, z, dimension, hand, itemId, itemCount, itemComponents`. `hand = "main_hand"`.
+
+```lua
+-- Clicking players need MC Lua IDE on their clients.
+-- Fires once per press on air, blocks or entities; holding does not repeat.
+MC.Event.onPlayerLeftClick(function(event)
+    print(event.playerName, "left click", event.itemId)
+end)
+
+MC.Event.onPlayerRightClick(function(event)
+    print(event.playerName, "right click", event.itemId)
+end)
+```

@@ -71,6 +71,12 @@ public final class LuaServerNetworking {
 				(payload, context) -> MinecraftLuaClientApi.receiveResourcePackResponse(context.player(), payload));
 		ServerPlayNetworking.registerGlobalReceiver(LuaProtocol.MouseState.TYPE, (payload, context) ->
 				LuaMouseState.report(context.player().getUUID(), payload.left(), payload.right()));
+		ServerPlayNetworking.registerGlobalReceiver(LuaProtocol.MouseClick.TYPE, (payload, context) ->
+				context.server().execute(() -> {
+					ServerPlayer player = context.player();
+					if (context.server().getPlayerList().getPlayer(player.getUUID()) == player)
+						LuaFabricEventBridge.playerClick(player, payload.left());
+				}));
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			LuaMouseState.disconnected(handler.getPlayer().getUUID());
 			ServerScriptManager.stopOwnedBy(handler.getPlayer().getUUID());

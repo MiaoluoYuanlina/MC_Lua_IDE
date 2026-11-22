@@ -46,6 +46,7 @@ public final class LuaProtocol {
 		PayloadTypeRegistry.serverboundPlay().register(
 				ClientResourcePackResponse.TYPE, ClientResourcePackResponse.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(MouseState.TYPE, MouseState.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(MouseClick.TYPE, MouseClick.CODEC);
 	}
 
 	public static int requestTextLimit(int actionId) {
@@ -201,6 +202,15 @@ public final class LuaProtocol {
 			if (id < 0 || id >= values().length) throw new IllegalArgumentException("未知材质包操作：" + id);
 			return values()[id];
 		}
+	}
+
+	/** One physical mouse-button press in gameplay, including clicks on empty air. */
+	public record MouseClick(boolean left) implements CustomPacketPayload {
+		public static final Type<MouseClick> TYPE = new Type<>(McLuaIdeMod.id("mouse_click"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, MouseClick> CODEC = StreamCodec.of(
+				(buffer, value) -> buffer.writeBoolean(value.left()),
+				buffer -> new MouseClick(buffer.readBoolean()));
+		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
 	/** Sent by a client whenever its left or right mouse button changes, so scripts can read them with MC.Player.leftClick/rightClick. */
