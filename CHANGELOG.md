@@ -4,6 +4,11 @@ All notable changes to MC Lua IDE are listed here. Versions follow [Semantic Ver
 
 ## [Unreleased]
 
+## [1.0.21] - 2026-11-23
+
+### Fixed
+- `MC.Entity.velocity(uuid, x, y, z)` now synchronizes player velocity to the affected player's client using Minecraft's built-in velocity update.
+
 ## [1.0.20] - 2026-11-22
 
 ### Fixed

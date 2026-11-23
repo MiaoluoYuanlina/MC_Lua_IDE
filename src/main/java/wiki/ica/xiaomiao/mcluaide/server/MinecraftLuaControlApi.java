@@ -334,7 +334,13 @@ final class MinecraftLuaControlApi {
 			double x = finite(args.checkdouble(2), "速度 X");
 			double y = finite(args.checkdouble(3), "速度 Y");
 			double z = finite(args.checkdouble(4), "速度 Z");
-			onServer(server, current -> { requireEntity(current, uuid).setDeltaMovement(x, y, z); return true; });
+			onServer(server, current -> {
+				Entity entity = requireEntity(current, uuid);
+				entity.setDeltaMovement(x, y, z);
+				// Use vanilla's knockback sync path to send player velocity to its own client.
+				if (entity instanceof ServerPlayer) entity.hurtMarked = true;
+				return true;
+			});
 			return LuaValue.TRUE;
 		});
 		bind(api, "kill", args -> {
